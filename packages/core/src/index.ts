@@ -18,3 +18,5 @@ export {
   caseId,
 } from './model.js';
 export type { CanonicalCase, Case, CaseInput, Observation } from './model.js';
+export { CaseIdError, MIN_PREFIX_LENGTH, SHORT_ID_LENGTH, resolveCaseId, shortCaseId } from './case-id.js';
+export type { CaseIdErrorCode } from './case-id.js';
