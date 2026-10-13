@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-workflows:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color
+
+  build-test:
+    name: build + test (${{ matrix.os }}, Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+      # Informational only: records whether unprivileged bubblewrap works on this runner image.
+      - name: Probe unprivileged bwrap
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          bwrap --version
+          bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true && echo "bwrap --unshare-net: works"
