@@ -25,8 +25,11 @@ function withoutProtoKeys<T extends z.ZodType>(schema: T) {
   }, schema);
 }
 
+/** Format of a blob reference; the capture group is the hex digest. */
+export const BLOB_REF_PATTERN = /^blob:sha256:([0-9a-f]{64})$/;
+
 /** Reference to a stored blob: `blob:sha256:<64 hex>`. */
-export const BlobRefSchema = z.string().regex(/^blob:sha256:[0-9a-f]{64}$/, 'must be blob:sha256:<64 lowercase hex>');
+export const BlobRefSchema = z.string().regex(BLOB_REF_PATTERN, 'must be blob:sha256:<64 lowercase hex>');
 
 /** Case ID: the full SHA-256 of the canonical invocation, `sha256:<64 hex>`. Never truncated. */
 export const CaseIdSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'must be sha256:<64 lowercase hex>');

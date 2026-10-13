@@ -1,8 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-
-const REF_PATTERN = /^blob:sha256:([0-9a-f]{64})$/;
+import { BLOB_REF_PATTERN } from './model.js';
 
 export type BlobErrorCode = 'invalid' | 'not-found' | 'corrupt';
 
@@ -27,7 +26,7 @@ export function cacheDir(projectDir: string): string {
 }
 
 function hexOf(ref: string): string {
-  const match = REF_PATTERN.exec(ref);
+  const match = BLOB_REF_PATTERN.exec(ref);
   if (!match) throw new BlobError('invalid', `"${ref}" is not a blob ref: expected blob:sha256:<64 lowercase hex>.`);
   return match[1]!;
 }
@@ -51,16 +50,18 @@ export class BlobStore {
 
   /** Stores the content and returns its ref. Content already stored intact is not written again. */
   async put(data: string | Uint8Array): Promise<string> {
-    const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+    // A copy, so a caller changing its array while the write is pending can't store other bytes.
+    const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : Buffer.from(data);
     const ref = blobRef(bytes);
     const file = this.path(ref);
     try {
-      if (Buffer.from(bytes).equals(await readFile(file))) return ref;
+      if (bytes.equals(await readFile(file))) return ref;
     } catch (e) {
       if (!isMissing(e)) throw e;
     }
     // Write next to the target, then rename: readers and concurrent writers of the same blob only
-    // ever see a complete file, and a crash leaves at most a stray temp file, never a short blob.
+    // ever see a complete file. There is no fsync, so a power loss can still leave a damaged blob;
+    // `get` reports it as corrupt and the next `put` of that content rewrites it.
     await mkdir(dirname(file), { recursive: true });
     const temp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
     try {
