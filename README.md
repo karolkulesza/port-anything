@@ -12,7 +12,7 @@ Port Anything records what a program actually does, generates thousands more tes
 
 ## Development
 
-Requires Node 22+ and pnpm (`corepack enable` picks the version pinned in `package.json`).
+Requires Node 22.15+ and pnpm (`corepack enable` picks the version pinned in `package.json`).
 
 ```sh
 pnpm install
