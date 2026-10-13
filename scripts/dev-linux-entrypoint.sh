@@ -13,6 +13,8 @@ getent group "$gid" >/dev/null || groupadd -g "$gid" dev
 getent passwd "$uid" >/dev/null || useradd -u "$uid" -g "$gid" -d "$home" -M -s /bin/bash dev \
   2>/dev/null # macOS uids (501) are below UID_MIN, which only warns
 mkdir -p "$home" /pnpm/store
+# The per-user runtime dir systemd creates on a real host (D-Bus and other sockets live there).
+mkdir -p "/run/user/$uid" && chown "$uid:$gid" "/run/user/$uid" && chmod 700 "/run/user/$uid"
 chown "$uid:$gid" "$home" /pnpm /pnpm/store /repo/node_modules /repo/packages/*/node_modules
 
 as_user() {

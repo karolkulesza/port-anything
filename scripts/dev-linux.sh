@@ -45,12 +45,14 @@ if [ -t 0 ] && [ -t 1 ]; then tty=-t; fi
 
 # seccomp=unconfined: Docker's default seccomp profile blocks the unprivileged user
 # namespaces that bubblewrap needs. apparmor=unconfined: same for AppArmor hosts
-# (Ubuntu 24.04+). The container starts as root only to prepare the volumes; the
-# command runs with the caller's uid/gid.
+# (Ubuntu 24.04+). systempaths=unconfined: lets bubblewrap mount a fresh /proc for its
+# PID namespace, as on a real host. The container starts as root only to prepare the
+# volumes; the command runs with the caller's uid/gid.
 # shellcheck disable=SC2086 # $mounts and $PA_DEV_DOCKER_ARGS are word lists
 exec docker run --rm -i $tty --init \
   --security-opt seccomp=unconfined \
   --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined \
   -v "$root:/repo" $mounts \
   -e PA_DEV_UID="$(id -u)" -e PA_DEV_GID="$(id -g)" \
   -e PA_DEV_NO_INSTALL="${PA_DEV_NO_INSTALL:-}" \
