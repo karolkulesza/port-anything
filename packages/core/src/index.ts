@@ -22,3 +22,17 @@ export { CaseIdError, MIN_PREFIX_LENGTH, SHORT_ID_LENGTH, resolveCaseId, shortCa
 export type { CaseIdErrorCode } from './case-id.js';
 export { BlobError, BlobStore, blobRef, cacheDir } from './blob-store.js';
 export type { BlobErrorCode } from './blob-store.js';
+export {
+  SandboxUnavailableError,
+  chooseSandbox,
+  localHost,
+  probeSandbox,
+  sandboxCommand,
+  type LocalSandbox,
+  type SandboxAttempt,
+  type SandboxChoice,
+  type SandboxCommand,
+  type SandboxHost,
+  type SandboxKind,
+  type SandboxProbe,
+} from './sandbox.js';
