@@ -16,6 +16,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:linux": "scripts/dev-linux.sh sh -c 'scripts/dev-linux-smoke.sh && pnpm -r build && pnpm -r test'",
     "lint:workflows": "docker run --rm -v \"$PWD:/repo\" -w /repo rhysd/actionlint:1.7.12 -color",
     "changeset": "changeset"
   },

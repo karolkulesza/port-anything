@@ -22,6 +22,16 @@ pnpm -r test
 pnpm lint:workflows   # actionlint via Docker
 ```
 
+The Linux-only parts (the bubblewrap sandbox, strace, comparing GNU coreutils with uutils, busybox and toybox, or jq with jaq and gojq) are developed in a Linux container, also from macOS. It needs Docker and builds `Dockerfile.dev` (Ubuntu 25.10) on first use:
+
+```sh
+scripts/dev-linux.sh pnpm -r test   # any command, run in the container with the repo at /repo
+scripts/dev-linux.sh                # a shell
+pnpm test:linux                     # container smoke test, then build and test
+```
+
+The container installs its own `node_modules` (in Docker volumes, so macOS builds of native packages stay on the host), runs commands with your uid, and disables Docker's seccomp and AppArmor confinement so bubblewrap can create its sandbox inside. In the container, `sort` is uutils and `gnusort` is GNU.
+
 | Package | What it is |
 |---|---|
 | [`packages/cli`](packages/cli) | `port-anything`, the CLI |
