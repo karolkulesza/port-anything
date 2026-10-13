@@ -21,7 +21,13 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.27.7))
 
+  packages/cli: {}
+
   packages/core: {}
+
+  packages/mcp: {}
+
+  packages/report: {}
 
 packages:
 
