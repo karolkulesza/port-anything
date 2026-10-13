@@ -1,12 +1,26 @@
 {
-  "name": "port-anything",
-  "version": "0.0.1",
-  "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports. Coming soon.",
-  "keywords": ["port", "rewrite", "parity", "differential-testing", "mcp", "claude-code", "codex", "agents"],
-  "bin": { "port-anything": "index.js" },
-  "files": ["index.js", "README.md"],
-  "homepage": "https://portanything.com",
-  "repository": { "type": "git", "url": "git+https://github.com/karolkulesza/port-anything.git" },
-  "author": "Karol Kulesza",
-  "license": "Apache-2.0"
+  "name": "port-anything-monorepo",
+  "private": true,
+  "type": "module",
+  "description": "Workspace root for Port Anything. The published CLI lives in packages/cli.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/karolkulesza/port-anything.git"
+  },
+  "packageManager": "pnpm@10.10.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3",
+    "vitest": "5.0.3"
+  }
 }
