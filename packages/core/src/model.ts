@@ -9,6 +9,22 @@ const text = z
   .refine((s) => !/\p{Surrogate}/u.test(s), 'must be well-formed Unicode')
   .refine((s) => !s.includes('\0'), 'must not contain a NUL byte');
 
+// zod skips a record key named `__proto__` without an error, so a case would silently lose that
+// fixture or variable and share its ID with a different invocation. Refuse the key before parsing.
+function withoutProtoKeys<T extends z.ZodType>(schema: T) {
+  return z.preprocess((input, ctx) => {
+    const walk = (value: unknown, path: PropertyKey[]): void => {
+      if (typeof value !== 'object' || value === null) return;
+      for (const [key, item] of Object.entries(value)) {
+        if (key === '__proto__') ctx.addIssue({ code: 'custom', path: [...path, key], message: '"__proto__" is not supported as a name' });
+        else walk(item, [...path, key]);
+      }
+    };
+    walk(input, []);
+    return input;
+  }, schema);
+}
+
 /** Reference to a stored blob: `blob:sha256:<64 hex>`. */
 export const BlobRefSchema = z.string().regex(/^blob:sha256:[0-9a-f]{64}$/, 'must be blob:sha256:<64 lowercase hex>');
 
@@ -33,7 +49,7 @@ export const OriginSchema = z.enum(ORIGINS);
  * One invocation of the program under test. `argv` excludes the program name; `stdin: null` means
  * stdin is `/dev/null`; `fixtures` maps paths in the working directory to file contents.
  */
-export const CaseSchema = z
+const CaseObjectSchema = z
   .strictObject({
     id: CaseIdSchema.optional(),
     argv: z.array(text),
@@ -54,8 +70,10 @@ export const CaseSchema = z
     }
   });
 
-export type Case = z.output<typeof CaseSchema>;
-export type CaseInput = z.input<typeof CaseSchema>;
+export const CaseSchema = withoutProtoKeys(CaseObjectSchema);
+
+export type Case = z.output<typeof CaseObjectSchema>;
+export type CaseInput = z.input<typeof CaseObjectSchema>;
 
 /** A case in canonical form: defaults filled in, features sorted and de-duplicated, ID set. */
 export type CanonicalCase = Case & { id: string };
@@ -95,7 +113,7 @@ export function canonicalCaseJson(input: CaseInput): string {
 const ms = z.number().nonnegative();
 
 /** What happened when a program ran a case. `exit` is null exactly when a signal ended the process. */
-export const ObservationSchema = z
+const ObservationObjectSchema = z
   .strictObject({
     exit: z.int().min(0).max(255).nullable(),
     signal: z.string().regex(/^SIG[A-Z0-9]+$/, 'must be a signal name such as SIGKILL').nullable(),
@@ -123,7 +141,9 @@ export const ObservationSchema = z
     }
   });
 
-export type Observation = z.output<typeof ObservationSchema>;
+export const ObservationSchema = withoutProtoKeys(ObservationObjectSchema);
+
+export type Observation = z.output<typeof ObservationObjectSchema>;
 
 /** Validates an observation and returns its canonical form (deleted paths sorted and de-duplicated). */
 export function canonicalObservation(input: unknown): Observation {

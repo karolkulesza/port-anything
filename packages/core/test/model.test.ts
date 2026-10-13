@@ -141,6 +141,27 @@ describe('case validation', () => {
     expect(() => canonicalCase({ ...base, ...variant })).toThrow();
   });
 
+  // JSON.parse keeps "__proto__" as an own key; a schema that dropped it would merge two cases.
+  it.each([
+    ['fixtures', `{"argv":[],"origin":"recorded","fixtures":{"__proto__":"${blob('b')}"}}`],
+    ['env', '{"argv":[],"origin":"recorded","env":{"__proto__":"x"}}'],
+  ])('rejects a "__proto__" key in %s instead of dropping it', (_, json) => {
+    expect(() => canonicalCase(JSON.parse(json))).toThrow(/__proto__/);
+  });
+
+  it('rejects a "__proto__" path in observation fs changes', () => {
+    const o = JSON.parse(
+      `{"exit":0,"signal":null,"timeout":false,"stdout":"${blob('1')}","stderr":"${blob('2')}",` +
+        `"fs":{"created":{"__proto__":"${blob('3')}"},"modified":{},"deleted":[]},` +
+        `"time_ms":{"wall":0,"user":0,"sys":0},"rss_kb":0,"runs":1,"stable":true}`,
+    );
+    expect(() => canonicalObservation(o)).toThrow(/__proto__/);
+  });
+
+  it('accepts "__proto__" as a path segment below the top level', () => {
+    expect(() => canonicalCase({ ...base, fixtures: { 'a/__proto__': blob('b') } })).not.toThrow();
+  });
+
   it('accepts unicode, spaces and backslashes where POSIX does', () => {
     expect(() =>
       canonicalCase({ ...base, argv: ['zażółć', 'a b', '😀'], fixtures: { 'dir name/plik\\1.txt': blob('b') } }),
