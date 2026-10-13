@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -62,8 +62,13 @@ describe('BlobStore', () => {
 
   it('keeps one file per content: putting it again changes nothing', async () => {
     const a = await store.put('same');
+    const before = await stat(store.path(a));
+    await new Promise((resolve) => setTimeout(resolve, 20));
     const b = await store.put(Buffer.from('same'));
     expect(b).toBe(a);
+    // Not rewritten: a rename would give a new inode, a write a new mtime.
+    const after = await stat(store.path(a));
+    expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
     await store.put('other');
     expect(await listFiles(dir)).toHaveLength(2);
   });
