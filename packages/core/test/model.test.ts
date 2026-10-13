@@ -34,6 +34,8 @@ describe('canonicalJson', () => {
     expect(() => canonicalJson({ a: undefined })).toThrow(/undefined at \$\.a/);
     expect(() => canonicalJson([Number.NaN])).toThrow(/NaN/);
     expect(() => canonicalJson(new Date(0))).toThrow(/object/);
+    expect(() => canonicalJson([, 1])).toThrow(/hole at \$\[0\]/);
+    expect(() => canonicalJson([undefined])).toThrow(/undefined/);
   });
 });
 

@@ -13,7 +13,14 @@ function write(value: unknown, path: string): string {
     if (!Number.isFinite(value)) throw new TypeError(`Cannot canonicalize ${value} at ${path}.`);
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return `[${value.map((item, i) => write(item, `${path}[${i}]`)).join(',')}]`;
+  if (Array.isArray(value)) {
+    const parts: string[] = [];
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value)) throw new TypeError(`Cannot canonicalize a hole at ${path}[${i}].`);
+      parts.push(write(value[i], `${path}[${i}]`));
+    }
+    return `[${parts.join(',')}]`;
+  }
   if (typeof value === 'object' && isPlainObject(value)) {
     const keys = Object.keys(value).sort();
     const parts: string[] = [];
