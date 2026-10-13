@@ -30,8 +30,34 @@ describe('pack codec', () => {
     expect(new Uint8Array(await decompressPack(await compressPack(input)))).toEqual(input);
   });
 
+  it('writes a single frame with a content checksum', async () => {
+    const packed = await compressPack(Buffer.from('abc\n'.repeat(1000)));
+    // Frame_Header_Descriptor bit 2 is Content_Checksum_flag (RFC 8878, section 3.1.1.1.1).
+    expect(packed[4]! & 0b100).toBe(0b100);
+  });
+
   it('rejects data that is not zstd', async () => {
-    await expect(decompressPack(Buffer.from('not a pack'))).rejects.toThrow();
+    await expect(decompressPack(Buffer.from('not a pack'))).rejects.toThrow(/not a zstd frame/);
+  });
+
+  it('rejects a truncated pack', async () => {
+    const packed = await compressPack(randomBytes(300 * 1024));
+    for (const length of [0, 1, 4, 5, 100, packed.length >> 1, packed.length - 4, packed.length - 1]) {
+      await expect(decompressPack(packed.subarray(0, length)), `cut to ${length} bytes`).rejects.toThrow(
+        /truncated|not a zstd frame/,
+      );
+    }
+  });
+
+  it('rejects trailing bytes after the frame', async () => {
+    const packed = await compressPack(Buffer.from('abc'));
+    await expect(decompressPack(Buffer.concat([packed, packed]))).rejects.toThrow(/trailing/);
+  });
+
+  it('rejects a pack whose checksum does not match', async () => {
+    const packed = Buffer.from(await compressPack(Buffer.from('abc\n'.repeat(1000))));
+    packed[packed.length - 1]! ^= 0xff;
+    await expect(decompressPack(packed)).rejects.toMatchObject({ code: 'ZSTD_error_checksum_wrong' });
   });
 
   it('explains the Node requirement when zlib has no zstd', async () => {
