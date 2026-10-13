@@ -12,8 +12,8 @@ type Outcome = { ok: true } | { ok: false; message: string; missing?: boolean };
 // A host where each sandbox tool succeeds or fails as told, with the given sysctl values.
 function fakeHost(opts: {
   platform?: NodeJS.Platform;
-  bwrap?: Outcome;
-  unshare?: Outcome;
+  bwrap?: Outcome | ((args: readonly string[]) => Outcome);
+  unshare?: Outcome | ((args: readonly string[]) => Outcome);
   settings?: Record<string, string>;
   inContainer?: boolean;
 }): SandboxHost & { calls: string[][] } {
@@ -26,7 +26,7 @@ function fakeHost(opts: {
     async run(command, args) {
       calls.push([command, ...args]);
       const outcome = (command === 'bwrap' ? opts.bwrap : opts.unshare) ?? { ok: true };
-      return outcome;
+      return typeof outcome === 'function' ? outcome(args) : outcome;
     },
     async readSetting(path) {
       return opts.settings?.[path];
@@ -34,53 +34,90 @@ function fakeHost(opts: {
   };
 }
 
+const BWRAP = { kind: 'bwrap', isolatePids: true } as const;
 const NO_USERNS = 'No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.';
 
 describe('sandboxCommand', () => {
-  it('runs bwrap with a read-only system, a writable workdir, a private /tmp and no network', () => {
-    const cmd = sandboxCommand('bwrap', ['sort', '-r', 'in.txt'], '/tmp/case-1');
+  it('runs bwrap with a read-only system, a writable workdir, a private /tmp and /run, no network', () => {
+    const cmd = sandboxCommand(BWRAP, ['sort', '-r', 'in.txt'], '/tmp/case-1');
     expect(cmd.command).toBe('bwrap');
     expect(cmd.cwd).toBe('/tmp/case-1');
     const args = cmd.args.join(' ');
     expect(args).toContain('--ro-bind / /');
     expect(args).toContain('--tmpfs /tmp');
+    expect(args).toContain('--tmpfs /run');
     expect(args).toContain('--bind /tmp/case-1 /tmp/case-1');
     expect(args).toContain('--chdir /tmp/case-1');
     expect(cmd.args).toContain('--unshare-net');
+    expect(cmd.args).toContain('--unshare-pid');
     expect(cmd.args).toContain('--die-with-parent');
-    // The workdir bind comes after the /tmp tmpfs, or the tmpfs would hide it.
-    expect(cmd.args.indexOf('--bind')).toBeGreaterThan(cmd.args.indexOf('--tmpfs'));
+    // The workdir bind comes after the tmpfs mounts, or they would hide it.
+    expect(cmd.args.indexOf('--bind')).toBeGreaterThan(cmd.args.lastIndexOf('--tmpfs'));
     expect(cmd.args.slice(-4)).toEqual(['--', 'sort', '-r', 'in.txt']);
   });
 
-  it('runs unshare with a new user and network namespace, as the current user', () => {
-    const cmd = sandboxCommand('unshare', ['sort'], '/w');
-    expect(cmd).toEqual({ command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', 'sort'], cwd: '/w' });
+  it('leaves out the PID namespace only when told to', () => {
+    expect(sandboxCommand({ kind: 'bwrap', isolatePids: false }, ['true'], '/w').args).not.toContain('--unshare-pid');
+  });
+
+  it('runs unshare with a new user and network namespace, as the current user when it can', () => {
+    const mapped = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w');
+    expect(mapped).toEqual({ command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', 'sort'], cwd: '/w' });
+    const unmapped = sandboxCommand({ kind: 'unshare', mapCurrentUser: false }, ['sort'], '/w');
+    expect(unmapped.args).toEqual(['--user', '--net', '--', 'sort']);
   });
 
   it('runs the program directly without a sandbox', () => {
-    expect(sandboxCommand('none', ['sort', '-n'], '/w')).toEqual({ command: 'sort', args: ['-n'], cwd: '/w' });
+    expect(sandboxCommand({ kind: 'none' }, ['sort', '-n'], '/w')).toEqual({ command: 'sort', args: ['-n'], cwd: '/w' });
   });
 
   it('rejects a relative workdir and an empty argv', () => {
-    expect(() => sandboxCommand('bwrap', ['true'], 'case-1')).toThrow(/absolute/);
-    expect(() => sandboxCommand('none', [], '/w')).toThrow(/empty/);
+    expect(() => sandboxCommand(BWRAP, ['true'], 'case-1')).toThrow(/absolute/);
+    expect(() => sandboxCommand({ kind: 'none' }, [], '/w')).toThrow(/empty/);
   });
 });
 
 describe('probeSandbox', () => {
-  it('prefers bwrap and tries it with the same arguments cases get', async () => {
+  it('prefers bwrap with a PID namespace and tries it with the same arguments cases get', async () => {
     const host = fakeHost({});
     const probe = await probeSandbox(host);
-    expect(probe.usable).toBe('bwrap');
+    expect(probe.usable).toEqual(BWRAP);
     expect(probe.attempts).toEqual([{ kind: 'bwrap', ok: true }]);
     expect(probe.fix).toBeUndefined();
-    expect(host.calls).toEqual([['bwrap', ...sandboxCommand('bwrap', ['true'], '/tmp').args]]);
+    expect(host.calls).toEqual([['bwrap', ...sandboxCommand(BWRAP, ['true'], '/tmp').args]]);
+  });
+
+  it('drops the PID namespace when bwrap cannot mount a fresh /proc (Docker)', async () => {
+    const host = fakeHost({
+      bwrap: (args) =>
+        args.includes('--unshare-pid') ? { ok: false, message: "bwrap: Can't mount proc on /newroot/proc: Operation not permitted" } : { ok: true },
+    });
+    const probe = await probeSandbox(host);
+    expect(probe.usable).toEqual({ kind: 'bwrap', isolatePids: false });
+    expect(host.calls).toHaveLength(2);
+    expect(chooseSandbox(probe).label).toBe('bwrap, no network (processes not isolated)');
+  });
+
+  it('runs unshare without --map-current-user on util-linux before 2.38', async () => {
+    const probe = await probeSandbox(
+      fakeHost({
+        bwrap: { ok: false, message: 'bwrap is not installed', missing: true },
+        unshare: (args) =>
+          args.includes('--map-current-user') ? { ok: false, message: "unshare: unrecognized option '--map-current-user'" } : { ok: true },
+      }),
+    );
+    expect(probe.usable).toEqual({ kind: 'unshare', mapCurrentUser: false });
+  });
+
+  it('tries a missing tool once', async () => {
+    const host = fakeHost({ bwrap: { ok: false, message: 'bwrap is not installed', missing: true } });
+    await probeSandbox(host);
+    expect(host.calls.map((c) => c[0])).toEqual(['bwrap', 'unshare']);
   });
 
   it('falls back to unshare when bwrap fails', async () => {
     const probe = await probeSandbox(fakeHost({ bwrap: { ok: false, message: 'bwrap is not installed', missing: true } }));
-    expect(probe.usable).toBe('unshare');
+    expect(probe.usable).toEqual({ kind: 'unshare', mapCurrentUser: true });
     expect(probe.attempts.map((a) => [a.kind, a.ok])).toEqual([['bwrap', false], ['unshare', true]]);
   });
 
@@ -138,7 +175,7 @@ describe('probeSandbox', () => {
 describe('chooseSandbox', () => {
   it('uses the probed sandbox and labels it for the report', async () => {
     const choice = chooseSandbox(await probeSandbox(fakeHost({})));
-    expect(choice).toEqual({ kind: 'bwrap', label: 'bwrap, no network' });
+    expect(choice).toEqual({ kind: 'bwrap', isolatePids: true, label: 'bwrap, no network' });
   });
 
   it('says when the filesystem is not isolated (unshare fallback)', async () => {

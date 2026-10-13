@@ -1,22 +1,32 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 /**
  * How a case runs locally:
- * - `bwrap`: bubblewrap. Read-only view of the system, writable case workdir, private `/tmp`, no network.
+ * - `bwrap`: bubblewrap. Read-only view of the system, writable case workdir, private `/tmp` and
+ *   `/run`, no network, and (where the kernel allows it) its own PID namespace.
  * - `unshare`: fallback when bwrap isn't usable. No network, but the filesystem is not isolated.
  * - `none`: no isolation at all; only with `--no-sandbox`.
  *
  * Neither is a strong security boundary: they keep a trusted program from touching the network or
- * (with bwrap) files outside its workdir by accident.
+ * (with bwrap) files outside its workdir by accident. A Unix socket the user keeps somewhere in
+ * their own files (not under /tmp or /run) stays reachable.
  */
 export type SandboxKind = 'bwrap' | 'unshare' | 'none';
 
 /** A sandbox that isolates something; what the probe looks for. */
 export type LocalSandbox = Exclude<SandboxKind, 'none'>;
+
+/** A sandbox and the variant of it that works on this machine. */
+export type SandboxSetup =
+  /** isolatePids: false where a fresh /proc can't be mounted, e.g. inside Docker's default profile. */
+  | { kind: 'bwrap'; isolatePids: boolean }
+  /** mapCurrentUser: false on util-linux before 2.38; `id` then shows the overflow uid, file access is unchanged. */
+  | { kind: 'unshare'; mapCurrentUser: boolean }
+  | { kind: 'none' };
 
 /** The process to spawn for one case. */
 export interface SandboxCommand {
@@ -26,20 +36,23 @@ export interface SandboxCommand {
 }
 
 /** Wraps `argv` so it runs in `workdir` (an absolute path) inside the given sandbox. */
-export function sandboxCommand(kind: SandboxKind, argv: readonly string[], workdir: string): SandboxCommand {
+export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], workdir: string): SandboxCommand {
   if (argv.length === 0) throw new Error('Cannot run an empty argv.');
   if (!isAbsolute(workdir)) throw new Error(`The case workdir must be an absolute path, got "${workdir}".`);
-  switch (kind) {
+  switch (setup.kind) {
     case 'bwrap':
       return {
         command: 'bwrap',
         args: [
-          // Order matters: later mounts go on top, so the workdir bind must follow the /tmp tmpfs.
           ...['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp'],
+          // Read-only doesn't stop connect() on a socket file: hide the service sockets (D-Bus,
+          // docker.sock, ...) under /run, and under /var/run where it isn't a symlink to /run.
+          ...['--tmpfs', '/run', ...(varRunIsDirectory() ? ['--tmpfs', '/var/run'] : [])],
+          // Order matters: later mounts go on top, so the workdir bind must follow the tmpfs mounts.
           ...['--bind', workdir, workdir, '--chdir', workdir],
-          // No PID namespace: mounting a fresh /proc for one fails inside Docker, where Linux CI and
-          // the dev container run. (--unshare-all would include it.)
           ...['--unshare-user', '--unshare-ipc', '--unshare-uts', '--unshare-net'],
+          // Without a PID namespace a case could signal any of the user's processes (kill -9 -1).
+          ...(setup.isolatePids ? ['--unshare-pid'] : []),
           ...['--die-with-parent', '--new-session'],
           '--',
           ...argv,
@@ -48,10 +61,26 @@ export function sandboxCommand(kind: SandboxKind, argv: readonly string[], workd
       };
     case 'unshare':
       // --map-current-user rather than -r: as uid 0, programs would skip permission checks.
-      return { command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', ...argv], cwd: workdir };
+      return {
+        command: 'unshare',
+        args: ['--user', ...(setup.mapCurrentUser ? ['--map-current-user'] : []), '--net', '--', ...argv],
+        cwd: workdir,
+      };
     case 'none':
       return { command: argv[0]!, args: argv.slice(1), cwd: workdir };
   }
+}
+
+let varRunDir: boolean | undefined;
+function varRunIsDirectory(): boolean {
+  if (varRunDir === undefined) {
+    try {
+      varRunDir = lstatSync('/var/run').isDirectory();
+    } catch {
+      varRunDir = false;
+    }
+  }
+  return varRunDir;
 }
 
 /** What the probe needs from the machine; tests pass a fake. */
@@ -70,37 +99,58 @@ export interface SandboxHost {
 export interface SandboxAttempt {
   kind: LocalSandbox;
   ok: boolean;
-  /** Why it failed: the tool's own message. */
+  /** Why it failed: the tool's own message (from its most basic variant). */
   error?: string;
 }
 
 export interface SandboxProbe {
-  /** The best sandbox that works here, if any. */
-  usable: LocalSandbox | undefined;
+  /** The best sandbox setup that works here, if any. */
+  usable: Exclude<SandboxSetup, { kind: 'none' }> | undefined;
   attempts: SandboxAttempt[];
   /** When nothing works: what to do about it, ready to print. */
   fix: string | undefined;
 }
 
-const PROBE_ORDER: Record<string, LocalSandbox[]> = { linux: ['bwrap', 'unshare'] };
+// Per platform, each sandbox's variants from strongest to most basic.
+const PROBE_ORDER: Record<string, Exclude<SandboxSetup, { kind: 'none' }>[][]> = {
+  linux: [
+    [
+      { kind: 'bwrap', isolatePids: true },
+      { kind: 'bwrap', isolatePids: false },
+    ],
+    [
+      { kind: 'unshare', mapCurrentUser: true },
+      { kind: 'unshare', mapCurrentUser: false },
+    ],
+  ],
+};
 
 /**
- * Finds out which local sandbox works by running `true` in each, with exactly the arguments real
- * cases get. Run once at start-up: Ubuntu 24.04+ (AppArmor), Docker's default seccomp profile and
- * some kernels' sysctls all block the unprivileged user namespaces both tools need.
+ * Finds out which local sandbox works by running `true` in each variant, with exactly the
+ * arguments real cases get. Run once at start-up: Ubuntu 24.04+ (AppArmor), Docker's default
+ * seccomp profile and some kernels' sysctls all block the unprivileged user namespaces both tools need.
  */
 export async function probeSandbox(host: SandboxHost = localHost()): Promise<SandboxProbe> {
   const attempts: SandboxAttempt[] = [];
   const missing = new Set<LocalSandbox>();
-  for (const kind of PROBE_ORDER[host.platform] ?? []) {
-    const { command, args, cwd } = sandboxCommand(kind, ['true'], host.tempDir);
-    const result = await host.run(command, args, cwd);
-    if (result.ok) {
-      attempts.push({ kind, ok: true });
-      return { usable: kind, attempts, fix: undefined };
+  const workdir = resolve(host.tempDir);
+  for (const variants of PROBE_ORDER[host.platform] ?? []) {
+    const kind = variants[0]!.kind;
+    let error = '';
+    for (const setup of variants) {
+      const { command, args, cwd } = sandboxCommand(setup, ['true'], workdir);
+      const result = await host.run(command, args, cwd);
+      if (result.ok) {
+        attempts.push({ kind, ok: true });
+        return { usable: setup, attempts, fix: undefined };
+      }
+      error = result.message;
+      if (result.missing) {
+        missing.add(kind);
+        break;
+      }
     }
-    attempts.push({ kind, ok: false, error: result.message });
-    if (result.missing) missing.add(kind);
+    attempts.push({ kind, ok: false, error });
   }
   return { usable: undefined, attempts, fix: await fixText(host, missing) };
 }
@@ -116,6 +166,9 @@ async function fixText(host: SandboxHost, missing: Set<LocalSandbox>): Promise<s
   if (host.platform === 'linux') {
     if (missing.has('bwrap')) {
       steps.push('Install bubblewrap: sudo apt install bubblewrap (Debian/Ubuntu) or sudo dnf install bubblewrap (Fedora).');
+    }
+    if (missing.has('unshare')) {
+      steps.push('Install util-linux, which provides unshare.');
     }
     if (host.inContainer) {
       steps.push(
@@ -151,17 +204,19 @@ async function fixText(host: SandboxHost, missing: Set<LocalSandbox>): Promise<s
   return steps.map((step, i) => `  ${i + 1}. ${step}`).join('\n');
 }
 
-/** The sandbox a run uses, as the report's "sandbox used" field shows it. */
-export interface SandboxChoice {
-  kind: SandboxKind;
-  label: string;
-}
+/** The sandbox a run uses; `label` is what the report's "sandbox used" field shows. */
+export type SandboxChoice = SandboxSetup & { label: string };
 
-const LABELS: Record<SandboxKind, string> = {
-  bwrap: 'bwrap, no network',
-  unshare: 'unshare, no network (filesystem not isolated)',
-  none: 'none (--no-sandbox)',
-};
+function label(setup: SandboxSetup): string {
+  switch (setup.kind) {
+    case 'bwrap':
+      return setup.isolatePids ? 'bwrap, no network' : 'bwrap, no network (processes not isolated)';
+    case 'unshare':
+      return 'unshare, no network (filesystem not isolated)';
+    case 'none':
+      return 'none (--no-sandbox)';
+  }
+}
 
 /** Thrown when no sandbox works and `--no-sandbox` wasn't given. The message includes the fix. */
 export class SandboxUnavailableError extends Error {
@@ -181,9 +236,9 @@ export class SandboxUnavailableError extends Error {
 
 /** Picks the sandbox for a run: the probed one, `none` with `--no-sandbox`, or a refusal. */
 export function chooseSandbox(probe: SandboxProbe, options: { noSandbox?: boolean } = {}): SandboxChoice {
-  const kind = options.noSandbox ? 'none' : probe.usable;
-  if (kind === undefined) throw new SandboxUnavailableError(probe);
-  return { kind, label: LABELS[kind] };
+  const setup: SandboxSetup | undefined = options.noSandbox ? { kind: 'none' } : probe.usable;
+  if (setup === undefined) throw new SandboxUnavailableError(probe);
+  return { ...setup, label: label(setup) };
 }
 
 /** This machine. */

@@ -61,6 +61,10 @@ export function hostWithoutUserNamespaces(real: SandboxHost): SandboxHost {
         });
         let stderr = '';
         child.stderr!.on('data', (chunk) => (stderr += chunk));
+        child.on('error', (error) => {
+          closeSync(fd);
+          resolve({ ok: false, message: error.message });
+        });
         child.on('close', (code) => {
           closeSync(fd);
           if (code === 0) return resolve({ ok: true });

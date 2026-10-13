@@ -35,4 +35,5 @@ export {
   type SandboxHost,
   type SandboxKind,
   type SandboxProbe,
+  type SandboxSetup,
 } from './sandbox.js';
