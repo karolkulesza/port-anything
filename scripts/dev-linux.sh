@@ -54,5 +54,6 @@ exec docker run --rm -i $tty --init \
   -v "$root:/repo" $mounts \
   -e PA_DEV_UID="$(id -u)" -e PA_DEV_GID="$(id -g)" \
   -e PA_DEV_NO_INSTALL="${PA_DEV_NO_INSTALL:-}" \
+  -e PA_SANDBOX_TESTS=1 \
   ${PA_DEV_DOCKER_ARGS:-} \
   "$image" /repo/scripts/dev-linux-entrypoint.sh "$@"
