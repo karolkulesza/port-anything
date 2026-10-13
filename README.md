@@ -10,6 +10,27 @@ Port Anything records what a program actually does, generates thousands more tes
 
 **Status:** in development. Nothing is released yet.
 
+## Development
+
+Requires Node 22+ and pnpm (`corepack enable` picks the version pinned in `package.json`).
+
+```sh
+pnpm install
+pnpm -r build      # build before testing: the CLI tests run the built bin
+pnpm -r typecheck
+pnpm -r test
+pnpm lint:workflows   # actionlint via Docker
+```
+
+| Package | What it is |
+|---|---|
+| [`packages/cli`](packages/cli) | `port-anything`, the CLI |
+| [`packages/core`](packages/core) | `@port-anything/core`, the engine |
+| [`packages/mcp`](packages/mcp) | `@port-anything/mcp`, the MCP server |
+| [`packages/report`](packages/report) | `@port-anything/report`, the HTML report and badge |
+
+Releases are versioned with [changesets](https://github.com/changesets/changesets): add one with `pnpm changeset`.
+
 ## License
 
 [Apache-2.0](LICENSE)
