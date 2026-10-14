@@ -40,8 +40,20 @@ export interface RunCasesOptions {
 
 /** One candidate's observation of a case and how it compares with the reference's. */
 export interface CandidateRun {
+  /**
+   * The first run's observation, the one compared. After a re-run, `runs` is 2 and `stable` says
+   * whether the re-run observed the same.
+   */
   observation: Observation;
   comparison: Comparison;
+  /** The re-run's observation; only a diverging case is re-run. */
+  rerun?: Observation;
+  /**
+   * `flaky-candidate`: the case diverged and its re-run observed something else. It still counts as
+   * a divergence (otherwise a port could answer at random on cases it can't handle and have them
+   * dropped), but is kept out of clustering and listed on its own.
+   */
+  flaky: boolean;
 }
 
 export interface CaseRun {
@@ -60,9 +72,10 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's (exactly, for now). Cases run in a worker pool;
- * within a case the sides run one after another, in the same working directory path (also HOME),
- * so a program that prints its directory doesn't diverge for that alone.
+ * candidate's observation with the reference's (exactly, for now). A candidate that diverges on a
+ * case runs it once more, to tell a racy port (`flaky`) from a steady divergence. Cases run in a
+ * worker pool; within a case the sides run one after another, in the same working directory path
+ * (also HOME), so a program that prints its directory doesn't diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const workDir = resolve(options.workDir);
@@ -78,7 +91,14 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
     const candidates: CandidateRun[] = [];
     for (const side of sides.slice(1)) {
       const observation = await observe(side);
-      candidates.push({ observation, comparison: compareExact(reference, observation) });
+      const comparison = compareExact(reference, observation);
+      if (comparison.verdict === 'match') {
+        candidates.push({ observation, comparison, flaky: false });
+        continue;
+      }
+      const rerun = await observe(side);
+      const flaky = compareExact(observation, rerun).verdict === 'diverge';
+      candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, rerun, flaky });
     }
     const result: CaseRun = { caseId: c.id, reference, candidates };
     options.onCase?.(result);
