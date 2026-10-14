@@ -3,7 +3,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigError } from '../src/config.js';
-import { RUN_FILE, latestRun, loadRun, newRunId, parseClusterAddress, resolveCluster, runsDir, saveRun, type RunRecord } from '../src/runs.js';
+import { BlobStore } from '../src/blob-store.js';
+import { canonicalCase } from '../src/model.js';
+import {
+  RUN_FILE,
+  inlineCase,
+  latestRun,
+  loadRepro,
+  loadRun,
+  newRunId,
+  parseClusterAddress,
+  resolveCluster,
+  runsDir,
+  saveRepro,
+  saveRun,
+  type RunRecord,
+} from '../src/runs.js';
 
 const ID_A = `sha256:${'a'.repeat(64)}`;
 const ID_B = `sha256:${'b'.repeat(64)}`;
@@ -118,5 +133,56 @@ describe('saved runs', () => {
       await expect(resolveCluster(project, '1')).rejects.toThrow(`Run ${none.run_id} has no clusters, so there is no cluster 1.`);
       await expect(resolveCluster(project, '20200101-000000-0000/1')).rejects.toThrow(/No run 20200101-000000-0000/);
     });
+  });
+});
+
+describe('saved repros', () => {
+  let project: string;
+  let store: BlobStore;
+  beforeEach(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-repros-')));
+    store = new BlobStore(join(project, 'cache'));
+  });
+  afterEach(() => rmSync(project, { recursive: true, force: true }));
+
+  const repro = async (runId: string, n: number) => {
+    const c = canonicalCase({ argv: ['-L', 'crlf.txt'], stdin: await store.put(Buffer.from([0xff, 0x00])), fixtures: { 'crlf.txt': await store.put('\r\n') }, origin: 'generated' });
+    return { run_id: runId, cluster: n, source: ID_A, reproduced: true, runs: 17, max_runs: 200, exhausted: false, case: await inlineCase(c, store) };
+  };
+
+  it('writes the case inline, text as text and other bytes as base64', async () => {
+    const saved = await saveRun(project, run());
+    const r = await repro(saved.run_id, 2);
+    expect(r.case).toMatchObject({ argv: ['-L', 'crlf.txt'], stdin: { base64: '/wA=' }, env: {}, fixtures: { 'crlf.txt': '\r\n' } });
+  });
+
+  it('saves a cluster repro next to its run and reads it back; none until saved', async () => {
+    const saved = await saveRun(project, run());
+    expect(await loadRepro(project, saved.run_id, 1)).toBeUndefined();
+    const record = await saveRepro(project, await repro(saved.run_id, 1), new Date('2026-10-14T19:00:00Z'));
+    expect(record).toMatchObject({ version: 1, run_id: saved.run_id, cluster: 1, created: '2026-10-14T19:00:00.000Z' });
+    expect(readdirSync(join(runsDir(project), saved.run_id, 'repros'))).toEqual(['1.json']);
+    expect(await loadRepro(project, saved.run_id, 1)).toEqual(record);
+    expect(await loadRepro(project, saved.run_id, 2)).toBeUndefined();
+    // Saving again replaces it.
+    const again = await saveRepro(project, { ...(await repro(saved.run_id, 1)), runs: 3 });
+    expect(await loadRepro(project, saved.run_id, 1)).toEqual(again);
+  });
+
+  it('refuses a repro for a run or cluster that does not exist', async () => {
+    const saved = await saveRun(project, run());
+    await expect(saveRepro(project, await repro(saved.run_id, 3))).rejects.toThrow(ConfigError);
+    await expect(saveRepro(project, await repro('20260101-000000-abcd', 1))).rejects.toThrow(/No run/);
+  });
+
+  it('reports a damaged repro as a config error', async () => {
+    const saved = await saveRun(project, run());
+    const file = join(runsDir(project), saved.run_id, 'repros', '2.json');
+    mkdirSync(join(runsDir(project), saved.run_id, 'repros'));
+    writeFileSync(file, '{');
+    await expect(loadRepro(project, saved.run_id, 2)).rejects.toThrow(/damaged/);
+    const other = await saveRepro(project, await repro(saved.run_id, 1));
+    writeFileSync(file, JSON.stringify(other));
+    await expect(loadRepro(project, saved.run_id, 2)).rejects.toThrow(/says it is cluster .*\/1/);
   });
 });

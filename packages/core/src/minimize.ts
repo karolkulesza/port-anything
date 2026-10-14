@@ -1,5 +1,7 @@
 import type { BlobStore } from './blob-store.js';
+import { clusterSignature, signatureKey } from './cluster.js';
 import { canonicalCase, type CanonicalCase } from './model.js';
+import type { CaseRunner } from './run-cases.js';
 
 /** Runs a minimization may make per cluster, unless told otherwise. */
 export const DEFAULT_MINIMIZE_RUNS = 200;
@@ -189,4 +191,61 @@ export function caseSize(c: {
   let size = c.argv.reduce((n, a) => n + bytes(a), 0) + (c.stdin === null ? 0 : bytes(c.stdin));
   for (const [path, content] of Object.entries(c.fixtures)) size += bytes(path) + bytes(content);
   return size;
+}
+
+export interface MinimizeClusterOptions {
+  /** Pinned reference and candidates; see `openCaseRunner`. */
+  runner: CaseRunner;
+  /** Which of the runner's candidates the cluster belongs to, from 0. Defaults to 0. */
+  candidate?: number;
+  /** The cluster's signature key (`signatureKey`): a smaller case must diverge with exactly this signature. */
+  key: string;
+  /** The cluster's cases. */
+  cases: readonly CanonicalCase[];
+  store: BlobStore;
+  /** Runs for the whole cluster, shared by the cases tried. Defaults to `DEFAULT_MINIMIZE_RUNS`. */
+  maxRuns?: number;
+}
+
+export interface MinimizedCluster extends Minimized {
+  /** The case it was minimized from: the smallest of the cluster that still shows its signature. */
+  source: string;
+}
+
+/**
+ * Minimizes a cluster to its repro: starting from its smallest case (by `caseSize`), the smallest
+ * case that still diverges with the cluster's signature (diverging fields + diff shapes, so flags
+ * may go). When that case no longer shows the signature (a flaky case, or a candidate rebuilt since
+ * the run), the next smallest is tried, within the same run budget. One run is one case on the
+ * reference and on the cluster's candidate.
+ */
+export async function minimizeCluster(options: MinimizeClusterOptions): Promise<MinimizedCluster> {
+  const { runner, key, store } = options;
+  const candidate = options.candidate ?? 0;
+  if (options.cases.length === 0) throw new Error('A cluster to minimize needs at least one case.');
+  const test: CaseTest = async (c) => {
+    const run = (await runner.run(c)).candidates[candidate]!;
+    return run.comparison.verdict === 'diverge' && signatureKey(clusterSignature({ caseId: c.id, features: c.features, shapes: run.shapes })) === key;
+  };
+  const sized = await Promise.all(options.cases.map(async (c, i) => ({ c, i, size: await storedCaseSize(c, store) })));
+  sized.sort((a, b) => a.size - b.size || a.i - b.i);
+  let budget = options.maxRuns ?? DEFAULT_MINIMIZE_RUNS;
+  let spent = 0;
+  let last: MinimizedCluster | undefined;
+  for (const { c } of sized) {
+    const result = await minimizeCase(c, test, { store, maxRuns: budget });
+    spent += result.runs;
+    budget -= result.runs;
+    last = { ...result, runs: spent, source: c.id, exhausted: result.exhausted || (!result.reproduced && budget === 0) };
+    if (result.reproduced || budget === 0) break;
+  }
+  return last!;
+}
+
+/** `caseSize` of a case whose stdin and fixtures are in the store. */
+async function storedCaseSize(c: CanonicalCase, store: BlobStore): Promise<number> {
+  const size = async (ref: string) => (await store.get(ref)).length;
+  let total = c.argv.reduce((n, a) => n + Buffer.byteLength(a), 0) + (c.stdin === null ? 0 : await size(c.stdin));
+  for (const [path, ref] of Object.entries(c.fixtures)) total += Buffer.byteLength(path) + (await size(ref));
+  return total;
 }

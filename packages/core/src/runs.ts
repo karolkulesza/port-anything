@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { COMPARED_FIELDS } from './compare.js';
+import type { BlobStore } from './blob-store.js';
+import { InlineContentSchema, inlineContent, type InlineContent } from './committed-cases.js';
 import { ConfigError } from './config.js';
 import { DIFF_SHAPES } from './diff-shape.js';
-import { CaseIdSchema } from './model.js';
+import { CaseIdSchema, type CanonicalCase } from './model.js';
 
 /**
  * A run ID: the UTC time the run was saved, to the second, and 4 random hex digits so that runs
@@ -180,4 +182,80 @@ export async function resolveCluster(projectDir: string, address: string): Promi
     throw new ConfigError(`Run ${run.run_id} ${has}, so there is no cluster ${n}.`);
   }
   return { run, cluster, address: `${run.run_id}/${n}` };
+}
+
+/** A case written out with its content inline, as in committed case files (see `inlineCase`). */
+const InlineCaseSchema = z.strictObject({
+  id: CaseIdSchema,
+  argv: z.array(z.string()),
+  stdin: InlineContentSchema.nullable(),
+  env: z.record(z.string(), z.string()),
+  fixtures: z.record(z.string(), InlineContentSchema),
+});
+
+export type InlineCase = z.infer<typeof InlineCaseSchema>;
+
+/** What `.port-anything/runs/<run-id>/repros/<n>.json` holds: cluster n's minimized repro. */
+export const ReproRecordSchema = z.strictObject({
+  version: z.literal(1),
+  run_id: z.string().regex(RUN_ID_PATTERN),
+  cluster: z.number().int().positive(),
+  /** The cluster's case it was minimized from. */
+  source: CaseIdSchema,
+  /** Whether that case still showed the cluster's signature; when not, `case` is it, unminimized. */
+  reproduced: z.boolean(),
+  /** Runs made, and the budget they had; `exhausted` when the budget ran out before a 1-minimal case. */
+  runs: z.number().int().nonnegative(),
+  max_runs: z.number().int().positive(),
+  exhausted: z.boolean(),
+  /** When it was saved, ISO 8601 with milliseconds. */
+  created: z.iso.datetime(),
+  case: InlineCaseSchema,
+});
+
+export type ReproRecord = z.infer<typeof ReproRecordSchema>;
+
+/** A stored case with its stdin and fixtures read from the store and written inline. */
+export async function inlineCase(c: CanonicalCase, store: BlobStore): Promise<InlineCase> {
+  const fixtures: Record<string, InlineContent> = {};
+  for (const [path, ref] of Object.entries(c.fixtures)) fixtures[path] = inlineContent(await store.get(ref));
+  return { id: c.id, argv: c.argv, stdin: c.stdin === null ? null : inlineContent(await store.get(c.stdin)), env: c.env, fixtures };
+}
+
+const reproFile = (projectDir: string, runId: string, cluster: number) => join(runsDir(projectDir), runId, 'repros', `${cluster}.json`);
+
+/**
+ * Saves a cluster's repro next to its run, replacing an earlier one; written next to its final
+ * name then renamed, so a reader never sees half of it. The run must exist.
+ */
+export async function saveRepro(projectDir: string, repro: Omit<ReproRecord, 'version' | 'created'>, now: Date = new Date()): Promise<ReproRecord> {
+  const run = await loadRun(projectDir, repro.run_id);
+  if (run.clusters[repro.cluster - 1] === undefined) throw new ConfigError(`Run ${repro.run_id} has no cluster ${repro.cluster}.`);
+  const record = ReproRecordSchema.parse({ version: 1, ...repro, created: now.toISOString() });
+  const file = reproFile(projectDir, repro.run_id, repro.cluster);
+  await mkdir(dirname(file), { recursive: true });
+  const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`);
+  await rename(tmp, file);
+  return record;
+}
+
+/** A cluster's saved repro, or undefined when it has none yet. A damaged one is a `ConfigError` (exit 3). */
+export async function loadRepro(projectDir: string, runId: string, cluster: number): Promise<ReproRecord | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(reproFile(projectDir, runId, cluster), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw e;
+  }
+  let parsed: ReturnType<typeof ReproRecordSchema.safeParse>;
+  try {
+    parsed = ReproRecordSchema.safeParse(JSON.parse(raw));
+  } catch (e) {
+    throw new ConfigError(`The repro of cluster ${runId}/${cluster} is damaged: ${(e as Error).message}`);
+  }
+  if (!parsed.success) throw new ConfigError(`The repro of cluster ${runId}/${cluster} is damaged: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+  if (parsed.data.run_id !== runId || parsed.data.cluster !== cluster) throw new ConfigError(`The repro of cluster ${runId}/${cluster} is damaged: it says it is cluster ${parsed.data.run_id}/${parsed.data.cluster}.`);
+  return parsed.data;
 }

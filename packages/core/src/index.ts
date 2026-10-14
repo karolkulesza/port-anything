@@ -108,26 +108,43 @@ export {
   type Divergence,
   type FeatureCount,
 } from './cluster.js';
-export { DEFAULT_MINIMIZE_RUNS, caseSize, ddmin, minimizeCase, type CaseTest, type MinimizeOptions, type Minimized } from './minimize.js';
+export {
+  DEFAULT_MINIMIZE_RUNS,
+  caseSize,
+  ddmin,
+  minimizeCase,
+  minimizeCluster,
+  type CaseTest,
+  type MinimizeClusterOptions,
+  type MinimizeOptions,
+  type Minimized,
+  type MinimizedCluster,
+} from './minimize.js';
 export {
   RUN_FILE,
   RUN_ID_PATTERN,
+  ReproRecordSchema,
   RunRecordSchema,
+  inlineCase,
   latestRun,
+  loadRepro,
   loadRun,
   newRunId,
   parseClusterAddress,
   resolveCluster,
   runsDir,
+  saveRepro,
   saveRun,
   type ClusterAddress,
+  type InlineCase,
+  type ReproRecord,
   type ResolvedCluster,
   type RunRecord,
   type SavedCluster,
 } from './runs.js';
 export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
-export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
+export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';
 export {
   NORMALIZER_NAMES,
   NormalizerEntrySchema,
