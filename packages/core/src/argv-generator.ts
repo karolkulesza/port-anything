@@ -1,6 +1,6 @@
 import { blobRef } from './blob-store.js';
 import type { CliFlag, CliForm, CliPositional, CliSpec, CliSubcommand, CliValue } from './cli-spec.js';
-import { assertNotDestructive, destructiveCommand } from './destructive.js';
+import { assertNotDestructive, destructiveSubcommand } from './destructive.js';
 import { canonicalCase, type CanonicalCase } from './model.js';
 import { createRng, type GeneratorVersion, type Rng } from './rng.js';
 import { UNKNOWN_LONG_FLAG } from './spec-probe.js';
@@ -136,7 +136,7 @@ export function generateArgvCases(spec: CliSpec, options: GenerateArgvOptions): 
     for (const sub of command.subcommands) {
       if (!isSafeArgvToken(sub.name)) continue;
       const subPath = [...path, sub.name];
-      if (options.iKnow !== true && destructiveCommand([spec.program, ...subPath]) !== null) {
+      if (options.iKnow !== true && destructiveSubcommand(spec.program, subPath) !== null) {
         out.skipped.push([spec.program, ...subPath].join(' '));
         continue;
       }

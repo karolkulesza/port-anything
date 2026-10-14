@@ -13,32 +13,34 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = Object.freeze([
   'sudo', 'doas', 'su',
 ]);
 
-// docker/podman object commands that delete or publish: `docker image rm`, `podman system prune`.
-const CONTAINER_OBJECTS = ['container', 'image', 'volume', 'network', 'system', 'builder', 'pod', 'manifest'];
-const containerPaths = (tool: string): string[][] => [
-  [tool, 'rm'], [tool, 'rmi'], [tool, 'push'], [tool, 'kill'],
-  ...CONTAINER_OBJECTS.flatMap((object) => [[tool, object, 'rm'], [tool, object, 'prune'], [tool, object, 'push']]),
-];
-
 /**
  * Subcommands that delete history, files or remote state, or publish something: the tool, then
- * the subcommand path (`docker system prune`).
+ * the subcommand path. docker and podman are judged by `CONTAINER_VERBS` instead.
  */
 export const DESTRUCTIVE_SUBCOMMANDS: readonly (readonly string[])[] = Object.freeze(
   [
     ['git', 'push'], ['git', 'clean'], ['git', 'reset'], ['git', 'rm'], ['git', 'gc'], ['git', 'prune'],
     ['git', 'filter-branch'], ['git', 'filter-repo'], ['git', 'update-ref'], ['git', 'send-email'],
     ['hg', 'push'], ['hg', 'strip'], ['hg', 'purge'],
-    ...containerPaths('docker'), ...containerPaths('podman'),
     ['kubectl', 'delete'], ['npm', 'publish'], ['npm', 'unpublish'], ['cargo', 'publish'], ['cargo', 'yank'],
   ].map((path) => Object.freeze(path)),
 );
 
+/** Tools that act on the host's container daemon, outside any sandbox. */
+export const CONTAINER_TOOLS: readonly string[] = Object.freeze(['docker', 'podman']);
+
+/**
+ * A subcommand word that deletes, stops or publishes under docker and podman, at any depth:
+ * `docker rm`, `docker system prune`, `docker compose down`, `podman volume remove`.
+ */
+export const CONTAINER_VERBS: readonly string[] = Object.freeze(['rm', 'rmi', 'remove', 'prune', 'push', 'kill', 'stop', 'down', 'reset']);
+
+// Object groups of docker/podman commands, used only to name what was matched.
+const CONTAINER_GROUPS = new Set(['container', 'image', 'volume', 'network', 'system', 'builder', 'buildx', 'compose', 'pod', 'manifest', 'machine', 'context']);
+
 // GNU coreutils installed with a `g` prefix (Homebrew on macOS): `grm`, `gshred`.
 const GNU_PREFIXED = new Set(['rm', 'rmdir', 'unlink', 'shred', 'dd']);
 const TOOLS = new Set(DESTRUCTIVE_TOOLS);
-// So `docker container rm` is reported as itself, not as `docker rm`.
-const LONGEST_FIRST = [...DESTRUCTIVE_SUBCOMMANDS].sort((a, b) => b.length - a.length);
 
 function destructiveTool(name: string): string | null {
   if (TOOLS.has(name)) return name;
@@ -48,11 +50,33 @@ function destructiveTool(name: string): string | null {
 }
 
 /**
- * What makes a command line destructive: the denylisted tool (`rm`) or tool and subcommand path
- * (`git push`, `docker system prune`), or null. `argv[0]` may be a path; a multicall binary
- * (`busybox rm`) is judged by its applet. A subcommand path matches anywhere among the arguments
- * that aren't flags, so a flag value before it (`git -C dir push`) can't hide it; this errs on the
- * side of refusing (`git log push` matches too).
+ * The destructive subcommand among `words` (subcommand names, no flags), or null. `anywhere`
+ * lets a denylisted path start at any word; otherwise it must start at the first.
+ */
+function destructivePath(name: string, words: readonly string[], anywhere: boolean): string | null {
+  if (CONTAINER_TOOLS.includes(name)) {
+    const verb = words.findIndex((word) => CONTAINER_VERBS.includes(word));
+    if (verb === -1) return null;
+    if (!anywhere) return [name, ...words.slice(0, verb + 1)].join(' ');
+    // Words before the verb may be flag values (`--context c`); name only an object group.
+    const group = verb > 0 && CONTAINER_GROUPS.has(words[verb - 1]!) ? [words[verb - 1]!] : [];
+    return [name, ...group, words[verb]!].join(' ');
+  }
+  const starts = anywhere ? words.length : Math.min(words.length, 1);
+  for (const [t, ...path] of DESTRUCTIVE_SUBCOMMANDS) {
+    if (t !== name) continue;
+    for (let i = 0; i < starts && i + path.length <= words.length; i++) {
+      if (path.every((word, j) => words[i + j] === word)) return [name, ...path].join(' ');
+    }
+  }
+  return null;
+}
+
+/**
+ * What makes a command line destructive: the denylisted tool (`rm`) or tool and subcommand, or
+ * null. `argv[0]` may be a path; a multicall binary (`busybox rm`) is judged by its applet. A
+ * subcommand matches anywhere among the arguments that aren't flags, so a flag value before it
+ * (`git -C dir <subcommand>`) can't hide it; this errs on the side of refusing.
  */
 export function destructiveCommand(argv: readonly string[]): string | null {
   if (argv.length === 0) return null;
@@ -62,16 +86,15 @@ export function destructiveCommand(argv: readonly string[]): string | null {
     name = basename(rest[0]!);
     rest = rest.slice(1);
   }
-  const tool = destructiveTool(name);
-  if (tool !== null) return tool;
-  const words = rest.filter((arg) => !arg.startsWith('-'));
-  for (const [t, ...path] of LONGEST_FIRST) {
-    if (t !== name) continue;
-    for (let i = 0; i + path.length <= words.length; i++) {
-      if (path.every((word, j) => words[i + j] === word)) return [name, ...path].join(' ');
-    }
-  }
-  return null;
+  return destructiveTool(name) ?? destructivePath(name, rest.filter((arg) => !arg.startsWith('-')), true);
+}
+
+/**
+ * Like `destructiveCommand` for a known subcommand path (from a CLI spec, so no flags): a
+ * denylisted path must start it, so `git stash push` and `git remote prune` are not refused.
+ */
+export function destructiveSubcommand(program: string, path: readonly string[]): string | null {
+  return destructivePath(basename(program), path, false);
 }
 
 /** A denylisted tool or subcommand, refused because `--i-know` wasn't given. A config error (exit 3). */

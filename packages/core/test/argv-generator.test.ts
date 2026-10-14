@@ -185,6 +185,21 @@ describe('generateArgvCases: nested destructive subcommands', () => {
     expect(all.some((a) => a[0] === 'container' && a[1] === 'ls')).toBe(true);
   });
 
+  it('keeps a harmless subcommand that merely ends in a denylisted word', () => {
+    const git = parseCliSpec({
+      version: 1,
+      program: 'git',
+      subcommands: [
+        { name: 'stash', feature: 'cmd.stash', subcommands: [{ name: 'push', feature: 'cmd.stash.push' }] },
+        { name: 'remote', feature: 'cmd.remote', subcommands: [{ name: 'prune', feature: 'cmd.remote.prune' }] },
+      ],
+    });
+    const out = gen(git);
+    expect(out.skipped).toEqual([]);
+    expect(argvs(out).some((a) => a[0] === 'stash' && a[1] === 'push')).toBe(true);
+    expect(argvs(out).some((a) => a[0] === 'remote' && a[1] === 'prune')).toBe(true);
+  });
+
   it('generates them with iKnow', () => {
     const all = argvs(gen(docker, 42, 'v1', true));
     expect(all.some((a) => a[0] === 'system' && a[1] === 'prune')).toBe(true);

@@ -100,5 +100,14 @@ export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag
 export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type SpecProbe, type SpecProbeResult } from './spec-probe.js';
 export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
 export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
-export { DESTRUCTIVE_SUBCOMMANDS, DESTRUCTIVE_TOOLS, DestructiveToolError, assertNotDestructive, destructiveCommand } from './destructive.js';
+export {
+  CONTAINER_TOOLS,
+  CONTAINER_VERBS,
+  DESTRUCTIVE_SUBCOMMANDS,
+  DESTRUCTIVE_TOOLS,
+  DestructiveToolError,
+  assertNotDestructive,
+  destructiveCommand,
+  destructiveSubcommand,
+} from './destructive.js';
 export { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArgvOptions, type GeneratedArgv, type GeneratedCase } from './argv-generator.js';

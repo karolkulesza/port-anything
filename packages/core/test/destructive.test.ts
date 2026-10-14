@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError } from '../src/config.js';
-import { DESTRUCTIVE_SUBCOMMANDS, DESTRUCTIVE_TOOLS, DestructiveToolError, assertNotDestructive, destructiveCommand } from '../src/destructive.js';
+import { DESTRUCTIVE_SUBCOMMANDS, DESTRUCTIVE_TOOLS, DestructiveToolError, assertNotDestructive, destructiveCommand, destructiveSubcommand } from '../src/destructive.js';
 
 describe('destructiveCommand', () => {
   it('names the tools the plan lists, and finds them by path or GNU prefix', () => {
@@ -38,8 +38,28 @@ describe('destructiveCommand', () => {
     expect(destructiveCommand(['docker', 'rm', 'x'])).toBe('docker rm');
     expect(destructiveCommand(['docker', 'system', 'df'])).toBeNull();
     expect(destructiveCommand(['docker', 'image', 'ls'])).toBeNull();
-    // Every entry is a real path: no tool-level command named prune.
-    expect(DESTRUCTIVE_SUBCOMMANDS).not.toContainEqual(['docker', 'prune']);
+    for (const argv of [
+      ['docker', 'compose', 'down'],
+      ['docker', 'buildx', 'prune'],
+      ['docker', 'volume', 'remove', 'v'],
+      ['docker', 'container', 'remove', 'c'],
+      ['docker', 'container', 'stop', 'c'],
+      ['podman', 'system', 'reset'],
+    ]) {
+      expect(destructiveCommand(argv), argv.join(' ')).not.toBeNull();
+    }
+  });
+
+  it('matches a spec subcommand path only from its start', () => {
+    expect(destructiveSubcommand('git', ['push'])).toBe('git push');
+    expect(destructiveSubcommand('/usr/bin/git', ['clean'])).toBe('git clean');
+    expect(destructiveSubcommand('git', ['stash', 'push'])).toBeNull();
+    expect(destructiveSubcommand('git', ['remote', 'prune'])).toBeNull();
+    expect(destructiveSubcommand('git', ['worktree', 'prune'])).toBeNull();
+    expect(destructiveSubcommand('docker', ['container', 'rm'])).toBe('docker container rm');
+    expect(destructiveSubcommand('docker', ['compose', 'down'])).toBe('docker compose down');
+    expect(destructiveSubcommand('docker', ['image', 'ls'])).toBeNull();
+    expect(destructiveSubcommand('git', [])).toBeNull();
   });
 
   it('leaves ordinary tools alone', () => {
