@@ -60,14 +60,10 @@ async function scan(dir: string): Promise<Map<string, ScannedEntry>> {
 type Visit = (path: Buffer, rel: string, kind: 'file' | 'link') => Promise<void>;
 
 async function walk(dir: Buffer, prefix: string, visit: Visit): Promise<void> {
-  let names: Dirent<Buffer>[];
-  try {
-    names = await readdir(dir, { withFileTypes: true, encoding: 'buffer' });
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'EACCES') throw e;
-    await chmod(dir, (await lstat(dir)).mode | 0o700);
-    names = await readdir(dir, { withFileTypes: true, encoding: 'buffer' });
-  }
+  // Listing needs read permission and reaching the entries needs search (x), so restore both.
+  const { mode } = await lstat(dir);
+  if ((mode & 0o700) !== 0o700) await chmod(dir, mode | 0o700);
+  const names: Dirent<Buffer>[] = await readdir(dir, { withFileTypes: true, encoding: 'buffer' });
   for (const entry of names) {
     const path = Buffer.concat([dir, Buffer.from('/'), entry.name]);
     const rel = prefix + entry.name.toString('utf8');
@@ -108,6 +104,8 @@ export function diffSnapshots(before: FsSnapshot | Readonly<Record<string, strin
   const old = before instanceof Map ? (before as FsSnapshot) : new Map(Object.entries(before));
   const changes: FsChanges = { created: {}, modified: {}, deleted: [] };
   for (const [path, ref] of after) {
+    // As a key of a plain object it would vanish silently; observations can't hold it anyway.
+    if (path === '__proto__') throw new Error('The case left a file named "__proto__", which an observation cannot record.');
     const previous = old.get(path);
     if (previous === undefined) changes.created[path] = ref;
     else if (previous !== ref) changes.modified[path] = ref;

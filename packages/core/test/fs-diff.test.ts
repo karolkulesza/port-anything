@@ -60,6 +60,25 @@ describe('snapshotDir', () => {
     expect(snap.get('locked/secret.txt')).toBe(blobRef('hidden\n'));
   });
 
+  it.skipIf(process.getuid?.() === 0).each([
+    ['r--', 0o400],
+    ['rw-', 0o600],
+    ['r-x', 0o500],
+    ['--x', 0o100],
+  ] as const)(
+    'reads a directory the case left as %s',
+    async (_label, mode) => {
+      write('sub/inner/f.txt', 'deep\n');
+      write('sub/g.txt', 'gee\n');
+      chmodSync(join(dir, 'sub'), mode);
+      const snap = await snapshotDir(dir);
+      expect([...snap]).toEqual([
+        ['sub/g.txt', blobRef('gee\n')],
+        ['sub/inner/f.txt', blobRef('deep\n')],
+      ]);
+    },
+  );
+
   it('is empty for an empty directory', async () => {
     expect((await snapshotDir(dir)).size).toBe(0);
   });
@@ -82,6 +101,13 @@ describe('diffSnapshots', () => {
       modified: { 'edit.txt': blobRef('new') },
       deleted: ['gone.txt'],
     });
+  });
+
+  it('refuses a file named __proto__ rather than dropping it', () => {
+    expect(() => diffSnapshots(new Map(), new Map([['__proto__', blobRef('x')]]))).toThrow(/__proto__/);
+    expect(() => diffSnapshots({}, new Map([['__proto__', blobRef('x')]]))).toThrow(/__proto__/);
+    // Deeper down it is an ordinary name.
+    expect(diffSnapshots(new Map(), new Map([['sub/__proto__', blobRef('x')]])).created).toEqual({ 'sub/__proto__': blobRef('x') });
   });
 
   it("takes the case's fixtures as the before state", () => {
