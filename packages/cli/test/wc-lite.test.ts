@@ -143,4 +143,36 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(text.code).toBe(1);
     expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
   }, 120_000);
+
+  it('catches every bad port with run --smoke in under 15 s, with or without its cluster open (done when)', async () => {
+    const bad = Object.keys(BAD_PORTS) as BadPort[];
+    const smoke = async (...args: string[]) => {
+      const start = performance.now();
+      const result = await port('--smoke', '--json', ...args);
+      const ms = performance.now() - start;
+      expect(ms).toBeLessThan(15_000);
+      return { code: result.code, ms, summary: JSON.parse(result.stdout) as RunSummary & { subset: { smoke: { from: string | null; clusters: number } } } };
+    };
+    // The inner loop after a full run of the good port: nothing is open, so the samples must find each bug.
+    expect((await port()).code).toBe(0);
+    for (const feature of bad) {
+      const { code, summary } = await smoke('--candidate', badPath(feature));
+      expect({ feature, code, clusters: summary.subset.smoke.clusters }).toEqual({ feature, code: 1, clusters: 0 });
+      expect(summary.clusters.map((c) => describeSignature(c.signature))).toContain(BAD_PORTS[feature].signature);
+    }
+
+    // After a full run of the bad ports and minimizing their clusters, smoke runs each repro.
+    const candidates = bad.flatMap((c) => ['--candidate', badPath(c)]);
+    const run = JSON.parse((await port('--json', ...candidates)).stdout) as RunSummary & { run_id: string };
+    const repros: string[] = [];
+    for (const i of bad.keys()) repros.push((JSON.parse((await minimize('--json', `${run.run_id}/${i + 1}`)).stdout) as { case: { id: string } }).case.id);
+    const { code, summary } = await smoke(...candidates);
+    expect(code).toBe(1);
+    expect(summary.subset.smoke).toMatchObject({ from: run.run_id, clusters: 3 });
+    for (const [i, feature] of bad.entries()) {
+      expect({ feature, diverging: summary.candidates[i]!.divergences.map((d) => d.case) }).toEqual({ feature, diverging: expect.arrayContaining([repros[i]]) });
+    }
+    // The good port passes the same smoke subset.
+    expect((await smoke()).code).toBe(0);
+  }, 120_000);
 });
