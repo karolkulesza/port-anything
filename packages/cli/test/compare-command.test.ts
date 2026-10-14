@@ -277,6 +277,9 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     const refused = await compare(['./bin/rm', './bin/frob-copy', '--budget', '10', '--no-sandbox']);
     expect(refused.exitCode).toBe(3);
     expect(refused.stderr).toMatch(/Refusing to generate and run cases for "rm".*--i-know/);
+    const candidate = await compare(['./bin/frob', './bin/rm', '--budget', '10', '--no-sandbox']);
+    expect(candidate.exitCode).toBe(3);
+    expect(candidate.stderr).toMatch(/Refusing to generate and run cases for "rm".*--i-know/);
     const allowed = await compare(['./bin/rm', './bin/frob-copy', '--budget', '10', '--no-sandbox', '--i-know']);
     expect(allowed.stderr).toBe('');
     expect(allowed.stdout).toMatch(/every side runs as `rm`/);

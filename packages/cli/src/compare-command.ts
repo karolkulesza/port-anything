@@ -129,7 +129,9 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
   const reference = await resolveCommand(args.reference, options.cwd);
   const candidates = await Promise.all(args.candidates.map((cmd) => resolveCommand(cmd, options.cwd)));
   const programName = pinnedName([reference, ...candidates]);
-  assertNotDestructive([reference.path, ...(reference.tool === undefined ? [] : [reference.tool]), ...reference.args], args);
+  for (const program of [reference, ...candidates]) {
+    assertNotDestructive([program.path, ...(program.tool === undefined ? [] : [program.tool]), ...program.args], args);
+  }
   assertNotDestructive([programName], args);
   if (args.save) await assertCanSave(options.cwd);
   const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
