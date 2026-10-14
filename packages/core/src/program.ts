@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, chmod, copyFile, mkdir, realpath, stat, symlink } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, realpath, rm, stat, symlink } from 'node:fs/promises';
 import { basename, delimiter, isAbsolute, join, resolve } from 'node:path';
 
 /**
@@ -175,6 +175,7 @@ export async function pinPrograms(
     const binDir = join(root, `side-${i}`);
     await mkdir(binDir, { recursive: true });
     const entry = join(binDir, name);
+    await rm(entry, { force: true }); // left by an earlier pin into the same directory
     if (program.tool !== undefined) {
       await copyFile(program.realPath, entry);
       await chmod(entry, (await stat(program.realPath)).mode & 0o777);

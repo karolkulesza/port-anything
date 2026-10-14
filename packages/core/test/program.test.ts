@@ -110,6 +110,15 @@ describe('resolveProgram and pinPrograms', () => {
     expect(sides[0]!.readOnlyPaths).toEqual([sides[0]!.binDir]);
   });
 
+  it('can pin into the same directory again', async () => {
+    const ref = await resolveProgram(parseProgramCommand(join(bin, 'tool')), {});
+    const multi = await resolveProgram(parseProgramCommand(`${join(bin, 'busybox')} tool`), {});
+    await pinPrograms(join(root, 'pin-again'), [ref, multi]);
+    const { sides } = await pinPrograms(join(root, 'pin-again'), [ref, multi]);
+    expect(readlinkSync(join(sides[0]!.binDir, 'tool'))).toBe(join(bin, 'tool'));
+    expect(lstatSync(join(sides[1]!.binDir, 'tool')).isFile()).toBe(true);
+  });
+
   it('refuses a program name a multicall side cannot run as', async () => {
     const multi = await resolveProgram(parseProgramCommand(`${join(bin, 'busybox')} sort`), {});
     const other = await resolveProgram(parseProgramCommand(`${join(bin, 'busybox')} uniq`), {});
