@@ -31,7 +31,7 @@ describe('parseConfig', () => {
       report: { title: 'tool → Rust' },
     });
     expect(config.program_name).toBe('tool');
-    expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 });
+    expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: 2, min_parity: 0.95 });
     expect(config.sandbox).toEqual({ mode: 'container', image: 'debian:12-slim', timeout: 10_000, env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } });
     expect(configCandidates(config)).toEqual([{ cmd: ['./port/target/release/tool'], build: 'cargo build --release' }]);
   });
@@ -62,6 +62,19 @@ describe('parseConfig', () => {
     expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, candidate: { cmd: 'b' }, candidates: [{ cmd: 'c' }] })).toThrow(
       /candidates: use either candidate or candidates/,
     );
+  });
+
+  it('reads compare.max_slowdown as a factor, written 2x or as a plain number', () => {
+    const max = (value: unknown) => parseConfig({ version: 1, reference: { cmd: 'a' }, compare: { max_slowdown: value } }).compare.max_slowdown;
+    expect(max('2x')).toBe(2);
+    expect(max('1.5x')).toBe(1.5);
+    expect(max(3)).toBe(3);
+    expect(max('1x')).toBe(1);
+    expect(parseConfig({ version: 1, reference: { cmd: 'a' } }).compare.max_slowdown).toBeUndefined();
+    for (const bad of ['2', '2 x', 'x', '0.5x', 0, -1, '200%']) {
+      expect(() => max(bad)).toThrow(/compare\.max_slowdown: must be a factor of at least 1/);
+    }
+    expect(() => max(Infinity)).toThrow(/compare\.max_slowdown: /);
   });
 
   it('reads timeouts in ms, s, m or plain seconds', () => {

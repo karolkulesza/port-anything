@@ -34,6 +34,17 @@ const DurationSchema = z.union([z.number(), z.string()]).transform((value, ctx) 
   return ms;
 });
 
+/** `2x`, `1.5x`, or a plain number: how many times slower than the reference a candidate may run. */
+const SlowdownSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
+  const match = typeof value === 'string' ? /^(\d+(?:\.\d+)?)x$/.exec(value) : null;
+  const factor = typeof value === 'number' ? value : match ? Number(match[1]) : NaN;
+  if (!(factor >= 1) || !Number.isFinite(factor)) {
+    ctx.addIssue({ code: 'custom', message: 'must be a factor of at least 1, such as 2x or 1.5x' });
+    return z.NEVER;
+  }
+  return factor;
+});
+
 const EnvNameSchema = text.refine((name) => name !== '' && !name.includes('='), 'must be non-empty and contain no "="');
 
 const SandboxSchema = z.strictObject({
@@ -62,7 +73,8 @@ const CompareSchema = z.strictObject({
         .default(() => ({ similarity: DEFAULT_STDERR_SIMILARITY })),
     })
     .default(() => ({ stderr: { similarity: DEFAULT_STDERR_SIMILARITY } })),
-  max_slowdown: later,
+  /** Optional gate: the run fails when a candidate's median time ratio is above this factor. */
+  max_slowdown: SlowdownSchema.optional(),
   min_parity: later,
 });
 
