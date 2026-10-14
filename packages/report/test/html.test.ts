@@ -119,6 +119,12 @@ describe('renderReportHtml', () => {
     expect(clusters).toContain('repro: case <code>c_0000001a</code> (no longer in the corpus)');
   });
 
+  it('writes an environment name the shell cannot assign through env(1)', () => {
+    const repro = INPUT.repros[id(3)]!;
+    const odd = renderReportHtml({ ...INPUT, repros: { ...INPUT.repros, [id(3)]: { ...repro, env: { LC_ALL: 'C', 'MY-VAR': 'a b' } } } });
+    expect(odd).toContain(`<pre>$ env LC_ALL=C &#39;MY-VAR=a b&#39; tool -n &#39;a file.txt&#39;</pre>`);
+  });
+
   it('lists reference bugs with the cases each candidate has, and a repro', () => {
     const bugs = section('reference-bugs');
     expect(bugs).toContain('<h3>waiver 2: the original exits 0 after &quot;write error&quot;</h3>');

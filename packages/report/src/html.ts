@@ -363,8 +363,11 @@ function reproBlock(input: ReportInput, caseId: string): string {
   const repro = input.repros[caseId];
   const id = `<code>${esc(shortCaseId(caseId))}</code>`;
   if (repro === undefined) return `<p>repro: case ${id} (no longer in the corpus)</p>`;
-  const env = Object.entries(repro.env).map(([k, v]) => `${k}=${shellWord(v)} `);
-  const command = `${env.join('')}${[input.programName, ...repro.argv].map(shellWord).join(' ')}`;
+  // A name the shell can't assign (`A-B=1 tool`) goes through env(1) instead.
+  const entries = Object.entries(repro.env);
+  const viaEnv = entries.some(([k]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+  const env = entries.map(([k, v]) => (viaEnv ? shellWord(`${k}=${v}`) : `${k}=${shellWord(v)}`));
+  const command = [...(viaEnv ? ['env'] : []), ...env, ...[input.programName, ...repro.argv].map(shellWord)].join(' ');
   const parts = [`<p>repro: case ${id}</p>`, `<pre>$ ${esc(command)}</pre>`];
   if (repro.stdin !== null) parts.push(`<p class="note">stdin (${count(repro.stdin.bytes, 'byte')}):</p>`, contentBlock(repro.stdin));
   for (const f of repro.fixtures) parts.push(`<p class="note">file <code>${esc(f.path)}</code> (${count(f.bytes, 'byte')}):</p>`, contentBlock(f));
