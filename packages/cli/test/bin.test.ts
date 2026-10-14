@@ -16,7 +16,8 @@ describe('built bin (run `pnpm build` first)', () => {
     const bin = pkg.bin['port-anything'];
     expect(bin).toBe('dist/bin.js');
     const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL(`../${bin}`, import.meta.url))]);
-    expect(stdout).toContain('Not released yet.');
+    expect(stdout).toContain("Usage: port-anything compare '<ref cmd>' '<candidate cmd>'…");
+    expect(stdout).not.toContain('Not released yet');
   });
 
   it('starts with a node shebang so npx can run it', async () => {

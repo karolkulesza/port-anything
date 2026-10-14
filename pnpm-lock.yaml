@@ -26,6 +26,13 @@ importers:
 
   packages/cli:
     dependencies:
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
+    devDependencies:
       '@port-anything/core':
         specifier: workspace:*
         version: link:../core
