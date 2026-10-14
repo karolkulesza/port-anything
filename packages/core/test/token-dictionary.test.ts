@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTokenDictionary, tokenize, type Token } from '../src/token-dictionary.js';
+import { EDGE, buildTokenDictionary, pairKey, tokenize, type Token } from '../src/token-dictionary.js';
 
 const kinds = (text: string) => tokenize(text).filter((t) => t.kind !== 'space').map((t) => `${t.kind}:${t.text}`);
 
@@ -40,6 +40,25 @@ describe('buildTokenDictionary', () => {
     expect(d.byKind.get('number')).toEqual(['1']);
     expect(d.kinds).toEqual(['word', 'number', 'operator']);
     expect(d.size).toBe(6);
+  });
+
+  it('records neighbour pairs, with literals of a kind as one shape and edges at both ends', () => {
+    const d = buildTokenDictionary({ seeds: ['.a + 1', 'f("x")'] });
+    const number = '\u0001number';
+    const string = '\u0001string';
+    expect([...d.pairs].sort()).toEqual(
+      [[EDGE, '.'], ['.', 'a'], ['a', '+'], ['+', number], [number, EDGE], [EDGE, 'f'], ['f', '('], ['(', string], [string, ')'], [')', EDGE]]
+        .map(([l, r]) => pairKey(l!, r!))
+        .sort(),
+    );
+  });
+
+  it('records pairs from each quoted span of a code line on its own', () => {
+    const d = buildTokenDictionary({ help: "  $ tool '.a' x" });
+    expect(d.pairs.has(pairKey(EDGE, '.'))).toBe(true);
+    expect(d.pairs.has(pairKey('a', EDGE))).toBe(true);
+    expect(d.pairs.has(pairKey(EDGE, 'tool'))).toBe(true);
+    expect(d.pairs.has(pairKey('tool', 'x'))).toBe(true);
   });
 
   it('does not depend on the order of the seeds', () => {
@@ -109,6 +128,6 @@ describe('buildTokenDictionary', () => {
 
   it('is empty without sources', () => {
     const d = buildTokenDictionary({});
-    expect(d).toEqual({ kinds: [], byKind: new Map<string, Token[]>(), size: 0 });
+    expect(d).toEqual({ kinds: [], byKind: new Map<string, Token[]>(), size: 0, pairs: new Set() });
   });
 });

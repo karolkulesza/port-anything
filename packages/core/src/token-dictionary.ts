@@ -60,6 +60,24 @@ export interface TokenDictionary {
   kinds: readonly TokenKind[];
   byKind: ReadonlyMap<TokenKind, readonly string[]>;
   size: number;
+  /**
+   * Neighbour pairs seen in the sources, as `pairKey(left, right)` over non-space tokens, with
+   * `EDGE` before the first and after the last token of each piece of code. Mutation prefers
+   * tokens whose new neighbours were seen together, which keeps most results well-formed.
+   */
+  pairs: ReadonlySet<string>;
+}
+
+/** Shape of a token for neighbour pairs: literals of one kind are interchangeable, anything else is its text. */
+export function tokenShape(token: Token): string {
+  return token.kind === 'number' || token.kind === 'string' ? `\u0001${token.kind}` : token.text;
+}
+
+/** Stands for the start or the end of a piece of code in a neighbour pair. */
+export const EDGE = '\u0001edge';
+
+export function pairKey(left: string, right: string): string {
+  return `${left}\u0000${right}`;
 }
 
 export interface DictionarySources {
@@ -80,14 +98,21 @@ export interface DictionarySources {
  */
 export function buildTokenDictionary(sources: DictionarySources): TokenDictionary {
   const sets = new Map<TokenKind, Set<string>>();
+  const pairs = new Set<string>();
   const add = (token: Token) => {
     if (token.kind === 'space') return;
     let set = sets.get(token.kind);
     if (!set) sets.set(token.kind, (set = new Set()));
     set.add(token.text);
   };
+  const addPiece = (tokens: Token[]) => {
+    const shapes = [EDGE, ...tokens.filter((t) => t.kind !== 'space').map(tokenShape), EDGE];
+    if (shapes.length === 2) return;
+    tokens.forEach(add);
+    for (let i = 1; i < shapes.length; i++) pairs.add(pairKey(shapes[i - 1]!, shapes[i]!));
+  };
 
-  for (const seed of sources.seeds ?? []) tokenize(seed).forEach(add);
+  for (const seed of sources.seeds ?? []) addPiece(tokenize(seed));
   for (const doc of [sources.help, sources.man]) {
     if (doc === undefined) continue;
     const { prose, code } = isTroff(doc) ? fromTroff(doc) : fromPlainText(doc);
@@ -95,7 +120,7 @@ export function buildTokenDictionary(sources: DictionarySources): TokenDictionar
     for (const choice of prose.matchAll(/[{[(]([\w.-]+(?:[,|][\w.-]+)+)[}\])]/g)) {
       for (const value of choice[1]!.split(/[,|]/)) tokenize(value).forEach(add);
     }
-    for (const line of code) codeTokens(line).forEach(add);
+    for (const line of code) codePieces(line).forEach(addPiece);
   }
 
   const byKind = new Map<TokenKind, readonly string[]>();
@@ -107,17 +132,17 @@ export function buildTokenDictionary(sources: DictionarySources): TokenDictionar
     byKind.set(kind, sorted);
     size += sorted.length;
   }
-  return { kinds: [...byKind.keys()], byKind, size };
+  return { kinds: [...byKind.keys()], byKind, size, pairs };
 }
 
-function codeTokens(line: string): Token[] {
-  if (!/'[^']*'/.test(line)) return tokenize(line);
-  const tokens: Token[] = [];
+/** A code line as separately lexed pieces: each single-quoted span's content, then the rest. */
+function codePieces(line: string): Token[][] {
+  const pieces: Token[][] = [];
   const outside = line.replace(/'([^']*)'/g, (_, inner: string) => {
-    tokens.push(...tokenize(inner));
+    pieces.push(tokenize(inner));
     return ' ';
   });
-  return [...tokens, ...tokenize(outside)];
+  return [...pieces, tokenize(outside)];
 }
 
 function fromPlainText(doc: string): { prose: string; code: string[] } {
