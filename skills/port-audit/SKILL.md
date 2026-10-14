@@ -17,13 +17,16 @@ code, stdout, stderr and file changes. It writes nothing outside a scratch direc
 ## 1. Set up
 
 1. **The CLI.** Use `port-anything` if it is on `PATH`, otherwise `npx port-anything` (Node
-   22.15+). Check that it starts with `port-anything --help`.
+   22.15+). `port-anything compare` without arguments prints its usage line (and exits 3): that
+   is enough to check it is installed.
 2. **The programs.** Get an exact command for the reference and for each candidate. A command is
    a path plus any leading arguments, quoted as one string: `/usr/bin/sort`, `./target/release/wc`,
    `'coreutils sort'`, `'busybox sort'`. Prefer explicit paths: a bare name may resolve to a
    different implementation than you think (on some distributions `sort` already is the rewrite).
    Build any side that needs building first, in release mode. Record each side's version
-   (`--version`, the git commit, or the package version) for the report.
+   (`--version`, the git commit, or the package version) for the report; when they don't tell
+   the sides apart (local builds often print the same version), add a short hash of each binary
+   (`shasum`).
 3. **Same name.** Every side runs under the same `argv[0]` (the reference's file name, or the
    tool name of a multicall command such as `'coreutils sort'`), so a program that prints its
    own name in errors doesn't diverge. Two multicall sides with different tool names can't be
@@ -55,25 +58,30 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | Field | Meaning |
 |---|---|
 | `program_name` | The `argv[0]` every side ran as. |
+| `reference` | The reference command, as given. |
 | `sandbox` | The sandbox used (`none (--no-sandbox)` when unsandboxed: say so in the report). |
 | `spec.flags`, `spec.forms`, `spec.subcommands`, `spec.features` | What was read from the reference's `--help`. Few flags for a rich tool means its help text was hard to parse: say the audit covers only these. |
-| `corpus.cases`, `corpus.budget`, `corpus.seed` | Cases generated, the budget asked for, and the seed (fixed, for repeatability). |
+| `corpus.cases`, `corpus.budget`, `corpus.seed`, `corpus.generator` | Cases generated, the budget asked for, and the seed and generator version (fixed, for repeatability). |
+| `corpus.stop`, `corpus.observed`, `corpus.dropped` | Why generation stopped (`budget`…), how many cases the reference ran while generating, and how many were dropped (duplicate output, too many errors, over budget). |
 | `corpus.skipped` | Destructive subcommands left out. |
 | `untested` | Features of the spec that no case exercised. Untested, not passing. |
+| `baseline.repeats`, `baseline.stable`, `baseline.normalized` | Extra reference runs per case, and how many cases gave the same output every time, as is or after the normalizers. |
 | `baseline.flaky_reference` | Cases whose reference output varied between its own runs (`case`, `argv`, `fields`). They are left out of every score. |
 | `normalizers` | Normalizers applied to every side to hide run-to-run noise (timestamps, temp paths, PIDs…), with the number of cases each one changed. |
 | `candidates[].command` | The candidate, as given. |
 | `candidates[].parity` | The headline: the **mean of per-feature parity** over the features that count (0 to 1), so a feature with many cases doesn't drown the rest. `null` when no feature has enough cases. |
 | `candidates[].features` | How many features the headline averages. |
-| `candidates[].match`, `candidates[].cases` | Matching cases out of all scored cases, each case counted once. |
+| `candidates[].match`, `candidates[].cases` | Matching cases out of all scored cases, each case counted once. **Always read these next to `parity`:** cases with an unknown or invalid option belong to no feature, so a candidate can show 100% parity and still have divergences (a wrong exit code on a usage error, say). Report `match`/`cases` in the results and triage every divergence, whatever the headline. |
 | `candidates[].per_feature[]` | One entry per feature: `feature` (`base` = no flags, `opt.<flag>` = cases using that flag), `match`, `cases`, `parity`. |
 | `candidates[].per_feature[].selfDescription` | `--help` / `--version` style features: listed, never in the headline (help text is allowed to differ). |
 | `candidates[].per_feature[].underSampled` | Too few cases to count in the headline: report the numbers, don't conclude from them. |
 | `candidates[].divergences[]` | Every diverging case: `case` (its ID), `argv` (the arguments after the program name) and `fields` (what differed: `exit` code, `signal`, `timeout`, `stdout`, `stderr`, `fs` for files created, changed or deleted). |
+| `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. An audit doesn't need `--save`. |
 | `duration_ms` | Wall time of the run. |
 
-The JSON doesn't include each case's stdin or input files: a divergence tells you **which
-arguments** and **which outputs**, and you rebuild the input by hand (step 4). If your version of
+The JSON doesn't include each case's stdin or input files (an `argv` may name an input file,
+such as `data.txt`, but not its contents): a divergence tells you **which arguments** and
+**which outputs**, and you rebuild the input by hand (step 4). If your version of
 the CLI prints more (clusters, minimized repros), use them.
 
 ## 4. Triage the divergences
@@ -86,7 +94,9 @@ Don't report raw divergence counts. Turn them into a few **findings**, each veri
 2. **Reproduce** each group directly, outside `port-anything`: run the reference and the
    candidate with the same `argv` under the same name, in an empty temporary directory, with a
    small stdin or input file you write. Compare exit code, stdout and stderr (`diff <(ref …)
-   <(cand …)`, `echo $?`). Keep the side effects inside the temporary directory.
+   <(cand …)`, `echo $?`). Keep the side effects inside the temporary directory. Write probe
+   loops for `bash` and quote every argument (`"$@"`, arrays): an unquoted `$args` is not split
+   into words in zsh, which gives false differences.
 3. **Minimize**: shrink the arguments and the input until removing anything makes the difference
    go away. A finding is one short command line plus a few bytes of input, the reference's
    output and the candidate's.
@@ -94,13 +104,22 @@ Don't report raw divergence counts. Turn them into a few **findings**, each veri
    - version skew: the reference is an older or newer release than the one the rewrite targets;
    - environment: locale, time zone, terminal width, the user, files that exist on one machine;
    - noise the normalizers missed (paths, dates, PIDs): rerun twice;
-   - documented, intentional differences of the candidate (check its docs and issue tracker);
+   - documented, intentional differences of the candidate (check its docs and issue tracker,
+     when it has them; say in the report when there was nothing to check);
    - only the wording of an error message differs while the exit code agrees: a real but minor
      difference, report it as such;
    - for deliberately minimal implementations (busybox, toybox…), a missing flag is "not
      implemented", not a wrong answer: report it as coverage.
 5. If a group doesn't reproduce by hand, say so ("seen by `compare` on generated input, not
    reproduced by hand") rather than dropping it or guessing.
+
+Then spend a short, bounded pass (a few dozen invocations) **probing what generated cases may
+miss**, especially for candidates at 100%: input edge cases the tool's domain suggests (empty
+input, no trailing newline, CRLF line endings, invalid UTF-8, very long lines, binary data,
+several files, a missing file), combined with the features in `per_feature`. Matching parity
+means "no difference on these cases", not "no difference". Report what this pass finds as
+separate findings marked "found by hand, not by `compare`", and list what you probed in the
+caveats.
 
 ## 5. Write the audit
 
@@ -114,7 +133,8 @@ and keep `audit.json` next to it. Structure:
    self-description features).
 3. **Findings**, most important first. For each: a one-line title, the minimized command and
    input, the reference's and the candidate's output (or exit code), which feature it falls
-   under, how many divergences it explains, and whether it was reproduced by hand.
+   under, how many divergences it explains, and whether it was reproduced by hand (or found by
+   hand only).
 4. **Coverage and caveats**: `untested` features, under-sampled features, `flaky_reference`
    cases, the `normalizers` applied, skipped destructive subcommands, anything you ruled out as
    a false positive and why.
@@ -128,6 +148,6 @@ Don't claim coverage the run didn't have.
 - Measure only: don't modify the reference, the candidates or their sources.
 - Never add `--no-sandbox` or `--i-know` without the user's explicit agreement.
 - Don't file issues, open pull requests or post anywhere. Draft upstream reports in the audit if
-  useful; the user decides. Before drafting one, check the project's issue tracker for an
-  existing report and mention it instead.
+  useful; the user decides. Before drafting one, check the project's issue tracker (when there
+  is one) for an existing report and mention it instead.
 - Every finding in the report has been reproduced, or is marked as not reproduced.
