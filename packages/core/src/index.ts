@@ -75,3 +75,4 @@ export {
   type FsSnapshot,
 } from './fs-diff.js';
 export { defaultConcurrency, mapPool } from './pool.js';
+export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
