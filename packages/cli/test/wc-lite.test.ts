@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BlobStore, cacheDir, loadCommittedCases, readConfigFile } from '@port-anything/core';
+import { BlobStore, cacheDir, describeFeatures, describeSignature, loadCommittedCases, readConfigFile, type SavedCluster } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // The wc-lite example end to end: a C reference, its Rust port, and bad ports that are the same
@@ -14,11 +14,13 @@ const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 
-/** Each bad port's cargo feature and the fields its divergences show. */
+/** Each bad port's cargo feature and the one cluster its divergences form. */
 const BAD_PORTS = {
-  'bad-off-by-one': ['stdout'],
-  'bad-crlf': ['stdout'],
-  'bad-exit-code': ['exit'],
+  // The lines count of input without a final newline: three cases with three different feature sets.
+  'bad-off-by-one': { size: 3, signature: 'stdout number-value', features: 'opt.l (2), base (1), error.file (1)' },
+  // The longest line of CRLF input, one character short.
+  'bad-crlf': { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
+  'bad-exit-code': { size: 3, signature: 'exit 2 vs 1', features: 'error.usage (3)' },
 } as const;
 type BadPort = keyof typeof BAD_PORTS;
 
@@ -31,6 +33,7 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 interface RunSummary {
   cases: number;
   candidates: { command: string; match: number; diverge: number; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
+  clusters: SavedCluster[];
 }
 
 describe.runIf(enabled)('examples/wc-lite', () => {
@@ -83,25 +86,25 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(code).toBe(0);
   }, 120_000);
 
-  it('prints a divergence for each bad port and none for a renamed identical copy (one run)', async () => {
+  it('puts the divergences of each bad port in one cluster of its own, and none for a renamed identical copy (one run)', async () => {
     const bad = Object.keys(BAD_PORTS) as BadPort[];
     const args = ['./copy/wc-copy', ...bad.map(badPath)].flatMap((c) => ['--candidate', c]);
     const json = await port('--json', ...args);
-    const { cases, candidates } = JSON.parse(json.stdout) as RunSummary;
+    const { cases, candidates, clusters } = JSON.parse(json.stdout) as RunSummary;
     expect(json.code).toBe(1);
     expect(candidates[0]).toMatchObject({ command: './copy/wc-copy', match: cases, diverge: 0 });
-    for (const [i, feature] of bad.entries()) {
-      const { diverge, divergences } = candidates[i + 1]!;
-      const fields = [...new Set(divergences.flatMap((d) => d.fields))];
-      expect({ feature, diverging: diverge > 0, fields }).toEqual({ feature, diverging: true, fields: BAD_PORTS[feature] });
-    }
+    const got = clusters.map((c) => ({ candidate: c.candidate, size: c.size, signature: describeSignature(c.signature), features: describeFeatures(c.features) }));
+    expect(got).toEqual(bad.map((feature, i) => ({ candidate: i + 2, ...BAD_PORTS[feature] })));
+    for (const [i, c] of clusters.entries()) expect(c.cases).toEqual(candidates[i + 1]!.divergences.map((d) => d.case));
 
     const text = await port(...args);
     expect(text.code).toBe(1);
     expect(text.stdout).toContain(`candidate 1 ./copy/wc-copy: ${cases} of ${cases} cases match\n`);
     for (const [i, feature] of bad.entries()) {
       const { match, diverge } = candidates[i + 1]!;
-      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  cluster `);
+      const { size, signature, features } = BAD_PORTS[feature];
+      const head = `candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n`;
+      expect(text.stdout).toContain(`${head}  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
     }
   }, 120_000);
 });
