@@ -1,6 +1,3 @@
-import { randomBytes } from 'node:crypto';
-import { rm, rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
@@ -11,23 +8,18 @@ import {
   configCandidates,
   loadCommittedCases,
   normalizerLabel,
-  parseProgramCommand,
   probeSandbox,
+  readBaselineRecord,
   readConfigFile,
-  resolveProgram,
   runCases,
   shortCaseId,
   type CanonicalCase,
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
+import { display, resolveCommand, withScratchDir, type CliResult } from './common.js';
 
-/** What a CLI command returns: the exit code and what to print. */
-export interface CliResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
+export type { CliResult } from './common.js';
 
 /** The options of `port-anything run` this version understands. */
 export interface RunArgs {
@@ -117,25 +109,18 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
 
-  const resolve = async (cmd: string | readonly string[]) => {
-    try {
-      return await resolveProgram(parseProgramCommand(cmd), { cwd: projectDir });
-    } catch (e) {
-      throw new ConfigError((e as Error).message);
-    }
-  };
-  const reference = await resolve(config.reference.cmd);
-  const candidates = await Promise.all(commands.map(resolve));
+  const reference = await resolveCommand(config.reference.cmd, projectDir);
+  const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
   const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
 
-  // Scratch space inside the project rather than /tmp, which may be mounted noexec.
-  const workDir = join(projectDir, '.port-anything', 'tmp', `run-${randomBytes(6).toString('hex')}`);
-  let result;
-  try {
-    result = await runCases({
+  // Cases whose reference output varied in the last baseline are left out of the comparison and listed.
+  const flaky = new Map((await readBaselineRecord(projectDir))?.flaky_reference.map((f) => [f.case, f.fields]));
+  const flakyReference = cases.filter((c) => flaky.has(c.id)).map((c) => ({ case: c.id, fields: flaky.get(c.id)! }));
+  const result = await withScratchDir(projectDir, 'run', (workDir) =>
+    runCases({
       reference,
       candidates,
-      cases,
+      cases: cases.filter((c) => !flaky.has(c.id)),
       store: new BlobStore(cacheDir(projectDir)),
       sandbox,
       workDir,
@@ -144,11 +129,8 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       envAllowlist: config.sandbox.env_allowlist,
       env: config.sandbox.env,
       normalizers: config.normalizers,
-    });
-  } finally {
-    await rm(workDir, { recursive: true, force: true });
-    await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another run uses it
-  }
+    }),
+  );
 
   // Per normalizer, the cases where it changed either side of a comparison (of any candidate, or of one).
   const changed = (candidate?: number) =>
@@ -161,6 +143,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     sandbox: sandbox.label,
     reference: display(config.reference.cmd),
     cases: result.cases.length,
+    flaky_reference: flakyReference,
     normalizers: changed(),
     candidates: commands.map((command, i) => {
       const divergences = result.cases
@@ -173,6 +156,10 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
+  if (flakyReference.length > 0) {
+    lines.push(`flaky-reference, left out (the reference varied in port-anything baseline): ${flakyReference.length}`);
+    for (const f of flakyReference) lines.push(`  ${shortCaseId(f.case)}  ${f.fields.join(', ')}`);
+  }
   if (summary.normalizers.length === 0) lines.push('normalizers: none');
   else {
     lines.push('normalizers (cases changed):');
@@ -183,9 +170,4 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
-}
-
-/** A command as the user wrote it; an argv list is shown with quotes around words with spaces. */
-function display(cmd: string | readonly string[]): string {
-  return typeof cmd === 'string' ? cmd : cmd.map((w) => (/[\s'"]/.test(w) || w === '' ? `'${w}'` : w)).join(' ');
 }

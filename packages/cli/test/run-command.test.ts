@@ -96,6 +96,7 @@ describe('executeRun', () => {
       sandbox: 'none (--no-sandbox)',
       reference: './bin/tool',
       cases: 3,
+      flaky_reference: [],
       normalizers: [],
       candidates: [
         { command: './bin/tool-copy', match: 3, diverge: 0, normalizers: [], divergences: [] },
