@@ -230,6 +230,20 @@ describe('program-name', () => {
   });
 });
 
+describe('sort-lines', () => {
+  it('sorts the lines of each side, keeping a final newline where there was one', async () => {
+    const out = await normalizeText(spec('sort-lines'), 'pear\napple\nfig\n', 'fig\npear\napple\n');
+    expect(out.reference).toBe('apple\nfig\npear\n');
+    expect(out.candidate).toBe('apple\nfig\npear\n');
+    expect(out.changedBy).toEqual([0]);
+    expect((await normalizeText(spec('sort-lines'), 'b\r\na\r\n\nc')).reference).toBe('\na\r\nb\r\nc');
+  });
+
+  it('counts nothing for output already in order', async () => {
+    expect((await normalizeText(spec('sort-lines'), 'a\nb\n')).changedBy).toEqual([]);
+  });
+});
+
 describe('normalizePair', () => {
   it('applies normalizers in order, so a later one sees the output of an earlier one', async () => {
     const regexFirst = spec({ regex: { pattern: '<TMP>', replacement: 'T' } }, 'tmp-paths');

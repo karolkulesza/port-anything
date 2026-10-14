@@ -55,8 +55,25 @@ export const RunRecordSchema = z
     run_id: z.string().regex(RUN_ID_PATTERN),
     /** When it was saved, ISO 8601 with milliseconds. */
     created: z.iso.datetime(),
-    /** The part of the corpus it ran, when not the whole: `cluster` is the address it re-ran. */
-    subset: z.object({ cluster: z.string() }).nullable(),
+    /**
+     * The part of the corpus it ran, when not the whole: `cluster` is the address it re-ran;
+     * `smoke` is a smoke subset (see `smokeSubset`) of a corpus of `corpus` cases, with the open
+     * clusters of run `from` (none when there was no run yet) and how many cases each part added.
+     */
+    subset: z
+      .union([
+        z.object({ cluster: z.string() }),
+        z.object({
+          smoke: z.object({
+            from: z.string().regex(RUN_ID_PATTERN).nullable(),
+            corpus: z.number().int().nonnegative(),
+            clusters: z.number().int().nonnegative(),
+            per_feature: z.number().int().nonnegative(),
+            passing: z.number().int().nonnegative(),
+          }),
+        }),
+      ])
+      .nullable(),
     /** Each candidate as given in the config or on the command line. */
     candidate_commands: z.array(z.union([z.string().min(1), z.array(z.string()).min(1)])).min(1),
     clusters: z.array(SavedClusterSchema),
