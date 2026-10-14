@@ -90,6 +90,14 @@ describe('strength picks its mutation tool', { timeout: 120_000 }, () => {
     expect(json.notes).toEqual(['mull and its clang are not on the PATH, so the generic source mutator ran.']);
   });
 
+  it('never mutates the reference, even when its script sits next to the candidate', async () => {
+    const cwd = makeProject({ 'ref.js': JS_TOOL, 'tool.js': JS_TOOL }, '{ cmd: ./tool.js }');
+    writeFileSync(join(cwd, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./ref.js }\ncandidate: { cmd: ./tool.js }\n');
+    const json = JSON.parse((await strength(cwd, ['--json'])).stdout);
+    expect(json).toMatchObject({ tool: 'port-anything generic source mutator', generated: 6 });
+    expect([...json.caught_mutants, ...json.survivors].every((name: string) => name.startsWith('tool.js:'))).toBe(true);
+  });
+
   it('refuses a candidate whose source is outside the project, since it mutates a copy of the project', async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-strength-outside-')));
     try {

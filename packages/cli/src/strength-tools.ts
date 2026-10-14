@@ -66,7 +66,7 @@ export interface Tool {
  * first argument that is a file) or else its executable, by walking up to a project file.
  */
 export async function chooseTool(ctx: ToolContext): Promise<Tool> {
-  const anchor = await sourceAnchor(ctx);
+  const anchor = await sourceAnchor(ctx, ctx.candidate);
   // Not above the project when the candidate is in it: the project may sit in some other Cargo workspace.
   const cargo = findUp(dirname(anchor.path), (dir) => existsSync(join(dir, 'Cargo.toml')), isInside(ctx.projectDir, anchor.path) ? ctx.projectDir : undefined);
   if (cargo !== undefined) return cargoMutants(ctx, anchor, join(cargo, 'Cargo.toml'));
@@ -87,15 +87,15 @@ export async function chooseTool(ctx: ToolContext): Promise<Tool> {
 
 const C_FAMILY = ['.c', '.h', '.cc', '.cpp', '.cxx', '.hh', '.hpp', '.hxx'];
 
-/** The file the candidate's source is found from: its script when it has one, else its executable; `script` when it runs as it is. */
-async function sourceAnchor(ctx: ToolContext): Promise<{ path: string; script: boolean }> {
-  for (const arg of ctx.candidate.args) {
+/** The file a program's source is found from: its script when it has one, else its executable; `script` when it runs as it is. */
+async function sourceAnchor(ctx: ToolContext, program: ProgramCommand): Promise<{ path: string; script: boolean }> {
+  for (const arg of program.args) {
     const path = resolve(ctx.projectDir, arg);
     if (!arg.startsWith('-') && existsSync(path) && statSync(path).isFile()) return { path, script: true };
   }
   try {
     // An executable script (`./port/tool.py` with a #! line) runs as mutated too.
-    const path = (await resolveProgram(ctx.candidate, { cwd: ctx.projectDir })).path;
+    const path = (await resolveProgram(program, { cwd: ctx.projectDir })).path;
     return { path, script: isMutableSource(path) };
   } catch (e) {
     throw new ConfigError((e as Error).message);
@@ -135,19 +135,23 @@ const SKIP_DIRS = new Set(['.git', '.port-anything', 'port-anything', 'node_modu
 const TEST_NAME = /(^|[._-])(test|tests|spec)([._-]|$)/i;
 const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec']);
 
-/** The source files under `root` the generic fallback mutates (paths relative to `root`), leaving out tests and the reference's directory. */
+/**
+ * The source files under `root` the generic fallback mutates (paths relative to `root`), leaving
+ * out tests and the reference: its script or executable, and its directory unless that is `root`.
+ */
 async function sourceFiles(ctx: ToolContext, root: string): Promise<string[]> {
-  const reference = await resolveProgram(ctx.reference, { cwd: ctx.projectDir }).then(
-    (p) => dirname(p.path),
+  const reference = await sourceAnchor(ctx, ctx.reference).then(
+    (a) => a.path,
     () => undefined,
   );
+  const referenceDir = reference === undefined ? undefined : dirname(reference);
   const files: string[] = [];
   const walk = async (dir: string): Promise<void> => {
     for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1))) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name) && !TEST_DIRS.has(entry.name) && path !== reference) await walk(path);
-      } else if (entry.isFile() && isMutableSource(entry.name) && !TEST_NAME.test(entry.name.replace(/\.[^.]+$/, ''))) {
+        if (!SKIP_DIRS.has(entry.name) && !TEST_DIRS.has(entry.name) && path !== referenceDir) await walk(path);
+      } else if (entry.isFile() && path !== reference && isMutableSource(entry.name) && !TEST_NAME.test(entry.name.replace(/\.[^.]+$/, ''))) {
         files.push(relative(root, path).split(sep).join('/'));
       }
     }
