@@ -48,6 +48,14 @@ describe('parseConfig', () => {
     expect(() => parseConfig({ ...base, compare: { profiel: 'strict' } })).toThrow(/compare: /);
   });
 
+  it('reads corpus.min_cases_per_feature, leaving the other corpus keys to later commands', () => {
+    const base = { version: 1, reference: { cmd: 'a' } };
+    expect(parseConfig({ ...base, corpus: { min_cases_per_feature: 5, repeats: 3, generator: 'v1' } }).corpus).toEqual({ min_cases_per_feature: 5, repeats: 3, generator: 'v1' });
+    expect(parseConfig(base).corpus).toBeUndefined();
+    expect(() => parseConfig({ ...base, corpus: { min_cases_per_feature: 0 } })).toThrow(/corpus\.min_cases_per_feature: /);
+    expect(() => parseConfig({ ...base, corpus: { min_cases_per_feature: 2.5 } })).toThrow(/corpus\.min_cases_per_feature: /);
+  });
+
   it('takes several candidates, but not both spellings at once', () => {
     const config = parseConfig({ version: 1, reference: { cmd: 'gnusort' }, candidates: [{ cmd: 'coreutils sort' }, { cmd: 'busybox sort' }] });
     expect(configCandidates(config).map((c) => c.cmd)).toEqual(['coreutils sort', 'busybox sort']);

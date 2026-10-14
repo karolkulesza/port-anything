@@ -66,6 +66,12 @@ const CompareSchema = z.strictObject({
   min_parity: later,
 });
 
+/** `corpus`: only `min_cases_per_feature` is read so far (by scoring); the other keys are left to later commands. */
+const CorpusSchema = z.looseObject({
+  /** Features with fewer scored cases are left out of the headline. Default 20. */
+  min_cases_per_feature: z.int().min(1).optional(),
+});
+
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
 export const ConfigSchema = z
   .strictObject({
@@ -80,7 +86,7 @@ export const ConfigSchema = z
     compare: CompareSchema.default(() => CompareSchema.parse({})),
     /** Applied in order to both sides before comparing. */
     normalizers: NormalizersSchema.default([]),
-    corpus: later,
+    corpus: CorpusSchema.optional(),
     holdout: later,
     report: later,
   })
