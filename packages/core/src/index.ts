@@ -74,3 +74,4 @@ export {
   type FsChangesOptions,
   type FsSnapshot,
 } from './fs-diff.js';
+export { defaultConcurrency, mapPool } from './pool.js';
