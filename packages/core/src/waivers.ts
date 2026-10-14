@@ -172,20 +172,73 @@ export interface SuggestionSource {
  */
 export function suggestedPredicates(cluster: SuggestionSource): WaiverPredicate[] {
   const feature = cluster.features.length === 1 ? { feature: cluster.features[0]!.feature } : {};
-  return cluster.signature.fields.map((field) => ({ ...feature, field, shape: cluster.signature.shapes.find((s) => s.field === field)?.shape ?? 'exit-code' }));
+  return cluster.signature.fields.map((field) => ({ ...feature, field, shape: fieldShape(cluster.signature, field)! }));
+}
+
+/**
+ * A signature's shape for one of its fields. Exit, signal and timeout share the signature's single
+ * `exit-code` entry (listed under the first of them), so a status field without its own entry is
+ * `exit-code`; undefined for a field the signature doesn't have.
+ */
+function fieldShape(signature: SuggestionSource['signature'], field: ComparedField): DiffShape | undefined {
+  if (!signature.fields.includes(field)) return undefined;
+  return signature.shapes.find((s) => s.field === field)?.shape ?? 'exit-code';
+}
+
+/** Another cluster of the same run, as saved. */
+export interface RunCluster extends SuggestionSource {
+  /** Its number in the run. */
+  cluster: number;
+  size: number;
+}
+
+export interface ClusterReach {
+  cluster: number;
+  /** Its cases with a field the predicates cover: all of them, or those with the predicate's feature. */
+  cases: number;
+}
+
+/**
+ * The clusters of a run whose cases the predicates would also cover a field of. A predicate
+ * without a regex covers a cluster's field when the signature has that field with that shape, in
+ * the cases carrying its feature (all of them without one). With a regex it can't be told from the
+ * saved run, so it counts as covering (an upper bound). Waivers apply per field, so a predicate
+ * suggested for one cluster easily reaches others: an `exit-code` shape, for example, covers every
+ * exit status difference.
+ */
+export function suggestionReach(predicates: readonly WaiverPredicate[], clusters: readonly RunCluster[]): ClusterReach[] {
+  return clusters.flatMap((k) => {
+    const cases = Math.max(
+      0,
+      ...predicates.map((m) => {
+        const fields = m.field === undefined ? k.signature.fields : k.signature.fields.filter((f) => f === m.field);
+        if (m.regex !== undefined && fields.every((f) => !TEXT_FIELDS.includes(f))) return 0;
+        if (!fields.some((f) => m.shape === undefined || fieldShape(k.signature, f) === m.shape)) return 0;
+        return m.feature === undefined ? k.size : (k.features.find((f) => f.feature === m.feature)?.cases ?? 0);
+      }),
+    );
+    return cases === 0 ? [] : [{ cluster: k.cluster, cases }];
+  });
 }
 
 /**
  * `waive --from-cluster`: the suggested waivers for a cluster as YAML to paste into the waivers
- * file. The reason is left empty, which the file doesn't accept, so it must be written in.
+ * file. The reason is left empty, which the file doesn't accept, so it must be written in. With the
+ * run's other clusters, it says which of them the waivers would also reach.
  */
-export function suggestWaivers(cluster: SuggestionSource & { address: string }): string {
+export function suggestWaivers(cluster: SuggestionSource & { address: string }, others: readonly RunCluster[] = []): string {
   const lines = [
     `# Cluster ${cluster.address}: ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`,
     `# Paste into ${WAIVERS_FILE}, pick the category and write the reason.`,
   ];
   if (cluster.features.length > 1) lines.push('# Its cases have several features: add feature: <name> to waive only one of them.');
-  for (const m of suggestedPredicates(cluster)) {
+  const predicates = suggestedPredicates(cluster);
+  const reach = suggestionReach(predicates, others);
+  if (reach.length > 0) {
+    const list = reach.map((r) => `${r.cluster} (${r.cases} case${r.cases === 1 ? '' : 's'})`).join(', ');
+    lines.push(`# Warning: these would also waive fields of other clusters of this run: ${list}.`, '# Narrow them with feature: or regex: unless those are the same difference.');
+  }
+  for (const m of predicates) {
     const keys = PREDICATE_KEYS.flatMap((k) => (m[k] === undefined ? [] : [`${k}: ${flowScalar(m[k])}`]));
     lines.push(`- match: { ${keys.join(', ')} }`, `  category: intentional # ${WAIVER_CATEGORIES.join(' | ')}`, '  reason: ""');
   }

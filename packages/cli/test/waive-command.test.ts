@@ -10,6 +10,7 @@ case "$1" in
   echo) shift; echo "$@" ;;
   count) echo ${variant === 'bad' ? 4 : 3} ;;
   fail) echo "tool: no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
+  crash) exit ${variant === 'bad' ? 3 : 0} ;;
 esac
 `;
 
@@ -27,6 +28,7 @@ describe('waive --from-cluster', () => {
       { argv: ['count', '-n'], features: ['opt.n'] },
       { argv: ['count', '-n', '-x'], features: ['opt.n', 'opt.x'] },
       { argv: ['fail'], features: ['error.usage'] },
+      { argv: ['crash'], features: ['error.usage', 'opt.c'] },
     ];
     writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), cases.map((c) => JSON.stringify({ ...c, origin: 'recorded' })).join('\n'));
   });
@@ -37,16 +39,20 @@ describe('waive --from-cluster', () => {
   it('prints waivers for a cluster of the latest run that, once pasted with a reason, waive its cases', async () => {
     const first = await run(['run', '--no-sandbox'], { cwd: project });
     expect(first.exitCode).toBe(1);
-    // Cluster 1: the counts of opt.n and opt.x (weight 1/2 + 1/2 + 1); cluster 2: the exit code of error.usage (weight 1).
+    // By weight: the counts of opt.n and opt.x (1/2 + 1/2 + 1), the crash (1/2 + 1), the usage error (1/2).
     expect(first.stdout).toContain('  cluster 1: 2 cases · stdout number-value · features opt.n (2), opt.x (1)\n');
-    expect(first.stdout).toContain('  cluster 2: 1 case · exit 1 vs 2 · features error.usage (1)\n');
+    expect(first.stdout).toContain('  cluster 2: 1 case · exit 0 vs 3 · features error.usage (1), opt.c (1)\n');
+    expect(first.stdout).toContain('  cluster 3: 1 case · exit 1 vs 2 · features error.usage (1)\n');
 
-    const one = await run(['waive', '--from-cluster', `${runId(first.stdout)}/2`], { cwd: project });
+    const one = await run(['waive', '--from-cluster', `${runId(first.stdout)}/3`], { cwd: project });
     expect(one).toEqual({
       exitCode: 0,
       stdout: [
-        `# Cluster ${runId(first.stdout)}/2: exit 1 vs 2 · features error.usage (1)`,
+        `# Cluster ${runId(first.stdout)}/3: exit 1 vs 2 · features error.usage (1)`,
         '# Paste into port-anything/waivers.yaml, pick the category and write the reason.',
+        // Waivers cover any exit status difference of the feature, so the crash in error.usage too.
+        '# Warning: these would also waive fields of other clusters of this run: 2 (1 case).',
+        '# Narrow them with feature: or regex: unless those are the same difference.',
         '- match: { feature: error.usage, field: exit, shape: exit-code }',
         '  category: intentional # intentional | reference-bug | platform',
         '  reason: ""',
@@ -56,6 +62,7 @@ describe('waive --from-cluster', () => {
     });
     const two = await run(['waive', '--from-cluster', '1'], { cwd: project });
     expect(two.stdout).toContain('# Its cases have several features: add feature: <name> to waive only one of them.\n- match: { field: stdout, shape: number-value }\n');
+    expect(two.stdout).not.toContain('Warning');
 
     // Pasted as printed, the empty reason is refused.
     writeFileSync(join(project, 'port-anything', 'waivers.yaml'), one.stdout);
@@ -68,7 +75,8 @@ describe('waive --from-cluster', () => {
       `${one.stdout.replace('reason: ""', 'reason: "exits 2 on purpose"')}${two.stdout.replace('reason: ""', 'reason: "counts the trailing line"')}`,
     );
     const waived = await run(['run', '--no-sandbox'], { cwd: project });
-    expect(waived.stdout).toContain('candidate 1 ./bin/tool-bad: 1 of 4 cases match, 3 waived\n');
+    // As warned, the crash is waived with the usage error.
+    expect(waived.stdout).toContain('candidate 1 ./bin/tool-bad: 1 of 5 cases match, 4 waived\n');
     expect(waived.stdout).not.toContain('cluster 1');
     expect(waived.exitCode).toBe(0);
     rmSync(join(project, 'port-anything', 'waivers.yaml'));
@@ -86,7 +94,7 @@ describe('waive --from-cluster', () => {
       rmSync(empty, { recursive: true, force: true });
     }
     expect((await run(['waive'], { cwd: project })).stderr).toBe('port-anything waive: give the cluster to waive.\nUsage: port-anything waive --from-cluster [<run-id>/]<n>\n');
-    expect((await run(['waive', '--from-cluster', '9'], { cwd: project })).stderr).toMatch(/^port-anything waive: Run \S+ has (no clusters|clusters 1 to 2), so there is no cluster 9\.\n$/);
+    expect((await run(['waive', '--from-cluster', '9'], { cwd: project })).stderr).toMatch(/^port-anything waive: Run \S+ has (no clusters|clusters 1 to 3), so there is no cluster 9\.\n$/);
     const unknown = await run(['waive', '--cluster', '1'], { cwd: project });
     expect(unknown).toMatchObject({ exitCode: 3, stdout: '' });
     expect(unknown.stderr).toMatch(/--cluster/);

@@ -14,6 +14,7 @@ import {
   readWaiversFile,
   suggestWaivers,
   suggestedPredicates,
+  suggestionReach,
   waiverCoverage,
   type Waiver,
   type WaivableDivergence,
@@ -184,6 +185,37 @@ describe('suggestWaivers', () => {
       ],
     });
     expect(text).toContain('# Its cases have several features: add feature: <name> to waive only one of them.\n- match: { field: stdout, shape: number-value }\n');
+  });
+
+  it('says which other clusters of the run the suggested waivers would also reach, and how many of their cases', () => {
+    const exit = (detail: string) => ({ fields: ['exit' as const], shapes: [shape('exit', 'exit-code', detail)] });
+    const others = [
+      { cluster: 1, size: 4, signature: exit('0 vs 139'), features: [{ feature: 'opt.z', cases: 4 }] },
+      { cluster: 3, size: 5, signature: exit('0 vs 1'), features: [{ feature: 'opt.a', cases: 2 }, { feature: 'opt.q', cases: 3 }] },
+      { cluster: 4, size: 2, signature: { fields: ['stdout' as const], shapes: [shape('stdout', 'empty', 'candidate empty')] }, features: [{ feature: 'opt.a', cases: 2 }] },
+      // A signal shares the exit-code entry of the signature.
+      { cluster: 5, size: 1, signature: { fields: ['exit' as const, 'signal' as const], shapes: [shape('exit', 'exit-code', '0 vs SIGSEGV')] }, features: [{ feature: 'opt.s', cases: 1 }] },
+    ];
+    const several = { signature: { fields: ['exit' as const, 'stdout' as const], shapes: [shape('exit', 'exit-code', '1 vs 2'), shape('stdout', 'empty', 'candidate empty')] }, features: [{ feature: 'opt.a', cases: 1 }, { feature: 'opt.b', cases: 1 }] };
+    // Without a feature: every exit status difference, and every empty stdout.
+    expect(suggestionReach(suggestedPredicates(several), others)).toEqual([
+      { cluster: 1, cases: 4 },
+      { cluster: 3, cases: 5 },
+      { cluster: 4, cases: 2 },
+      { cluster: 5, cases: 1 },
+    ]);
+    // With the cluster's only feature: the cases of other clusters with that feature.
+    expect(suggestionReach(suggestedPredicates({ ...several, features: [{ feature: 'opt.a', cases: 2 }] }), others)).toEqual([
+      { cluster: 3, cases: 2 },
+      { cluster: 4, cases: 2 },
+    ]);
+    expect(suggestionReach([{ field: 'signal', shape: 'exit-code' }], others)).toEqual([{ cluster: 5, cases: 1 }]);
+    expect(suggestionReach([{ field: 'exit', regex: 'x' }], others)).toEqual([]);
+    expect(suggestionReach([{ regex: 'x' }], others)).toEqual([{ cluster: 4, cases: 2 }]);
+
+    const text = suggestWaivers({ address: 'r/2', ...several }, others);
+    expect(text).toContain('# Warning: these would also waive fields of other clusters of this run: 1 (4 cases), 3 (5 cases), 4 (2 cases), 5 (1 case).\n');
+    expect(suggestWaivers({ address: 'r/2', ...several }, [])).not.toContain('Warning');
   });
 
   it('gives a waiver that keeps matching its cases after a clustering heuristic changes', () => {
