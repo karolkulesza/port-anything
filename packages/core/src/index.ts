@@ -39,3 +39,19 @@ export {
 } from './sandbox.js';
 export { checkLicense, findLicenseFiles, identifyLicenses, licenseCategory } from './license.js';
 export type { LicenseCategory, LicenseCheck } from './license.js';
+export { IMPORT_KINDS, ImportCollector, runImporter } from './import.js';
+export type {
+  ImportExpectation,
+  ImportKind,
+  ImportLocation,
+  ImportOptionsBase,
+  ImportResult,
+  ImportSkip,
+  ImportedCase,
+  Importer,
+  RawImportCase,
+} from './import.js';
+export { DEFAULT_MAX_FIXTURE_BYTES, FIXTURE_PLACEHOLDER, fixturesImporter } from './import-fixtures.js';
+export type { FixturesImportOptions } from './import-fixtures.js';
+export { importCases } from './importers.js';
+export type { ImportOptions } from './importers.js';
