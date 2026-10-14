@@ -1,4 +1,4 @@
-import { UNTAGGED_FEATURE } from './cluster.js';
+import { caseFeatures } from './cluster.js';
 import { ORIGINS, type Case } from './model.js';
 
 type Origin = Case['origin'];
@@ -17,7 +17,7 @@ export interface ScoredCase {
   flakyReference?: boolean | undefined;
   /** The candidate gave a different result on a re-run: a divergence, whatever the verdict. */
   flakyCandidate?: boolean | undefined;
-  /** The candidate ran out of time: a divergence, whatever the verdict. */
+  /** The candidate ran out of time where the reference finished: a divergence, whatever the verdict. */
   candidateTimeout?: boolean | undefined;
 }
 
@@ -137,7 +137,6 @@ function add(counts: CaseCounts, c: ScoredCase, o: Outcome): void {
 
 const ratio = (match: number, scored: number) => (scored === 0 ? null : match / scored);
 const mean = (values: readonly number[]) => (values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length);
-const caseFeatures = (features: readonly string[]) => (features.length === 0 ? [UNTAGGED_FEATURE] : [...new Set(features)]);
 const byName = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
