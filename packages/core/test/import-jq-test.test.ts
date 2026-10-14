@@ -26,6 +26,8 @@ null
 %%FAIL
 {(0):1}
 jq: error: Cannot use number (0) as object key
+    {(0):1}
+      ^
 
 %%FAIL IGNORE MSG
 . as [] | null
@@ -56,9 +58,9 @@ describe('parseJqTest', () => {
       { line: 3, program: '.a', input: '{"a": 1}', expected: { kind: 'output', lines: ['1'] } },
       { line: 8, program: '.[]', input: '[1, 2]', expected: { kind: 'output', lines: ['1', '2'] } },
       { line: 13, program: '-1', input: 'null', expected: { kind: 'output', lines: ['-1'] } },
-      { line: 18, program: '{(0):1}', input: null, expected: { kind: 'error', message: 'jq: error: Cannot use number (0) as object key', exactMessage: true } },
-      { line: 22, program: '. as [] | null', input: null, expected: { kind: 'error', message: 'jq: error: syntax error', exactMessage: false } },
-      { line: 25, program: 'empty', input: 'null', expected: { kind: 'output', lines: [] } },
+      { line: 18, program: '{(0):1}', input: null, expected: { kind: 'error', message: 'jq: error: Cannot use number (0) as object key\n    {(0):1}\n      ^', exactMessage: true } },
+      { line: 24, program: '. as [] | null', input: null, expected: { kind: 'error', message: 'jq: error: syntax error', exactMessage: false } },
+      { line: 27, program: 'empty', input: 'null', expected: { kind: 'output', lines: [] } },
     ]);
   });
 
@@ -74,7 +76,6 @@ describe('parseJqTest', () => {
 
   it('reports a test cut short by the end of the file', () => {
     expect(parseJqTest('.a\n')).toEqual({ tests: [], problems: [{ line: 1, message: 'file ends before the input line' }] });
-    expect(parseJqTest('%%FAIL\n{(0):1}')).toEqual({ tests: [], problems: [{ line: 2, message: 'file ends before the expected error message' }] });
   });
 });
 

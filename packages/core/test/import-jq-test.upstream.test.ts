@@ -16,6 +16,10 @@ const FILES = {
   COPYING: 'ad2b4a266b2268939c1446979759706077421cf906a203aa188c6f396e8cfd74',
 };
 
+// Tests in the pinned file. 19 of them are `%%FAIL` tests with 3-line messages (error, source
+// line, caret line), whose extra lines must not be read as more tests.
+const TESTS = 522;
+
 let dir: string;
 let result: ImportResult;
 
@@ -41,8 +45,8 @@ describe.skipIf(process.env.PA_OFFLINE === '1')(`importing jq's tests/jq.test ($
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('yields hundreds of cases, all with origin: imported', () => {
-    expect(result.cases.length).toBeGreaterThan(500);
+  it('yields every test as a case, all with origin: imported', () => {
+    expect(result.cases.length + result.duplicates.length).toBe(TESTS);
     expect(result.cases.every((c) => c.case.origin === 'imported')).toBe(true);
     expect(new Set(result.cases.map((c) => c.case.id)).size).toBe(result.cases.length);
     expect(result.skipped).toEqual([]);
@@ -62,7 +66,9 @@ describe.skipIf(process.env.PA_OFFLINE === '1')(`importing jq's tests/jq.test ($
     expect(negative?.case.stdin).toBe(blobRef('null\n'));
     expect(negative?.expected).toEqual({ kind: 'output', lines: ['-1'] });
     const failing = result.cases.filter((c) => c.expected?.kind === 'error');
-    expect(failing.length).toBeGreaterThanOrEqual(10);
+    expect(failing).toHaveLength(19);
+    expect(failing.every((c) => c.case.argv.every((a) => !/^\s*\^+$/.test(a)))).toBe(true);
+    expect(failing[0]!.expected).toMatchObject({ message: expect.stringMatching(/^jq: error: .*\n.*\n\s*\^+$/) });
     expect(failing.every((c) => c.case.stdin === null)).toBe(true);
   });
 });

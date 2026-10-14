@@ -22,10 +22,11 @@ const isSkipLine = (line: string) => /^[ \t]*(#|$)/.test(line);
 
 /**
  * Parses jq's test format (`tests/jq.test`, also used by jaq and gojq) the way jq's runner reads
- * it: a program line, an input line (one JSON text), then expected output lines up to the next
- * blank or comment line. `%%FAIL` (or `%%FAIL IGNORE MSG`) before a program marks a test whose
- * program must fail to compile, followed by one line with the error message. CRLF line ends are
- * read as LF.
+ * it (as of jq 1.8): a program line, an input line (one JSON text), then expected output lines up
+ * to the next blank or comment line. `%%FAIL` (or `%%FAIL IGNORE MSG`) before a program marks a
+ * test whose program must fail to compile; the lines after it, up to the next blank or comment
+ * line, are the error message (often the message, the source line and a caret line). CRLF line
+ * ends are read as LF.
  */
 export function parseJqTest(text: string): JqTestParse {
   const lines = text.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
@@ -44,12 +45,9 @@ export function parseJqTest(text: string): JqTestParse {
     }
     const at = i;
     if (fail !== null) {
-      if (i >= lines.length) {
-        problems.push({ line: at, message: 'file ends before the expected error message' });
-        break;
-      }
-      tests.push({ line: at, program: line, input: null, expected: { kind: 'error', message: lines[i]!, exactMessage: fail === 'message' } });
-      i++;
+      const message: string[] = [];
+      while (i < lines.length && !isSkipLine(lines[i]!)) message.push(lines[i++]!);
+      tests.push({ line: at, program: line, input: null, expected: { kind: 'error', message: message.join('\n'), exactMessage: fail === 'message' } });
       fail = null;
       continue;
     }
