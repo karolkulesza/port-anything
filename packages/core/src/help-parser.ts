@@ -477,8 +477,8 @@ function listChoices(text: string): string[] | undefined {
     .split(/,\s*(?:or\s+)?|\s+or\s+/)
     .map((s) => s.trim())
     .filter((s) => s !== '');
-  // Items are a word with at most a short note (`none (-U)`, `month -M`), not prose.
-  if (items.some((s) => s.split(/\s+/).length > 3)) return undefined;
+  // Items are a word with at most a short note (`month -M`) or a remark in brackets, not prose.
+  if (items.some((s) => s.replace(/\([^)]*\)/g, '').trim().split(/\s+/).length > 3)) return undefined;
   const words = items.map((s) => s.split(/\s+/)[0]!);
   if (words.length < 2 || !words.every((w) => CHOICE.test(w))) return undefined;
   return [...new Set(words)];
