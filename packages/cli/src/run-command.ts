@@ -15,8 +15,11 @@ import {
   describeFeatures,
   describeSignature,
   featureWeights,
+  latestRun,
   loadCommittedCases,
+  loadRun,
   normalizerLabel,
+  openClusterCases,
   parseProgramCommand,
   probeSandbox,
   readConfigFile,
@@ -25,11 +28,13 @@ import {
   runCases,
   saveRun,
   shortCaseId,
+  smokeSubset,
   stderrMode,
   type CanonicalCase,
   type CompareOptions,
   type Config,
   type ResolvedCluster,
+  type RunRecord,
   type RunCasesOptions,
   type SandboxChoice,
   type SandboxProbe,
@@ -49,14 +54,16 @@ export interface RunArgs {
   candidates: string[];
   /** `--cluster [<run-id>/]<n>`: re-run only that cluster's cases. */
   cluster?: string;
+  /** `--smoke`: run only the smoke subset (see `smokeSubset`). */
+  smoke?: boolean;
   json: boolean;
   noSandbox: boolean;
 }
 
 // Documented options that later versions add.
-const NOT_YET = ['smoke', 'feature', 'all', 'holdout'];
+const NOT_YET = ['feature', 'all', 'holdout'];
 
-const USAGE = 'Usage: port-anything run [--cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
+const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -68,15 +75,18 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
       options: {
         candidate: { type: 'string', multiple: true },
         cluster: { type: 'string' },
+        smoke: { type: 'boolean' },
         json: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
       },
       strict: true,
       allowPositionals: false,
     });
+    if (values.smoke === true && values.cluster !== undefined) throw new Error('--smoke and --cluster run different subsets; give one of them.');
     return {
       candidates: values.candidate ?? [],
       ...(values.cluster === undefined ? {} : { cluster: values.cluster }),
+      smoke: values.smoke ?? false,
       json: values.json ?? false,
       noSandbox: values['no-sandbox'] ?? false,
     };
@@ -119,7 +129,9 @@ export interface ExecuteRunOptions {
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
  * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
- * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
+ * against its candidate unless `--candidate` is given; with `--smoke`, only the smoke subset: a
+ * case for each cluster of the latest full run (its saved repro, or its smallest case), a few cases
+ * per feature and a sample of the cases that passed. Exit code 0 when every candidate matches on
  * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
@@ -144,7 +156,16 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
-  if (subset !== undefined) cases = clusterCases(subset, cases);
+  if (args.smoke === true && subset !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
+  let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
+  if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
+  else if (args.smoke === true) {
+    const latest = await latestRun(projectDir);
+    const open = latest === undefined ? [] : await openClusterCases(projectDir, latest, cases, new BlobStore(cacheDir(projectDir)));
+    const picked = smokeSubset({ corpus: cases, clusterCases: open, diverged: new Set(latest?.clusters.flatMap((c) => c.cases)) });
+    smoke = { from: latest?.run_id ?? null, corpus: cases.length, clusters: picked.clusters, per_feature: picked.perFeature, passing: picked.passing };
+    cases = picked.cases;
+  }
 
   const { runner: runnerOptions, sandbox, compare } = await prepareSides(projectDir, config, commands, { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) });
   const workDir = scratchDir(projectDir);
@@ -188,14 +209,14 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     }),
     clusters,
   };
-  const saved = await saveRun(projectDir, { subset: subset === undefined ? null : { cluster: subset.address }, ...report, candidate_commands: commands });
+  const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : null, ...report, candidate_commands: commands });
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
     `Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`,
-    `run ${summary.run_id}${summary.subset === null ? '' : `, cluster ${summary.subset.cluster} only`}`,
+    `run ${summary.run_id}${describeSubset(summary.subset)}`,
     `reference ${summary.reference}`,
     `compare ${compareLabel(summary.compare)}`,
   ];
@@ -258,12 +279,37 @@ export async function removeScratch(projectDir: string, workDir: string): Promis
   await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another run uses it
 }
 
+/** What part of the corpus a run ran, for its second line of text output. */
+function describeSubset(subset: RunRecord['subset']): string {
+  if (subset === null) return '';
+  if ('cluster' in subset) return `, cluster ${subset.cluster} only`;
+  const { from, corpus, clusters, per_feature: perFeature, passing } = subset.smoke;
+  const open = from === null ? 'no full run yet' : `${clusters} for the open clusters of run ${from}`;
+  return `, smoke subset of ${corpus} case${corpus === 1 ? '' : 's'}: ${open}, ${perFeature} by feature, ${passing} passing`;
+}
+
 /** Case IDs shown per cluster in the text output; `--json` lists them all. */
 const LISTED_CASES = 5;
 
-/** The cases of a cluster, in its order; it is an error when the corpus no longer has them all. */
-export function clusterCases(subset: ResolvedCluster, cases: readonly CanonicalCase[]): CanonicalCase[] {
+/**
+ * The cases of a cluster, in its order; it is an error when the corpus no longer has them all. A
+ * cluster of a smoke run may also have the repros its smoke subset took from the open clusters of
+ * an earlier run; their content goes to the project's blob store.
+ */
+export async function clusterCases(projectDir: string, subset: ResolvedCluster, cases: readonly CanonicalCase[]): Promise<CanonicalCase[]> {
   const byId = new Map(cases.map((c) => [c.id, c]));
+  const from = subset.run.subset !== null && 'smoke' in subset.run.subset ? subset.run.subset.smoke.from : null;
+  if (from !== null && subset.cluster.cases.some((id) => !byId.has(id))) {
+    let earlier: RunRecord | undefined;
+    try {
+      earlier = await loadRun(projectDir, from);
+    } catch (e) {
+      if (!(e instanceof ConfigError)) throw e;
+    }
+    if (earlier !== undefined) {
+      for (const c of await openClusterCases(projectDir, earlier, cases, new BlobStore(cacheDir(projectDir)))) if (!byId.has(c.id)) byId.set(c.id, c);
+    }
+  }
   const missing = subset.cluster.cases.filter((id) => !byId.has(id));
   if (missing.length > 0) {
     throw new ConfigError(

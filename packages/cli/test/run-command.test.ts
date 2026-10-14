@@ -1,7 +1,22 @@
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import {
+  BlobStore,
+  RUN_ID_PATTERN,
+  cacheDir,
+  canonicalCase,
+  describeSignature,
+  inlineCase,
+  latestRun,
+  loadRun,
+  parseConfig,
+  runsDir,
+  saveRepro,
+  shortCaseId,
+  type CanonicalCase,
+  type SandboxProbe,
+} from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
@@ -22,18 +37,21 @@ const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
-  it('reads repeated --candidate, --cluster, --json and --no-sandbox', () => {
+  it('reads repeated --candidate, --cluster or --smoke, --json and --no-sandbox', () => {
     expect(parseRunArgs(['--candidate', './a', '--candidate=coreutils sort', '--cluster', '20261014-190203-a1b2/2', '--json', '--no-sandbox'])).toEqual({
       candidates: ['./a', 'coreutils sort'],
       cluster: '20261014-190203-a1b2/2',
+      smoke: false,
       json: true,
       noSandbox: true,
     });
-    expect(parseRunArgs([])).toEqual({ candidates: [], json: false, noSandbox: false });
+    expect(parseRunArgs([])).toEqual({ candidates: [], smoke: false, json: false, noSandbox: false });
+    expect(parseRunArgs(['--smoke'])).toEqual({ candidates: [], smoke: true, json: false, noSandbox: false });
+    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke and --cluster run different subsets/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
-    expect(() => parseRunArgs(['--smoke'])).toThrow(/--smoke is not available yet/);
+    expect(() => parseRunArgs(['--all'])).toThrow(/--all is not available yet/);
     expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
     expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
     expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
@@ -383,7 +401,7 @@ describe('runCommand', () => {
   it('exits 3 for bad arguments, a bad config or a broken case file', async () => {
     const project = mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-'));
     try {
-      expect((await runCommand(['--smoke'], { cwd: project })).stderr).toMatch(/--smoke is not available yet/);
+      expect((await runCommand(['--all'], { cwd: project })).stderr).toMatch(/--all is not available yet/);
       writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./ref }\ncandidate: { cmd: ./port }\n');
       mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
       writeFileSync(join(project, 'port-anything', 'recorded', 'x.jsonl'), '{"argv":[]}\n');
@@ -393,5 +411,75 @@ describe('runCommand', () => {
     } finally {
       rmSync(project, { recursive: true, force: true });
     }
+  });
+});
+
+describe('executeRun --smoke', () => {
+  let project: string;
+  let store: BlobStore;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-smoke-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    store = new BlobStore(cacheDir(project));
+    // tool-bad gets every `upper` case (opt.u) and the one `fail` case (error) wrong; `echo` (opt.e) is right.
+    const upper = await Promise.all(Array.from({ length: 80 }, async (_, i) => ({ argv: ['upper'], stdin: await store.put(`w${i}\n`), features: ['opt.u'] })));
+    const echo = Array.from({ length: 20 }, (_, i) => ({ argv: ['echo', `e${i}`], features: ['opt.e'] }));
+    cases = [...upper, ...echo, { argv: ['fail'], features: ['error'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const exec = (args: Partial<ExecuteRunOptions['args']> = {}) =>
+    executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-bad' } }),
+      cases,
+      args: { candidates: [], json: false, noSandbox: true, ...args },
+      probe: NO_SANDBOX,
+    });
+  const json = async (args: Partial<ExecuteRunOptions['args']> = {}) => {
+    const result = await exec({ ...args, json: true });
+    return { exitCode: result.exitCode, ...JSON.parse(result.stdout) };
+  };
+
+  it('runs N cases per feature and a sample of the rest before any full run, and still catches a bad port', async () => {
+    const smoke = await json({ smoke: true });
+    expect(smoke).toMatchObject({ exitCode: 1, subset: { smoke: { from: null, corpus: 101, clusters: 0, per_feature: 11, passing: 50 } }, cases: 61 });
+    expect(smoke.clusters.map((c: { signature: unknown }) => describeSignature(c.signature as never))).toEqual(['stdout other', 'exit 1 vs 2']);
+    // A smoke run is not a full run.
+    expect(await latestRun(project)).toBeUndefined();
+  });
+
+  it("takes each open cluster's repro, or its smallest case, and samples passing cases only from those that passed", async () => {
+    const full = await json();
+    expect(full.clusters.map((c: { size: number }) => c.size)).toEqual([80, 1]);
+    // Cluster 1's repro: a case the corpus doesn't have.
+    const repro = canonicalCase({ argv: ['upper'], stdin: await store.put('q'), features: ['opt.u'], origin: 'recorded' });
+    await saveRepro(project, { run_id: full.run_id, cluster: 1, source: cases[0]!.id, reproduced: true, runs: 5, max_runs: 200, exhausted: false, case: await inlineCase(repro, store) });
+
+    const smoke = await json({ smoke: true });
+    // The fail case stands for cluster 2, and also for `error`; the 15 echo cases not picked by feature are the passing ones.
+    expect(smoke).toMatchObject({ exitCode: 1, subset: { smoke: { from: full.run_id, corpus: 101, clusters: 2, per_feature: 10, passing: 15 } }, cases: 27 });
+    const diverging = smoke.candidates[0].divergences.map((d: { case: string }) => d.case);
+    expect(diverging.slice(0, 2)).toEqual([repro.id, cases[100]!.id]);
+    expect(diverging).toHaveLength(2 + 5);
+    expect((await latestRun(project))?.run_id).toBe(full.run_id);
+
+    const text = await exec({ smoke: true });
+    expect(text.stdout).toMatch(
+      new RegExp(`^Ran 27 cases as "tool", sandbox: none \\(--no-sandbox\\)\nrun \\S+, smoke subset of 101 cases: 2 for the open clusters of run ${full.run_id}, 10 by feature, 15 passing\n`),
+    );
+    // A cluster of the smoke run can be re-run, its repro included.
+    const stdoutCluster = smoke.clusters.find((c: { cases: string[] }) => c.cases.includes(repro.id));
+    const again = await json({ cluster: `${smoke.run_id}/${stdoutCluster.cluster}` });
+    expect(again).toMatchObject({ exitCode: 1, cases: 6 });
+    expect(again.candidates[0].divergences.map((d: { case: string }) => d.case)).toContain(repro.id);
+  });
+
+  it('refuses --smoke with --cluster (exit 3)', async () => {
+    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });
   });
 });
