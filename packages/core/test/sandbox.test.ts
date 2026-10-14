@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SandboxUnavailableError,
   chooseSandbox,
+  caseCommandOptions,
   probeSandbox,
   sandboxCommand,
   type SandboxHost,
@@ -60,6 +61,28 @@ describe('sandboxCommand', () => {
     expect(sandboxCommand({ kind: 'bwrap', isolatePids: false }, ['true'], '/w').args).not.toContain('--unshare-pid');
   });
 
+  it('asks bwrap for its status on a file descriptor only when given one', () => {
+    expect(sandboxCommand(BWRAP, ['true'], '/w').args).not.toContain('--json-status-fd');
+    const args = sandboxCommand(BWRAP, ['true'], '/w', { statusFd: 3 }).args;
+    expect(args.slice(args.indexOf('--json-status-fd'), args.indexOf('--json-status-fd') + 2)).toEqual(['--json-status-fd', '3']);
+    expect(args.slice(-2)).toEqual(['--', 'true']);
+    expect(sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['true'], '/w', { statusFd: 3 }).args).not.toContain('--json-status-fd');
+  });
+
+  it('shows extra paths read-only in bwrap, above the private /tmp and below the workdir', () => {
+    const args = sandboxCommand(BWRAP, ['sort'], '/tmp/case-1', { readOnlyPaths: ['/tmp/run-1/bin', '/tmp/build/sort'] }).args;
+    const bin = args.indexOf('/tmp/run-1/bin');
+    expect(args.slice(bin - 1, bin + 2)).toEqual(['--ro-bind', '/tmp/run-1/bin', '/tmp/run-1/bin']);
+    const tool = args.indexOf('/tmp/build/sort');
+    expect(args.slice(tool - 1, tool + 2)).toEqual(['--ro-bind', '/tmp/build/sort', '/tmp/build/sort']);
+    expect(bin).toBeGreaterThan(args.lastIndexOf('--tmpfs'));
+    expect(args.indexOf('--bind')).toBeGreaterThan(tool);
+    // Without a filesystem view of their own, the other sandboxes see these paths anyway.
+    const unshare = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w', { readOnlyPaths: ['/x'] });
+    expect(unshare.args).not.toContain('/x');
+    expect(() => sandboxCommand(BWRAP, ['sort'], '/w', { readOnlyPaths: ['bin'] })).toThrow(/absolute/);
+  });
+
   it('runs unshare with a new user and network namespace, as the current user when it can', () => {
     const mapped = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w');
     expect(mapped).toEqual({ command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', 'sort'], cwd: '/w' });
@@ -84,7 +107,9 @@ describe('probeSandbox', () => {
     expect(probe.usable).toEqual(BWRAP);
     expect(probe.attempts).toEqual([{ kind: 'bwrap', ok: true }]);
     expect(probe.fix).toBeUndefined();
-    expect(host.calls).toEqual([['bwrap', ...sandboxCommand(BWRAP, ['true'], '/tmp').args]]);
+    expect(host.calls).toEqual([['bwrap', ...sandboxCommand(BWRAP, ['true'], '/tmp', caseCommandOptions(BWRAP)).args]]);
+    // The status descriptor the runner relies on is part of the probe, so a bwrap without it fails here.
+    expect(host.calls[0]).toContain('--json-status-fd');
   });
 
   it('drops the PID namespace when bwrap cannot mount a fresh /proc (Docker)', async () => {
@@ -96,6 +121,16 @@ describe('probeSandbox', () => {
     expect(probe.usable).toEqual({ kind: 'bwrap', isolatePids: false });
     expect(host.calls).toHaveLength(2);
     expect(chooseSandbox(probe).label).toBe('bwrap, no network (processes not isolated)');
+  });
+
+  it('rejects a bwrap too old for the status descriptor the runner uses', async () => {
+    const probe = await probeSandbox(
+      fakeHost({
+        bwrap: (args) => (args.includes('--json-status-fd') ? { ok: false, message: 'bwrap: Unknown option --json-status-fd' } : { ok: true }),
+      }),
+    );
+    expect(probe.usable).toEqual({ kind: 'unshare', mapCurrentUser: true });
+    expect(probe.attempts[0]).toEqual({ kind: 'bwrap', ok: false, error: 'bwrap: Unknown option --json-status-fd' });
   });
 
   it('runs unshare without --map-current-user on util-linux before 2.38', async () => {

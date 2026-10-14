@@ -11,7 +11,8 @@ const text = z
 
 // zod skips a record key named `__proto__` without an error, so a case would silently lose that
 // fixture or variable and share its ID with a different invocation. Refuse the key before parsing.
-function withoutProtoKeys<T extends z.ZodType>(schema: T) {
+// Internal: not exported from the package.
+export function withoutProtoKeys<T extends z.ZodType>(schema: T) {
   return z.preprocess((input, ctx) => {
     const walk = (value: unknown, path: PropertyKey[]): void => {
       if (typeof value !== 'object' || value === null) return;
@@ -128,8 +129,9 @@ const ObservationObjectSchema = z
       modified: z.record(RelativePathSchema, BlobRefSchema),
       deleted: z.array(RelativePathSchema),
     }),
-    time_ms: z.strictObject({ wall: ms, user: ms, sys: ms }),
-    rss_kb: z.int().nonnegative(),
+    // CPU time and peak RSS are null while the runner can't measure them (not measured yet).
+    time_ms: z.strictObject({ wall: ms, user: ms.nullable(), sys: ms.nullable() }),
+    rss_kb: z.int().nonnegative().nullable(),
     runs: z.int().positive(),
     stable: z.boolean(),
   })

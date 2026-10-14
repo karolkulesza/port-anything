@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, lstatSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
@@ -35,10 +35,44 @@ export interface SandboxCommand {
   cwd: string;
 }
 
+export interface SandboxCommandOptions {
+  /**
+   * bwrap only: a file descriptor the spawned bwrap inherits, on which it writes JSON lines, the
+   * first being `{"child-pid": <pid>}` (the sandboxed process, as seen from outside). The case
+   * itself doesn't get the descriptor.
+   */
+  statusFd?: number;
+  /**
+   * Absolute paths outside the workdir that bwrap shows read-only, at the same place: e.g. the
+   * directory holding the pinned program, which may live under the private /tmp. The other
+   * sandboxes don't hide the host's files, so they need nothing.
+   */
+  readOnlyPaths?: readonly string[];
+}
+
+/** The descriptor bwrap reports its status on when the runner starts a case. */
+export const BWRAP_STATUS_FD = 3;
+
+/**
+ * The options the runner uses for every case in this sandbox, so the start-up probe tries exactly
+ * what cases will get: a bwrap too old for `--json-status-fd` must fail the probe, not every case.
+ */
+export function caseCommandOptions(setup: SandboxSetup): SandboxCommandOptions {
+  return setup.kind === 'bwrap' ? { statusFd: BWRAP_STATUS_FD } : {};
+}
+
 /** Wraps `argv` so it runs in `workdir` (an absolute path) inside the given sandbox. */
-export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], workdir: string): SandboxCommand {
+export function sandboxCommand(
+  setup: SandboxSetup,
+  argv: readonly string[],
+  workdir: string,
+  options: SandboxCommandOptions = {},
+): SandboxCommand {
   if (argv.length === 0) throw new Error('Cannot run an empty argv.');
   if (!isAbsolute(workdir)) throw new Error(`The case workdir must be an absolute path, got "${workdir}".`);
+  for (const path of options.readOnlyPaths ?? []) {
+    if (!isAbsolute(path)) throw new Error(`A path shown in the sandbox must be absolute, got "${path}".`);
+  }
   switch (setup.kind) {
     case 'bwrap':
       return {
@@ -48,12 +82,15 @@ export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], wor
           // Read-only doesn't stop connect() on a socket file: hide the service sockets (D-Bus,
           // docker.sock, ...) under /run, and under /var/run where it isn't a symlink to /run.
           ...['--tmpfs', '/run', ...(varRunIsDirectory() ? ['--tmpfs', '/var/run'] : [])],
-          // Order matters: later mounts go on top, so the workdir bind must follow the tmpfs mounts.
+          // Order matters: later mounts go on top, so these binds must follow the tmpfs mounts, and
+          // the writable workdir comes last.
+          ...(options.readOnlyPaths ?? []).flatMap((path) => ['--ro-bind', path, path]),
           ...['--bind', workdir, workdir, '--chdir', workdir],
           ...['--unshare-user', '--unshare-ipc', '--unshare-uts', '--unshare-net'],
           // Without a PID namespace a case could signal any of the user's processes (kill -9 -1).
           ...(setup.isolatePids ? ['--unshare-pid'] : []),
           ...['--die-with-parent', '--new-session'],
+          ...(options.statusFd === undefined ? [] : ['--json-status-fd', String(options.statusFd)]),
           '--',
           ...argv,
         ],
@@ -138,7 +175,7 @@ export async function probeSandbox(host: SandboxHost = localHost()): Promise<San
     const kind = variants[0]!.kind;
     let error = '';
     for (const setup of variants) {
-      const { command, args, cwd } = sandboxCommand(setup, ['true'], workdir);
+      const { command, args, cwd } = sandboxCommand(setup, ['true'], workdir, caseCommandOptions(setup));
       const result = await host.run(command, args, cwd);
       if (result.ok) {
         attempts.push({ kind, ok: true });
@@ -249,12 +286,26 @@ export function localHost(): SandboxHost {
     inContainer: existsSync('/.dockerenv') || existsSync('/run/.containerenv'),
     run: (command, args, cwd) =>
       new Promise((resolve) => {
-        execFile(command, args, { cwd, timeout: 10_000 }, (error, _stdout, stderr) => {
-          if (!error) return resolve({ ok: true });
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'ENOENT') return resolve({ ok: false, message: `${command} is not installed`, missing: true });
+        // Descriptor 3 is open as in a real case, for bwrap's status output.
+        const child = spawn(command, args, { cwd, stdio: ['ignore', 'ignore', 'pipe', 'pipe'] });
+        let stderr = '';
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          child.kill('SIGKILL');
+        }, 10_000);
+        child.stderr!.setEncoding('utf8').on('data', (chunk: string) => (stderr += chunk));
+        child.stdio[3]!.on('data', () => {}).on('error', () => {});
+        child.on('error', (error: NodeJS.ErrnoException) => {
+          clearTimeout(timer);
+          if (error.code === 'ENOENT') resolve({ ok: false, message: `${command} is not installed`, missing: true });
+          else resolve({ ok: false, message: error.message });
+        });
+        child.on('close', (code, signal) => {
+          clearTimeout(timer);
+          if (code === 0) return resolve({ ok: true });
           const firstLine = stderr.split('\n').find((line) => line.trim() !== '')?.trim();
-          resolve({ ok: false, message: firstLine ?? (error.killed ? 'timed out' : error.message) });
+          resolve({ ok: false, message: firstLine ?? (timedOut ? 'timed out' : `exited with ${signal ?? `code ${code}`}`) });
         });
       }),
     readSetting: (path) => readFile(path, 'utf8').then((s) => s.trim(), () => undefined),
