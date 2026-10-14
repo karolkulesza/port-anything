@@ -306,3 +306,16 @@ export {
   type HistoryEntry,
 } from './history.js';
 export { GITIGNORED, initProject, type InitOptions, type InitStep } from './init.js';
+export {
+  DEFAULT_STRENGTH_MUTANTS,
+  applyMutant,
+  isMutableSource,
+  parseElementsReport,
+  sampleMutants,
+  scoreMutants,
+  sourceMutants,
+  type MutantResult,
+  type MutantStatus,
+  type SourceMutant,
+  type StrengthScore,
+} from './strength.js';

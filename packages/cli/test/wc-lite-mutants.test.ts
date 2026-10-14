@@ -1,21 +1,21 @@
 import { execFile } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { availableParallelism, tmpdir } from 'node:os';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { readConfigFile } from '@port-anything/core';
 import { afterAll, describe, expect, it } from 'vitest';
 
-// The mutation ports of the wc-lite example: cargo-mutants mutates the good port, and each mutant
-// counts as caught when `port-anything run` finds a divergence on the committed corpus. The share
-// caught (the corpus's mutation score) and the surviving mutants are checked against
+// The mutation ports of the wc-lite example: `port-anything strength` has cargo-mutants mutate the
+// good port, and each mutant counts as caught when a case of the committed corpus diverges. The
+// share caught (the corpus's mutation score) and the surviving mutants are checked against
 // examples/wc-lite/mutation-score.json: the score must not drop and no new mutant may survive.
 //
-// Slow (one build and one run per mutant), so it runs only with PA_MUTANTS set:
+// Slow (one build and one corpus run per mutant), so it runs only with PA_MUTANTS set:
 //   PA_MUTANTS=1       check against the recorded score
 //   PA_MUTANTS=update  record the score and the survivors (then explain each new survivor's `why`)
-// Needs a C compiler, cargo and cargo-mutants. PA_MUTANTS_JOBS sets cargo-mutants' --jobs.
+// Needs a C compiler, cargo and cargo-mutants.
 const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
@@ -75,35 +75,6 @@ function stripBadPorts(source: string): string {
   }
   return out.join('\n');
 }
-
-/** Runs `port-anything run` on the built port; written into the copy, so the example has no test of its own. */
-const PARITY_TEST = `// Caught when port-anything finds a divergence. Every exit code goes to $PA_MUTANTS_LOG.
-use std::io::Write;
-use std::process::Command;
-
-#[test]
-fn matches_the_reference() {
-    let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name} is not set"));
-    let mut cmd = Command::new(var("PA_MUTANTS_NODE"));
-    cmd.arg(var("PA_MUTANTS_CLI")).arg("run").arg("--candidate").arg(env!("CARGO_BIN_EXE_wc-lite"));
-    if std::env::var_os("PA_MUTANTS_NO_SANDBOX").is_some() {
-        cmd.arg("--no-sandbox");
-    }
-    let out = cmd.current_dir(var("PA_MUTANTS_PROJECT")).output().expect("node runs");
-    let code = out.status.code().unwrap_or(-1);
-    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(var("PA_MUTANTS_LOG")).unwrap();
-    // One write per line: parallel jobs append to the same file.
-    log.write_all(format!("{code}\n").as_bytes()).unwrap();
-    if code != 0 && code != 1 {
-        let path = format!("{}.unexpected-{}", var("PA_MUTANTS_LOG"), std::process::id());
-        let text = format!("exit {code} ({:?})\n--- stdout\n{}\n--- stderr\n{}", out.status, String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-        std::fs::write(path, text).unwrap();
-    }
-    assert_eq!(code, 0, "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-}
-`;
-
-const lines = (file: string) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []);
 
 /**
  * Why a result falls short of the recorded one: no mutant tested, fewer mutants, a recorded catch
@@ -180,54 +151,26 @@ describe.runIf(mode !== undefined)('examples/wc-lite mutation score', () => {
     writeFileSync(yaml, readFileSync(yaml, 'utf8').replace(/^ {2}timeout: .*$/m, '  timeout: 2s'));
     const main = join(project, 'port', 'src', 'main.rs');
     writeFileSync(main, stripBadPorts(readFileSync(main, 'utf8')));
-    mkdirSync(join(project, 'port', 'tests'));
-    writeFileSync(join(project, 'port', 'tests', 'parity.rs'), PARITY_TEST);
+    await exec('sh', ['-c', config.candidate!.build!], { cwd: project });
 
-    const log = join(root, 'exit-codes.log');
-    const out = join(root, 'out');
-    const { stdout: version } = await exec('cargo', ['mutants', '--version']);
-    const jobs = process.env.PA_MUTANTS_JOBS ?? String(Math.max(1, Math.floor(availableParallelism() / 2)));
-    const env = {
-      ...process.env,
-      PA_MUTANTS_NODE: process.execPath,
-      PA_MUTANTS_CLI: binPath,
-      PA_MUTANTS_PROJECT: project,
-      PA_MUTANTS_LOG: log,
-      ...(sandboxed ? {} : { PA_MUTANTS_NO_SANDBOX: '1' }),
-    };
-    // Exit 0: all caught, 2: some missed, 3: some timed out. 4 (the unmutated port fails) and others are errors.
-    const run = await exec('cargo', ['mutants', '--dir', join(project, 'port'), '--output', out, '--jobs', jobs, '--timeout', '120', '--no-shuffle'], {
-      env,
-      maxBuffer: 64 * 1024 * 1024,
-    }).then(
-      () => 0,
-      (e: { code: number; stdout: string; stderr: string }) => {
-        if ([2, 3].includes(e.code)) return e.code;
-        throw new Error(`cargo mutants exited ${e.code}\n${e.stdout}\n${e.stderr}`);
-      },
-    );
-    expect([0, 2, 3]).toContain(run);
-    // A mutant counts as caught only when port-anything ran and found a divergence, never when it failed to run.
-    const dir = join(out, 'mutants.out');
-    const unexpected = lines(log).filter((code) => code !== '0' && code !== '1');
-    if (unexpected.length > 0) {
-      const reports = readdirSync(root).filter((f) => f.startsWith('exit-codes.log.unexpected-')).map((f) => readFileSync(join(root!, f), 'utf8'));
-      expect.fail(`port-anything exited ${unexpected.join(', ')}:\n${reports.join('\n')}`);
-    }
-
-    const [caught, missed, timeout, unviable] = ['caught', 'missed', 'timeout', 'unviable'].map((k) => lines(join(dir, `${k}.txt`)));
-    const counted = caught!.length + missed!.length + timeout!.length;
+    // Every mutant, however many there are: the record lists them all.
+    const args = ['strength', '--json', '--mutants', '100000', ...(sandboxed ? [] : ['--no-sandbox'])];
+    const { stdout } = await exec(process.execPath, [binPath, ...args], { cwd: project, maxBuffer: 64 * 1024 * 1024 }).catch((e: { code: number; stdout: string; stderr: string }) => {
+      throw new Error(`port-anything strength exited ${e.code}\n${e.stdout}\n${e.stderr}`);
+    });
+    const strength = JSON.parse(stdout) as Omit<MutationScore, 'survivors'> & { survivors: string[] };
     const result: MutationScore = {
-      tool: version.trim(),
-      mutants: counted + unviable!.length,
-      caught: caught!.length,
-      missed: missed!.length,
-      timeout: timeout!.length,
-      unviable: unviable!.length,
-      score: Math.round((caught!.length / counted) * 10_000) / 10_000,
-      survivors: [...missed!, ...timeout!].sort().map((mutant) => ({ mutant, why: '' })),
-      caught_mutants: [...caught!].sort(),
+      tool: strength.tool,
+      mutants: strength.mutants,
+      caught: strength.caught,
+      missed: strength.missed,
+      timeout: strength.timeout,
+      unviable: strength.unviable,
+      score: strength.score ?? Number.NaN,
+      survivors: strength.survivors.map((mutant) => ({ mutant, why: '' })),
+      caught_mutants: strength.caught_mutants,
     };
+    const counted = result.caught + result.missed + result.timeout;
     const summary = `wc-lite mutation score: ${(result.score * 100).toFixed(2)}% (${result.caught} of ${counted} mutants caught, ${result.unviable} unviable) with ${result.tool}`;
     console.log([summary, ...result.survivors.map((s) => `  survived: ${s.mutant}`)].join('\n'));
     if (process.env.GITHUB_STEP_SUMMARY !== undefined) {
@@ -244,5 +187,12 @@ describe.runIf(mode !== undefined)('examples/wc-lite mutation score', () => {
     expect(recorded, `${scoreFile} is missing; record it with PA_MUTANTS=update`).toBeDefined();
     // A new survivor means the corpus misses it, or the port changed (then re-record with PA_MUTANTS=update).
     expect(shortfalls(recorded!, result)).toEqual([]);
+
+    // The default run samples (cargo-mutants' --re): 5 of the mutants, each with its recorded outcome.
+    const sampled = await exec(process.execPath, [binPath, 'strength', '--json', '--mutants', '5', ...args.slice(4)], { cwd: project, maxBuffer: 64 * 1024 * 1024 });
+    const sample = JSON.parse(sampled.stdout) as typeof strength & { generated: number };
+    expect(sample).toMatchObject({ generated: recorded!.mutants, mutants: 5 });
+    expect(sample.caught_mutants.filter((m) => !recorded!.caught_mutants.includes(m))).toEqual([]);
+    expect(sample.survivors.filter((m) => !recorded!.survivors.some((s) => s.mutant === m))).toEqual([]);
   }, 3_600_000);
 });

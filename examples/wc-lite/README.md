@@ -48,7 +48,8 @@ that each one is caught, lands in its expected cluster and minimizes to its expe
 ## Mutation ports
 
 [cargo-mutants](https://mutants.rs) turns the good port into dozens more bad ones, one small change
-each, and the share that `port-anything run` catches on the corpus is the corpus's mutation score.
+each, and the share the corpus catches is the corpus's mutation score, as `port-anything strength`
+reports it.
 `mutation-score.json` records it with every mutant that survives and why: equivalent (the change
 can't show, as with argv[0], which is always the bare program name here) or not tested by the
 corpus. CI fails when the score drops or a new mutant survives. To run it (needs cargo-mutants):

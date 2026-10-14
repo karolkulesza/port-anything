@@ -6,6 +6,7 @@ import { initCommand } from './init-command.js';
 import { runCommand } from './run-command.js';
 import { waiveCommand } from './waive-command.js';
 import { specCommand } from './spec-command.js';
+import { strengthCommand } from './strength-command.js';
 
 export interface RunResult {
   exitCode: number;
@@ -57,5 +58,6 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   if (command === 'baseline') return baselineCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'waive') return waiveCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'report') return reportCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report" and "spec infer" are.\n` };
+  if (command === 'strength') return strengthCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are.\n` };
 }
