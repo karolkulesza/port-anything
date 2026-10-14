@@ -41,7 +41,11 @@ importers:
 
   packages/mcp: {}
 
-  packages/report: {}
+  packages/report:
+    dependencies:
+      '@port-anything/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 
