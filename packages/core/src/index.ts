@@ -79,3 +79,21 @@ export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } fr
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
+export {
+  NORMALIZER_NAMES,
+  NormalizerEntrySchema,
+  NormalizersSchema,
+  PID_PLACEHOLDER,
+  PROGRAM_PLACEHOLDER,
+  TIMESTAMP_PLACEHOLDER,
+  TMP_PLACEHOLDER,
+  normalizePair,
+  normalizerLabel,
+  type NormalizePairOptions,
+  type NormalizeSide,
+  type NormalizedPair,
+  type NormalizerName,
+  type NormalizerSpec,
+  type ScopeEntry,
+  type SideContext,
+} from './normalize.js';

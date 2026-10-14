@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { NormalizersSchema } from './normalize.js';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
 
 const text = z.string().refine((s) => !s.includes('\0'), 'must not contain a NUL byte');
@@ -58,7 +59,8 @@ export const ConfigSchema = z
     candidates: z.array(ProgramSchema).min(1).optional(),
     sandbox: SandboxSchema.default(() => SandboxSchema.parse({})),
     compare: later,
-    normalizers: later,
+    /** Applied in order to both sides before comparing. */
+    normalizers: NormalizersSchema.default([]),
     corpus: later,
     holdout: later,
     report: later,
