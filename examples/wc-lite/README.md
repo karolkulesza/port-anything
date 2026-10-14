@@ -30,6 +30,16 @@ Each cargo feature of the port compiles in one deliberate bug:
 | `bad-program-name` | starts its errors with `wc` instead of the name it runs as | stderr |
 | `bad-double-dash` | reads an option after `--` as an option, not a file | stdout, stderr, exit code |
 | `bad-words` | ends a word only at a space, not at a tab or a newline | stdout |
+| `bad-chars` | counts bytes for `-m`, not UTF-8 characters | stdout |
+| `bad-vertical-space` | doesn't end a word at a vertical tab or a form feed | stdout |
+| `bad-last-line` | leaves a last line without a newline out of `-L` | stdout |
+| `bad-empty-input` | prints nothing for empty standard input | stdout |
+| `bad-no-total` | prints no total line for several files | stdout |
+| `bad-dash-file` | opens `-` as a file instead of reading standard input | stdout, stderr, exit code |
+| `bad-error-status` | exits 0 when the last file reads fine, even after one that couldn't be read | exit code |
+| `bad-stop-on-error` | stops at the first file that can't be read | stdout |
+| `bad-long-option` | accepts `--lines` as `-l` | stdout, stderr, exit code |
+| `bad-options-first` | reads an option after a file as a file | stdout, stderr, exit code |
 
 The racy one diverges differently on each run, so its cases are listed as flaky-candidate (they
 count as divergences) instead of forming a cluster. The test suite runs every bad port and checks
