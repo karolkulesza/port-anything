@@ -22,6 +22,16 @@ const BAD_PORTS = {
   'bad-crlf': { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
   'bad-exit-code': { size: 3, signature: 'exit 2 vs 1', features: 'error.usage (3)' },
 } as const;
+
+/** The minimal case each bad port's cluster minimizes to. */
+const REPROS = {
+  // From `-l` on "one\ntwo\nthree": any input whose last line has no newline, with no option at all.
+  'bad-off-by-one': { argv: [], stdin: 't', env: {}, fixtures: {} },
+  // From `-L crlf.txt`: -L and the file stay, and the file is one CRLF line ending.
+  'bad-crlf': { argv: ['-L', 'crlf.txt'], stdin: null, env: {}, fixtures: { 'crlf.txt': '\r\n' } },
+  // From the smallest usage error, `-x`, which has nothing to drop.
+  'bad-exit-code': { argv: ['-x'], stdin: null, env: {}, fixtures: {} },
+} as const;
 type BadPort = keyof typeof BAD_PORTS;
 
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
@@ -41,6 +51,12 @@ describe.runIf(enabled)('examples/wc-lite', () => {
   const badPath = (feature: BadPort) => `./port/target/${feature}/release/wc-lite`;
   const port = (...args: string[]) =>
     exec(process.execPath, [binPath, 'run', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+      (r) => ({ ...r, code: 0 }),
+      (e: { code: number; stdout: string; stderr: string }) => e,
+    );
+
+  const minimize = (...args: string[]) =>
+    exec(process.execPath, [binPath, 'minimize', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
@@ -106,5 +122,25 @@ describe.runIf(enabled)('examples/wc-lite', () => {
       const head = `candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n`;
       expect(text.stdout).toContain(`${head}  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
     }
+  }, 120_000);
+
+  it('minimizes the cluster of each bad port to its expected repro and saves it with the run (done when)', async () => {
+    const bad = Object.keys(BAD_PORTS) as BadPort[];
+    const run = await port('--json', ...bad.flatMap((c) => ['--candidate', badPath(c)]));
+    const { run_id: runId, clusters } = JSON.parse(run.stdout) as RunSummary & { run_id: string };
+    expect(clusters.map((c) => c.candidate)).toEqual([1, 2, 3]);
+    for (const [i, feature] of bad.entries()) {
+      const minimized = await minimize('--json', `${runId}/${i + 1}`);
+      expect(minimized.code).toBe(1);
+      const repro = JSON.parse(minimized.stdout) as { reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } };
+      const { id: _id, ...invocation } = repro.case;
+      expect({ feature, ...invocation }).toEqual({ feature, ...REPROS[feature] });
+      expect(repro).toMatchObject({ reproduced: true, exhausted: false });
+      expect(repro.runs).toBeLessThanOrEqual(200);
+    }
+    // The text output shows the repro as a command line; the latest run is the default.
+    const text = await minimize('2');
+    expect(text.code).toBe(1);
+    expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
   }, 120_000);
 });
