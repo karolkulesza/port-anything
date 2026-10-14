@@ -125,3 +125,17 @@ export {
 } from './token-dictionary.js';
 export { TOKEN_MUTATION_OPS, generateTokenMutants, mutateTokens, type TokenMutant, type TokenMutationOp } from './token-mutation.js';
 export { BYTE_MUTATION_OPS, generateByteMutants, mutateBytes, type ByteMutant, type ByteMutationOp } from './byte-mutation.js';
+export {
+  DEDUP_SAMPLE,
+  DEFAULT_BUDGET,
+  DEFAULT_ERROR_PATH_CAP,
+  DEFAULT_MIN_CASES_PER_FEATURE,
+  generateCorpus,
+  isErrorObservation,
+  type CorpusCase,
+  type CorpusStats,
+  type CorpusStrategy,
+  type GenerateCorpusOptions,
+  type GeneratedCorpus,
+  type ObserveReference,
+} from './corpus-generator.js';
