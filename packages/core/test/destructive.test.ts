@@ -25,8 +25,21 @@ describe('destructiveCommand', () => {
     expect(destructiveCommand(['git', 'push'])).toBe('git push');
     expect(destructiveCommand(['git', '--no-pager', 'push', 'origin'])).toBe('git push');
     expect(destructiveCommand(['/usr/bin/git', 'clean', '-fdx'])).toBe('git clean');
+    expect(destructiveCommand(['git', '-C', 'repo', 'push'])).toBe('git push');
     expect(destructiveCommand(['git', 'log'])).toBeNull();
     expect(destructiveCommand(['git'])).toBeNull();
+  });
+
+  it('finds nested subcommands such as docker system prune', () => {
+    expect(destructiveCommand(['docker', 'system', 'prune', '-a'])).toBe('docker system prune');
+    expect(destructiveCommand(['docker', 'container', 'rm', 'x'])).toBe('docker container rm');
+    expect(destructiveCommand(['docker', '--context', 'c', 'image', 'rm', 'x'])).toBe('docker image rm');
+    expect(destructiveCommand(['podman', 'volume', 'prune'])).toBe('podman volume prune');
+    expect(destructiveCommand(['docker', 'rm', 'x'])).toBe('docker rm');
+    expect(destructiveCommand(['docker', 'system', 'df'])).toBeNull();
+    expect(destructiveCommand(['docker', 'image', 'ls'])).toBeNull();
+    // Every entry is a real path: no tool-level command named prune.
+    expect(DESTRUCTIVE_SUBCOMMANDS).not.toContainEqual(['docker', 'prune']);
   });
 
   it('leaves ordinary tools alone', () => {

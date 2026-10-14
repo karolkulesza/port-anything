@@ -13,23 +13,32 @@ export const DESTRUCTIVE_TOOLS: readonly string[] = Object.freeze([
   'sudo', 'doas', 'su',
 ]);
 
-/** Subcommands that delete history, files or remote state, or publish something. */
-export const DESTRUCTIVE_SUBCOMMANDS: readonly (readonly [string, string])[] = Object.freeze(
-  (
-    [
-      ['git', 'push'], ['git', 'clean'], ['git', 'reset'], ['git', 'rm'], ['git', 'gc'], ['git', 'prune'],
-      ['git', 'filter-branch'], ['git', 'filter-repo'], ['git', 'update-ref'], ['git', 'send-email'],
-      ['hg', 'push'], ['hg', 'strip'], ['hg', 'purge'],
-      ['docker', 'rm'], ['docker', 'rmi'], ['docker', 'prune'], ['docker', 'push'],
-      ['podman', 'rm'], ['podman', 'rmi'], ['podman', 'prune'], ['podman', 'push'],
-      ['kubectl', 'delete'], ['npm', 'publish'], ['npm', 'unpublish'], ['cargo', 'publish'], ['cargo', 'yank'],
-    ] as const
-  ).map((pair) => Object.freeze(pair)),
+// docker/podman object commands that delete or publish: `docker image rm`, `podman system prune`.
+const CONTAINER_OBJECTS = ['container', 'image', 'volume', 'network', 'system', 'builder', 'pod', 'manifest'];
+const containerPaths = (tool: string): string[][] => [
+  [tool, 'rm'], [tool, 'rmi'], [tool, 'push'], [tool, 'kill'],
+  ...CONTAINER_OBJECTS.flatMap((object) => [[tool, object, 'rm'], [tool, object, 'prune'], [tool, object, 'push']]),
+];
+
+/**
+ * Subcommands that delete history, files or remote state, or publish something: the tool, then
+ * the subcommand path (`docker system prune`).
+ */
+export const DESTRUCTIVE_SUBCOMMANDS: readonly (readonly string[])[] = Object.freeze(
+  [
+    ['git', 'push'], ['git', 'clean'], ['git', 'reset'], ['git', 'rm'], ['git', 'gc'], ['git', 'prune'],
+    ['git', 'filter-branch'], ['git', 'filter-repo'], ['git', 'update-ref'], ['git', 'send-email'],
+    ['hg', 'push'], ['hg', 'strip'], ['hg', 'purge'],
+    ...containerPaths('docker'), ...containerPaths('podman'),
+    ['kubectl', 'delete'], ['npm', 'publish'], ['npm', 'unpublish'], ['cargo', 'publish'], ['cargo', 'yank'],
+  ].map((path) => Object.freeze(path)),
 );
 
 // GNU coreutils installed with a `g` prefix (Homebrew on macOS): `grm`, `gshred`.
 const GNU_PREFIXED = new Set(['rm', 'rmdir', 'unlink', 'shred', 'dd']);
 const TOOLS = new Set(DESTRUCTIVE_TOOLS);
+// So `docker container rm` is reported as itself, not as `docker rm`.
+const LONGEST_FIRST = [...DESTRUCTIVE_SUBCOMMANDS].sort((a, b) => b.length - a.length);
 
 function destructiveTool(name: string): string | null {
   if (TOOLS.has(name)) return name;
@@ -39,9 +48,11 @@ function destructiveTool(name: string): string | null {
 }
 
 /**
- * What makes a command line destructive: the denylisted tool (`rm`) or tool and subcommand
- * (`git push`), or null. `argv[0]` may be a path; a multicall binary (`busybox rm`) is judged by
- * its applet, and a subcommand is the first argument that isn't a flag.
+ * What makes a command line destructive: the denylisted tool (`rm`) or tool and subcommand path
+ * (`git push`, `docker system prune`), or null. `argv[0]` may be a path; a multicall binary
+ * (`busybox rm`) is judged by its applet. A subcommand path matches anywhere among the arguments
+ * that aren't flags, so a flag value before it (`git -C dir push`) can't hide it; this errs on the
+ * side of refusing (`git log push` matches too).
  */
 export function destructiveCommand(argv: readonly string[]): string | null {
   if (argv.length === 0) return null;
@@ -53,9 +64,14 @@ export function destructiveCommand(argv: readonly string[]): string | null {
   }
   const tool = destructiveTool(name);
   if (tool !== null) return tool;
-  const sub = rest.find((arg) => !arg.startsWith('-'));
-  if (sub === undefined) return null;
-  return DESTRUCTIVE_SUBCOMMANDS.some(([t, s]) => t === name && s === sub) ? `${name} ${sub}` : null;
+  const words = rest.filter((arg) => !arg.startsWith('-'));
+  for (const [t, ...path] of LONGEST_FIRST) {
+    if (t !== name) continue;
+    for (let i = 0; i + path.length <= words.length; i++) {
+      if (path.every((word, j) => words[i + j] === word)) return [name, ...path].join(' ');
+    }
+  }
+  return null;
 }
 
 /** A denylisted tool or subcommand, refused because `--i-know` wasn't given. A config error (exit 3). */
