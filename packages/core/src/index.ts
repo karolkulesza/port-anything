@@ -120,6 +120,7 @@ export {
   type ScoreOptions,
   type ScoredCase,
 } from './score.js';
+export { measureSlowdown, type Slowdown, type TimedCase } from './slowdown.js';
 export {
   RUN_FILE,
   RUN_ID_PATTERN,
