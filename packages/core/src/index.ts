@@ -94,6 +94,7 @@ export {
   type Profile,
   type StderrOptions,
 } from './compare.js';
+export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
