@@ -76,3 +76,4 @@ export {
 } from './fs-diff.js';
 export { defaultConcurrency, mapPool } from './pool.js';
 export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
+export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
