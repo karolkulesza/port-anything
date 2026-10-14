@@ -98,3 +98,14 @@ export {
   type ScopeEntry,
   type SideContext,
 } from './normalize.js';
+export {
+  DEFAULT_REPEATS,
+  PROPOSABLE_NORMALIZERS,
+  baselineCases,
+  type BaselineField,
+  type BaselineOptions,
+  type BaselineResult,
+  type CaseBaseline,
+  type NormalizerProposal,
+  type ProposableNormalizer,
+} from './baseline.js';

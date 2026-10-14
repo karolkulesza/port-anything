@@ -76,14 +76,7 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
   const programs = [options.reference, ...options.candidates];
   const pinOptions = options.programName === undefined ? {} : { name: options.programName };
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), programs, pinOptions);
-  // Paths a side may print that differ between sides or runs, as given and with links resolved.
-  const realWorkDir = await realpath(workDir);
-  const spellings = (path: string) => [path, join(realWorkDir, relative(workDir, path))];
-  const programNames = programs.map((p) => [name, basename(p.path), basename(p.realPath), ...(p.tool === undefined ? [] : [p.tool])]);
-  const context = (side: number, caseDir: string): SideContext => ({
-    tempRoots: [caseDir, sides[side]!.binDir, workDir].flatMap(spellings),
-    programNames: programNames[side]!,
-  });
+  const context = await sideContexts(workDir, programs, name, sides);
 
   const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
     const caseDir = join(workDir, `slot-${slot}`, 'case');
@@ -109,13 +102,35 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
   return { programName: name, cases };
 }
 
+/**
+ * What normalizers need to know about each side of a run, given its case directory: paths a side
+ * may print that differ between sides or runs (as given and with links resolved), and its names.
+ */
+export async function sideContexts(
+  workDir: string,
+  programs: readonly ResolvedProgram[],
+  name: string,
+  sides: readonly PinnedProgram[],
+): Promise<(side: number, caseDir: string) => SideContext> {
+  const realWorkDir = await realpath(workDir);
+  const spellings = (path: string) => [path, join(realWorkDir, relative(workDir, path))];
+  const programNames = programs.map((p) => [name, basename(p.path), basename(p.realPath), ...(p.tool === undefined ? [] : [p.tool])]);
+  return (side, caseDir) => ({
+    tempRoots: [caseDir, sides[side]!.binDir, workDir].flatMap(spellings),
+    programNames: programNames[side]!,
+  });
+}
+
+/** The options `observeCase` reads. */
+export type ObserveOptions = Pick<RunCasesOptions, 'store' | 'sandbox' | 'timeoutMs' | 'outputCapBytes' | 'envAllowlist' | 'env' | 'hostEnv'>;
+
 /** Runs one side on one case in a fresh copy of the case's directory and builds its observation. */
-async function observeCase(
+export async function observeCase(
   c: CanonicalCase,
   caseDir: string,
   name: string,
   side: PinnedProgram,
-  options: RunCasesOptions,
+  options: ObserveOptions,
 ): Promise<Observation> {
   const { store } = options;
   await rm(caseDir, { recursive: true, force: true });
