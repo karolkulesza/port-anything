@@ -14,32 +14,107 @@ const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 
-/** Each bad port's cargo feature and the one cluster its divergences form. */
-const BAD_PORTS = {
-  // The lines count of input without a final newline: three cases with three different feature sets.
-  'bad-off-by-one': { size: 3, signature: 'stdout number-value', features: 'opt.l (2), base (1), error.file (1)' },
-  // The longest line of CRLF input, one character short.
-  'bad-crlf': { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
-  'bad-exit-code': { size: 3, signature: 'exit 2 vs 1', features: 'error.usage (3)' },
-} as const;
+interface Repro {
+  argv: string[];
+  stdin: string | null;
+  env: Record<string, string>;
+  fixtures: Record<string, string>;
+}
 
-/** The minimal case each bad port's cluster minimizes to. */
-const REPROS = {
-  // From `-l` on "one\ntwo\nthree": any input whose last line has no newline, with no option at all.
-  'bad-off-by-one': { argv: [], stdin: 't', env: {}, fixtures: {} },
-  // From `-L crlf.txt`: -L and the file stay, and the file is one CRLF line ending.
-  'bad-crlf': { argv: ['-L', 'crlf.txt'], stdin: null, env: {}, fixtures: { 'crlf.txt': '\r\n' } },
-  // From the smallest usage error, `-x`, which has nothing to drop.
-  'bad-exit-code': { argv: ['-x'], stdin: null, env: {}, fixtures: {} },
-} as const;
-type BadPort = keyof typeof BAD_PORTS;
+interface Expected {
+  /** The one cluster its divergences form, or null when they are all flaky-candidate. */
+  cluster: { size: number; signature: string; features: string } | null;
+  /** The minimal case the cluster minimizes to. */
+  repro: Repro | null;
+  /** The parity printed for it: the mean over the 8 scored features, rounded down to 0.1%. */
+  parity: string;
+  /** Flaky-candidate cases, and the features losing parity when its cases are not all in the cluster. */
+  flaky?: { cases: number; features: string };
+}
+
+const none = { env: {}, fixtures: {} };
 
 /**
- * Each bad port's parity: the mean over 8 features of their parity. off-by-one: opt.l 3/5, base 3/4,
- * error.file 2/3, five at 1 (87.70…%); crlf: opt.L 3/4 (96.875%, shown rounded down); exit code:
- * error.usage 0/3 (87.5%).
+ * Each bad port's cargo feature and what the run must find. Parities are worked out from the
+ * committed corpus, e.g. off-by-one: opt.l 3/5, base 3/4, error.file 2/3 and five features at 1
+ * (87.70…%); crlf: opt.L 3/4 (96.875%, shown rounded down).
  */
-const PARITY: Record<BadPort, string> = { 'bad-off-by-one': '87.7%', 'bad-crlf': '96.8%', 'bad-exit-code': '87.5%' };
+const BAD_PORTS: Record<string, Expected> = {
+  // The lines count of input without a final newline: three cases with three different feature sets.
+  'bad-off-by-one': {
+    cluster: { size: 3, signature: 'stdout number-value', features: 'opt.l (2), base (1), error.file (1)' },
+    // From `-l` on "one\ntwo\nthree": any input whose last line has no newline, with no option at all.
+    repro: { argv: [], stdin: 't', ...none },
+    parity: '87.7%',
+  },
+  // The longest line of CRLF input, one character short.
+  'bad-crlf': {
+    cluster: { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
+    // From `-L crlf.txt`: -L and the file stay, and the file is one CRLF line ending.
+    repro: { argv: ['-L', 'crlf.txt'], stdin: null, env: {}, fixtures: { 'crlf.txt': '\r\n' } },
+    parity: '96.8%',
+  },
+  'bad-exit-code': {
+    cluster: { size: 3, signature: 'exit 2 vs 1', features: 'error.usage (3)' },
+    // From the smallest usage error, `-x`, which has nothing to drop.
+    repro: { argv: ['-x'], stdin: null, ...none },
+    parity: '87.5%',
+  },
+  // -m is an invalid option: no output, a usage error.
+  'bad-missing-flag': {
+    cluster: {
+      size: 3,
+      signature: 'exit 0 vs 2, stdout empty (candidate empty), stderr empty (reference empty)',
+      features: 'opt.m (3), opt.c (2), opt.L (1), opt.l (1), opt.w (1)',
+    },
+    // From `-mc` on binary input: the input goes; the one argument stays whole (tokens aren't split).
+    repro: { argv: ['-mc'], stdin: null, ...none },
+    parity: '70.4%',
+  },
+  // A tab at a tab stop doesn't move.
+  'bad-rounding': {
+    cluster: { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
+    // From three lines with tabs: a tab at column 0 is the whole bug.
+    repro: { argv: ['-L'], stdin: '\t', ...none },
+    parity: '96.8%',
+  },
+  // Several files are printed last to first; the lines are the same, in another order.
+  'bad-ordering': {
+    cluster: { size: 3, signature: 'stdout line-order', features: 'base (2), error.file (1), opt.l (1)' },
+    // From `- a.txt` with text on both: two inputs are needed, empty ones do.
+    repro: { argv: ['-', 'a.txt'], stdin: null, env: {}, fixtures: { 'a.txt': '' } },
+    parity: '87.0%',
+  },
+  // -L is off by a different amount on every run: each such case is flaky-candidate, in no cluster.
+  'bad-racy': {
+    cluster: null,
+    repro: null,
+    parity: '73.5%',
+    flaky: { cases: 4, features: 'opt.L (4), opt.c (1), opt.l (1), opt.m (1), opt.w (1)' },
+  },
+  // Errors start with "wc" instead of the name it runs as. Caught because stderr is compared exactly.
+  'bad-program-name': {
+    cluster: { size: 6, signature: 'stderr message-text', features: 'error.file (3), error.usage (3), opt.l (1)' },
+    repro: { argv: ['-x'], stdin: null, ...none },
+    parity: '72.5%',
+  },
+  // After `--`, -l is read as an option instead of a file name.
+  'bad-double-dash': {
+    cluster: { size: 1, signature: 'exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty)', features: 'error.file (1)' },
+    repro: { argv: ['--', '-l'], stdin: null, ...none },
+    parity: '95.8%',
+  },
+  // Only a space ends a word, so the words count is off wherever a tab or a newline separates words.
+  'bad-words': {
+    cluster: { size: 6, signature: 'stdout number-value', features: 'opt.w (4), base (2), opt.l (2), opt.L (1), opt.c (1), opt.m (1)' },
+    // A newline alone is a word.
+    repro: { argv: ['a.txt'], stdin: null, env: {}, fixtures: { 'a.txt': '\n' } },
+    parity: '64.7%',
+  },
+};
+const BAD = Object.keys(BAD_PORTS);
+/** The bad ports with a cluster, in candidate order: cluster n is the nth of them. */
+const CLUSTERED = BAD.filter((feature) => BAD_PORTS[feature]!.cluster !== null);
 
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
 const toolchain = (await has('cc')) && (await has('cargo'));
@@ -49,13 +124,13 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; score: Score; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; score: Score; normalizers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[] }[];
   clusters: SavedCluster[];
 }
 
 describe.runIf(enabled)('examples/wc-lite', () => {
   let project: string;
-  const badPath = (feature: BadPort) => `./port/target/${feature}/release/wc-lite`;
+  const badPath = (feature: string) => `./port/target/${feature}/release/wc-lite`;
   const port = (...args: string[]) =>
     exec(process.execPath, [binPath, 'run', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
@@ -115,52 +190,58 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(code).toBe(0);
   }, 120_000);
 
-  it('puts the divergences of each bad port in one cluster of its own, and none for a renamed identical copy (one run)', async () => {
-    const bad = Object.keys(BAD_PORTS) as BadPort[];
-    const args = ['./copy/wc-copy', ...bad.map(badPath)].flatMap((c) => ['--candidate', c]);
+  it('catches every bad port: one cluster of its own each, flaky-candidate apart, none for a renamed identical copy (one run)', async () => {
+    const args = ['./copy/wc-copy', ...BAD.map(badPath)].flatMap((c) => ['--candidate', c]);
     const json = await port('--json', ...args);
     const { cases, candidates, clusters } = JSON.parse(json.stdout) as RunSummary;
     expect(json.code).toBe(1);
     expect(candidates[0]).toMatchObject({ command: './copy/wc-copy', match: cases, diverge: 0 });
     const got = clusters.map((c) => ({ candidate: c.candidate, size: c.size, signature: describeSignature(c.signature), features: describeFeatures(c.features) }));
-    expect(got).toEqual(bad.map((feature, i) => ({ candidate: i + 2, ...BAD_PORTS[feature] })));
-    for (const [i, c] of clusters.entries()) expect(c.cases).toEqual(candidates[i + 1]!.divergences.map((d) => d.case));
-    // Each bad port loses parity in exactly the features of its cluster.
-    for (const [i, feature] of bad.entries()) {
-      const { score } = candidates[i + 1]!;
-      expect(score.headline).toBeLessThan(1);
+    expect(got).toEqual(CLUSTERED.map((feature) => ({ candidate: BAD.indexOf(feature) + 2, ...BAD_PORTS[feature]!.cluster })));
+    for (const c of clusters) expect(c.cases).toEqual(candidates[c.candidate - 1]!.divergences.map((d) => d.case));
+    for (const [i, feature] of BAD.entries()) {
+      const { cluster, flaky } = BAD_PORTS[feature]!;
+      const { score, diverge, flaky_candidate } = candidates[i + 1]!;
+      // Caught: it diverges and loses parity, in exactly the features of its cluster (or of its flaky cases).
+      expect(diverge, feature).toBeGreaterThan(0);
+      expect(score.headline, feature).toBeLessThan(1);
+      expect(flaky_candidate, feature).toHaveLength(flaky?.cases ?? 0);
       const hit = score.features.filter((f) => f.parity !== 1).map((f) => `${f.feature} (${f.diverge})`);
-      expect(hit.sort()).toEqual(BAD_PORTS[feature].features.split(', ').sort());
+      expect(hit.sort(), feature).toEqual((cluster ?? flaky)!.features.split(', ').sort());
     }
 
     const text = await port(...args);
     expect(text.code).toBe(1);
     expect(text.stdout).toContain(`candidate 1 ./copy/wc-copy: ${cases} of ${cases} cases match\n`);
-    for (const [i, feature] of bad.entries()) {
+    for (const [i, feature] of BAD.entries()) {
       const { match, diverge } = candidates[i + 1]!;
-      const { size, signature, features } = BAD_PORTS[feature];
-      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  parity ${PARITY[feature]}, mean of 8 features`);
-      expect(text.stdout).toContain(`  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
+      const { cluster, parity, flaky } = BAD_PORTS[feature]!;
+      const flakyNote = flaky === undefined ? '' : ` (${flaky.cases} flaky-candidate)`;
+      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge${flakyNote}\n  parity ${parity}, mean of 8 features`);
+      if (cluster !== null) {
+        const n = CLUSTERED.indexOf(feature) + 1;
+        expect(text.stdout).toContain(`  cluster ${n}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${cluster.signature} · features ${cluster.features}\n`);
+      }
     }
-  }, 120_000);
+    expect(text.stdout).toContain('  flaky-candidate, a re-run gave a different result:\n');
+  }, 180_000);
 
   it('minimizes the cluster of each bad port to its expected repro and saves it with the run (done when)', async () => {
-    const bad = Object.keys(BAD_PORTS) as BadPort[];
-    const run = await port('--json', ...bad.flatMap((c) => ['--candidate', badPath(c)]));
+    const run = await port('--json', ...BAD.flatMap((c) => ['--candidate', badPath(c)]));
     const { run_id: runId, clusters } = JSON.parse(run.stdout) as RunSummary & { run_id: string };
-    expect(clusters.map((c) => c.candidate)).toEqual([1, 2, 3]);
-    for (const [i, feature] of bad.entries()) {
+    expect(clusters.map((c) => BAD[c.candidate - 1])).toEqual(CLUSTERED);
+    for (const [i, feature] of CLUSTERED.entries()) {
       const minimized = await minimize('--json', `${runId}/${i + 1}`);
       expect(minimized.code).toBe(1);
       const repro = JSON.parse(minimized.stdout) as { reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } };
       const { id: _id, ...invocation } = repro.case;
-      expect({ feature, ...invocation }).toEqual({ feature, ...REPROS[feature] });
+      expect({ feature, ...invocation }).toEqual({ feature, ...BAD_PORTS[feature]!.repro });
       expect(repro).toMatchObject({ reproduced: true, exhausted: false });
       expect(repro.runs).toBeLessThanOrEqual(200);
     }
     // The text output shows the repro as a command line; the latest run is the default.
     const text = await minimize('2');
     expect(text.code).toBe(1);
-    expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
-  }, 120_000);
+    expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf').replace(/[.]/g, '\\.')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
+  }, 300_000);
 });
