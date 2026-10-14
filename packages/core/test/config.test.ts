@@ -11,6 +11,7 @@ describe('parseConfig', () => {
       version: 1,
       reference: { cmd: './ref/tool' },
       sandbox: { mode: 'local', timeout: 10_000, env_allowlist: [], env: {} },
+      compare: { profile: 'standard', fields: { stderr: { similarity: 0.6 } } },
       normalizers: [],
     });
     expect(configCandidates(config)).toEqual([]);
@@ -23,16 +24,29 @@ describe('parseConfig', () => {
       reference: { cmd: ['./ref/bin/tool'], build: 'make -C ref' },
       candidate: { cmd: ['./port/target/release/tool'], build: 'cargo build --release' },
       sandbox: { mode: 'container', image: 'debian:12-slim', timeout: '10s', env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } },
-      compare: { profile: 'standard' },
+      compare: { profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 },
       normalizers: ['tmp-paths'],
       corpus: { repeats: 5, generator: 'v1', budget: 10000 },
       holdout: { fresh_cases: 1000 },
       report: { title: 'tool → Rust' },
     });
     expect(config.program_name).toBe('tool');
+    expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 });
     expect(config.corpus?.repeats).toBe(5);
     expect(config.sandbox).toEqual({ mode: 'container', image: 'debian:12-slim', timeout: 10_000, env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } });
     expect(configCandidates(config)).toEqual([{ cmd: ['./port/target/release/tool'], build: 'cargo build --release' }]);
+  });
+
+  it('reads the strictness profile and the stderr mode, and refuses others', () => {
+    const base = { version: 1, reference: { cmd: 'a' } };
+    expect(parseConfig({ ...base, compare: { profile: 'lenient' } }).compare).toEqual({ profile: 'lenient', fields: { stderr: { similarity: 0.6 } } });
+    expect(parseConfig({ ...base, compare: { profile: 'strict', fields: { stderr: { mode: 'exact' } } } }).compare.fields.stderr).toEqual({ mode: 'exact', similarity: 0.6 });
+    expect(parseConfig({ ...base, compare: { fields: { stderr: { similarity: 0.8 } } } }).compare).toEqual({ profile: 'standard', fields: { stderr: { similarity: 0.8 } } });
+    expect(() => parseConfig({ ...base, compare: { profile: 'paranoid' } })).toThrow(/compare\.profile: /);
+    expect(() => parseConfig({ ...base, compare: { fields: { stderr: { mode: 'fuzzy' } } } })).toThrow(/compare\.fields\.stderr\.mode: /);
+    expect(() => parseConfig({ ...base, compare: { fields: { stderr: { similarity: 1.5 } } } })).toThrow(/compare\.fields\.stderr\.similarity: /);
+    expect(() => parseConfig({ ...base, compare: { fields: { stdout: { mode: 'loose' } } } })).toThrow(/compare\.fields: /);
+    expect(() => parseConfig({ ...base, compare: { profiel: 'strict' } })).toThrow(/compare: /);
   });
 
   it('takes several candidates, but not both spellings at once', () => {
