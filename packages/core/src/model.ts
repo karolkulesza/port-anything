@@ -128,8 +128,9 @@ const ObservationObjectSchema = z
       modified: z.record(RelativePathSchema, BlobRefSchema),
       deleted: z.array(RelativePathSchema),
     }),
-    time_ms: z.strictObject({ wall: ms, user: ms, sys: ms }),
-    rss_kb: z.int().nonnegative(),
+    // CPU time and peak RSS are null while the runner can't measure them (not measured yet).
+    time_ms: z.strictObject({ wall: ms, user: ms.nullable(), sys: ms.nullable() }),
+    rss_kb: z.int().nonnegative().nullable(),
     runs: z.int().positive(),
     stable: z.boolean(),
   })

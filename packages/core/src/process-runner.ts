@@ -85,9 +85,9 @@ export interface ProcessResult {
   stderr: Buffer;
   /** True for a stream that went over the cap; it holds the first `outputCapBytes` bytes and the case was stopped. */
   truncated: { stdout: boolean; stderr: boolean };
-  /** Wall-clock time from start to exit; CPU time is null where it can't be measured. */
+  /** Wall-clock time from start to exit. CPU time is null: not measured yet. */
   time_ms: { wall: number; user: number | null; sys: number | null };
-  /** Peak resident set size; null where it can't be measured. */
+  /** Peak resident set size; null: not measured yet. */
   rss_kb: number | null;
 }
 

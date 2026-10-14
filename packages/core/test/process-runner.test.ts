@@ -2,6 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { canonicalObservation } from '../src/model.js';
 import {
   BASE_ENV_ALLOWLIST,
   DEFAULT_CASE_ENV,
@@ -210,11 +211,25 @@ describe('runProcess (no sandbox)', () => {
     await expect(run(['pa-no-such-program-xyz'])).rejects.toThrow(/pa-no-such-program-xyz/);
   });
 
-  it('reports CPU time and peak RSS as unavailable for now', async () => {
+  it('reports CPU time and peak RSS as not measured, in the shape observations store', async () => {
     const r = await run(['true']);
     expect(r.time_ms.user).toBeNull();
     expect(r.time_ms.sys).toBeNull();
     expect(r.rss_kb).toBeNull();
+    const ref = (c: string) => `blob:sha256:${c.repeat(64)}`;
+    const observation = {
+      exit: r.exit,
+      signal: r.signal,
+      timeout: r.timeout,
+      stdout: ref('1'),
+      stderr: ref('2'),
+      fs: { created: {}, modified: {}, deleted: [] },
+      time_ms: r.time_ms,
+      rss_kb: r.rss_kb,
+      runs: 1,
+      stable: true,
+    };
+    expect(() => canonicalObservation(observation)).not.toThrow();
   });
 });
 
