@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseDocument } from 'yaml';
 import { z } from 'zod';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
 
@@ -74,4 +77,24 @@ export function parseConfig(input: unknown, source = 'port-anything.yaml'): Conf
   if (result.success) return result.data;
   const problems = result.error.issues.map((issue) => `  ${issue.path.length > 0 ? issue.path.join('.') : '(top level)'}: ${issue.message}`);
   throw new ConfigError([`${source} is not valid:`, ...problems].join('\n'));
+}
+
+/** Name of the config file, at the top of the project directory. */
+export const CONFIG_FILE = 'port-anything.yaml';
+
+/** Reads and validates the project's `port-anything.yaml`. Every failure is a `ConfigError`. */
+export async function readConfigFile(projectDir: string): Promise<Config> {
+  let source: string;
+  try {
+    source = await readFile(join(projectDir, CONFIG_FILE), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new ConfigError(`No ${CONFIG_FILE} in ${projectDir}.`);
+    throw new ConfigError(`Cannot read ${CONFIG_FILE}: ${(e as Error).message}`);
+  }
+  // YAML 1.2 core schema (no `yes`/`no` booleans); duplicate keys are errors.
+  const doc = parseDocument(source, { prettyErrors: true });
+  if (doc.errors.length > 0) {
+    throw new ConfigError([`${CONFIG_FILE} is not valid YAML:`, ...doc.errors.map((e) => `  ${e.message.replace(/\n/g, '\n  ')}`)].join('\n'));
+  }
+  return parseConfig(doc.toJS(), CONFIG_FILE);
 }

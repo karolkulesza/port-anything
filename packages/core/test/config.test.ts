@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { ConfigError, configCandidates, parseConfig } from '../src/config.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CONFIG_FILE, ConfigError, configCandidates, parseConfig, readConfigFile } from '../src/config.js';
 
 describe('parseConfig', () => {
   it('fills in the defaults of a minimal config', () => {
@@ -67,5 +70,56 @@ describe('parseConfig', () => {
   it('refuses an empty command', () => {
     expect(() => parseConfig({ version: 1, reference: { cmd: '' } })).toThrow(/reference\.cmd/);
     expect(() => parseConfig({ version: 1, reference: { cmd: [] } })).toThrow(/reference\.cmd/);
+  });
+});
+
+describe('readConfigFile', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pa-config-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reads port-anything.yaml from the project directory', async () => {
+    writeFileSync(
+      join(dir, CONFIG_FILE),
+      [
+        '# comments are fine',
+        'version: 1',
+        'program_name: tool',
+        'reference:',
+        '  cmd: ["./ref/bin/tool"]',
+        'candidates:',
+        '  - cmd: ./port/tool',
+        "  - cmd: 'coreutils sort'",
+        'sandbox:',
+        '  timeout: 2s',
+        '  env: { TZ: UTC }',
+        'normalizers:',
+        '  - { float-tolerance: { rtol: 1e-9 }, scope: stdout }',
+        '',
+      ].join('\n'),
+    );
+    const config = await readConfigFile(dir);
+    expect(config.program_name).toBe('tool');
+    expect(config.reference.cmd).toEqual(['./ref/bin/tool']);
+    expect(configCandidates(config).map((c) => c.cmd)).toEqual(['./port/tool', 'coreutils sort']);
+    expect(config.sandbox).toMatchObject({ timeout: 2000, env: { TZ: 'UTC' } });
+  });
+
+  it('says when the file is missing, is not YAML, or has a duplicate key (ConfigError)', async () => {
+    await expect(readConfigFile(dir)).rejects.toThrow(/No port-anything\.yaml in /);
+    writeFileSync(join(dir, CONFIG_FILE), 'version: 1\nreference: [unclosed\n');
+    await expect(readConfigFile(dir)).rejects.toThrow(ConfigError);
+    await expect(readConfigFile(dir)).rejects.toThrow(/port-anything\.yaml is not valid YAML/);
+    writeFileSync(join(dir, CONFIG_FILE), 'version: 1\nversion: 1\nreference: { cmd: a }\n');
+    await expect(readConfigFile(dir)).rejects.toThrow(/not valid YAML/);
+  });
+
+  it('validates the content like parseConfig, naming the file', async () => {
+    writeFileSync(join(dir, CONFIG_FILE), '');
+    await expect(readConfigFile(dir)).rejects.toThrow(/port-anything\.yaml is not valid:\n {2}\(top level\)/);
+    writeFileSync(join(dir, CONFIG_FILE), 'version: 1\nreference: { cmd: a }\nsandbox: { timeout: soon }\n');
+    await expect(readConfigFile(dir)).rejects.toThrow(/sandbox\.timeout: must be a positive duration/);
   });
 });

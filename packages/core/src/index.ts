@@ -77,4 +77,4 @@ export {
 export { defaultConcurrency, mapPool } from './pool.js';
 export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
-export { ConfigError, ConfigSchema, configCandidates, parseConfig, type Config } from './config.js';
+export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
