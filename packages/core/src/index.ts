@@ -96,3 +96,4 @@ export {
   type CliValue,
   type SpecFeature,
 } from './cli-spec.js';
+export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag, type ParsedHelp } from './help-parser.js';
