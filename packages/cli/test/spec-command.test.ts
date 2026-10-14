@@ -70,7 +70,8 @@ describe('port-anything spec infer', () => {
     expect(existsSync(join(project, CLI_SPEC_FILE))).toBe(true);
   });
 
-  it('exits 3 for a wrong command line, a missing sandbox, a missing config or a reference without help', async () => {
+  it('prints its usage for --help, and exits 3 for a wrong command line, a missing sandbox, a missing config or a reference without help', async () => {
+    expect(await infer(['--help'])).toEqual({ exitCode: 0, stdout: 'Usage: port-anything spec infer [--no-sandbox]\n', stderr: '' });
     expect((await infer([])).stderr).toMatch(/which spec command\?\nUsage: port-anything spec infer/);
     expect((await infer(['guess'])).stderr).toMatch(/unknown spec command "guess"/);
     expect((await infer(['infer', '--bogus'])).stderr).toMatch(/bogus/);

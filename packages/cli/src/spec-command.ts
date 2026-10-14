@@ -42,6 +42,7 @@ const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr:
 
 async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   const [sub, ...rest] = argv;
+  if (sub === '--help' || sub === '-h') return { exitCode: 0, stdout: `${USAGE}\n`, stderr: '' };
   if (sub !== 'infer') throw new ConfigError(sub === undefined ? `which spec command?\n${USAGE}` : `unknown spec command "${sub}".\n${USAGE}`);
   let noSandbox: boolean;
   try {
@@ -81,7 +82,12 @@ async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; pro
     await rmdir(join(cwd, '.port-anything', 'tmp')).catch(() => {}); // kept while another command uses it
   }
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, cliSpecYaml(result.spec), { flag: 'wx' });
+  try {
+    await writeFile(target, cliSpecYaml(result.spec), { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ConfigError(`${CLI_SPEC_FILE} appeared while inferring; it was left as it is.`);
+    throw e;
+  }
 
   const { spec, probes } = result;
   const features = specFeatures(spec);
