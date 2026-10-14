@@ -76,6 +76,31 @@ export interface RunCasesResult {
  * so a program that prints its directory doesn't diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
+  const runner = await openCaseRunner(options);
+  const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
+    const result = await runner.run(c, slot);
+    options.onCase?.(result);
+    return result;
+  });
+  return { programName: runner.programName, cases };
+}
+
+/** The programs of a run, pinned once, to run cases on one at a time or from a worker pool. */
+export interface CaseRunner {
+  /** The argv[0] every side runs as. */
+  programName: string;
+  /**
+   * Runs one case on the reference and every candidate and compares them, as `runCases` does. Calls
+   * that run at the same time need different slots (each slot is one scratch directory).
+   */
+  run(c: CanonicalCase, slot?: number): Promise<CaseRun>;
+}
+
+/**
+ * Pins the reference and candidates under `options.workDir` for running cases one by one (as the
+ * minimizer does); `options.cases`, `concurrency` and `onCase` are not used.
+ */
+export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'concurrency' | 'onCase'>): Promise<CaseRunner> {
   const workDir = resolve(options.workDir);
   await mkdir(workDir, { recursive: true });
   const programs = [options.reference, ...options.candidates];
@@ -90,7 +115,7 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
     programNames: programNames[side]!,
   });
 
-  const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
+  const run = async (c: CanonicalCase, slot = 0): Promise<CaseRun> => {
     const caseDir = join(workDir, `slot-${slot}`, 'case');
     const observe = (side: PinnedProgram) => observeCase(c, caseDir, name, side, options);
     const reference = await observe(sides[0]!);
@@ -113,11 +138,9 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
       const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
       candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy });
     }
-    const result: CaseRun = { caseId: c.id, reference, candidates };
-    options.onCase?.(result);
-    return result;
-  });
-  return { programName: name, cases };
+    return { caseId: c.id, reference, candidates };
+  };
+  return { programName: name, run };
 }
 
 /** Runs one side on one case in a fresh copy of the case's directory and builds its observation. */
@@ -126,7 +149,7 @@ async function observeCase(
   caseDir: string,
   name: string,
   side: PinnedProgram,
-  options: RunCasesOptions,
+  options: Omit<RunCasesOptions, 'cases' | 'concurrency' | 'onCase'>,
 ): Promise<Observation> {
   const { store } = options;
   await rm(caseDir, { recursive: true, force: true });

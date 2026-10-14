@@ -7,7 +7,7 @@ import { compareExact } from '../src/compare.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { parseProgramCommand, resolveProgram, type ResolvedProgram } from '../src/program.js';
 import { NormalizersSchema } from '../src/normalize.js';
-import { runCases, type RunCasesOptions } from '../src/run-cases.js';
+import { openCaseRunner, runCases, type CaseRun, type RunCasesOptions } from '../src/run-cases.js';
 
 // A small program and two ports of it, as shell scripts. Each logs its runs to $PA_TEST_LOG
 // (allow-listed below), so the tests can count how often each side ran.
@@ -175,6 +175,18 @@ describe('runCases', () => {
     const result = await runCases(options([]));
     expect(result.cases).toHaveLength(cases.length);
     expect(result.cases.every((c) => c.candidates.length === 0)).toBe(true);
+  });
+
+  it('runs cases one at a time on programs pinned once, with the verdicts of a whole run', async () => {
+    const whole = await runCases(options([good, bad]));
+    rmSync(log, { force: true });
+    const runner = await openCaseRunner(options([good, bad]));
+    expect(runner.programName).toBe('tool');
+    const one: CaseRun[] = [];
+    for (const c of cases) one.push(await runner.run(c));
+    const verdicts = (runs: CaseRun[]) => runs.map((c) => c.candidates.map((x) => ({ fields: x.comparison.fields, shapes: x.shapes })));
+    expect(verdicts(one)).toEqual(verdicts(whole.cases));
+    expect(logLines().filter((l) => l.startsWith('ref '))).toHaveLength(cases.length);
   });
 
   it('fails when a case needs a blob the store does not have', async () => {
