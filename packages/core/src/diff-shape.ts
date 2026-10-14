@@ -62,8 +62,9 @@ const NUMBER_PARTS = /^([-+]?)(\d*)(?:\.(\d*))?(?:[eE]([-+]?\d+))?$/;
 export function classifyText(reference: string, candidate: string, field?: ComparedField): TextShape {
   if (reference === candidate) throw new Error('classifyText: the texts are equal');
   if (reference === '' || candidate === '') return { shape: 'empty', detail: reference === '' ? 'reference empty' : 'candidate empty' };
-  if (reference === `${candidate}\n`) return { shape: 'missing-trailing-newline', detail: 'candidate' };
-  if (candidate === `${reference}\n`) return { shape: 'missing-trailing-newline', detail: 'reference' };
+  // Only when the shorter side doesn't end a line: one more `\n` after a `\n` is an extra blank line.
+  if (reference === `${candidate}\n` && !candidate.endsWith('\n')) return { shape: 'missing-trailing-newline', detail: 'candidate' };
+  if (candidate === `${reference}\n` && !reference.endsWith('\n')) return { shape: 'missing-trailing-newline', detail: 'reference' };
   if (reference.replace(WHITESPACE, '') === candidate.replace(WHITESPACE, '')) return { shape: 'whitespace-only' };
   if (sameLines(reference, candidate)) return { shape: 'line-order' };
   const numbers = numberShape(reference, candidate);

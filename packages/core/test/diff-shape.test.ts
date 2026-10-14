@@ -64,7 +64,11 @@ describe('classifyText', () => {
   it('missing trailing newline, on either side', () => {
     expect(classifyText('3 a.txt\n', '3 a.txt')).toEqual({ shape: 'missing-trailing-newline', detail: 'candidate' });
     expect(classifyText('3 a.txt', '3 a.txt\n')).toEqual({ shape: 'missing-trailing-newline', detail: 'reference' });
+  });
 
+  it('an extra blank line after a final newline is not a missing trailing newline', () => {
+    expect(classifyText('x 1\n', 'x 1\n\n')).toEqual({ shape: 'whitespace-only' });
+    expect(classifyText('x 1\n\n', 'x 1\n')).toEqual({ shape: 'whitespace-only' });
   });
 
   it('prefix or suffix: cut short, or something extra at either end', () => {
