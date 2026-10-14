@@ -187,5 +187,12 @@ describe.runIf(mode !== undefined)('examples/wc-lite mutation score', () => {
     expect(recorded, `${scoreFile} is missing; record it with PA_MUTANTS=update`).toBeDefined();
     // A new survivor means the corpus misses it, or the port changed (then re-record with PA_MUTANTS=update).
     expect(shortfalls(recorded!, result)).toEqual([]);
+
+    // The default run samples (cargo-mutants' --re): 5 of the mutants, each with its recorded outcome.
+    const sampled = await exec(process.execPath, [binPath, 'strength', '--json', '--mutants', '5', ...args.slice(4)], { cwd: project, maxBuffer: 64 * 1024 * 1024 });
+    const sample = JSON.parse(sampled.stdout) as typeof strength & { generated: number };
+    expect(sample).toMatchObject({ generated: recorded!.mutants, mutants: 5 });
+    expect(sample.caught_mutants.filter((m) => !recorded!.caught_mutants.includes(m))).toEqual([]);
+    expect(sample.survivors.filter((m) => !recorded!.survivors.some((s) => s.mutant === m))).toEqual([]);
   }, 3_600_000);
 });
