@@ -76,7 +76,24 @@ export {
   type FsSnapshot,
 } from './fs-diff.js';
 export { defaultConcurrency, mapPool } from './pool.js';
-export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
+export {
+  COMPARED_FIELDS,
+  DEFAULT_STDERR_SIMILARITY,
+  PROFILES,
+  PROFILE_FIELDS,
+  compareExact,
+  compareObservations,
+  exitClass,
+  stderrMode,
+  stderrSimilarity,
+  type CompareObservationsOptions,
+  type CompareOptions,
+  type ComparedField,
+  type Comparison,
+  type ExitClass,
+  type Profile,
+  type StderrOptions,
+} from './compare.js';
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';

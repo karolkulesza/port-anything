@@ -210,7 +210,12 @@ function floatTolerance(reference: string, candidate: string, rtol: number, atol
 }
 
 function programName(text: string, side: SideContext): string {
-  const names = [...new Set(side.programNames)].filter((n) => n !== '').sort((a, b) => b.length - a.length);
+  return replaceProgramNames(text, side.programNames);
+}
+
+/** Replaces a program's own names where tools print them (what the `program-name` normalizer does). */
+export function replaceProgramNames(text: string, programNames: readonly string[]): string {
+  const names = [...new Set(programNames)].filter((n) => n !== '').sort((a, b) => b.length - a.length);
   if (names.length === 0) return text;
   // Where tools print their own name: at the start of a line (`sort: invalid option`), after
   // `Usage:` and in `Try 'sort --help'`. Elsewhere the name may be an ordinary word of the message.
