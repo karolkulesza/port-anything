@@ -12,12 +12,16 @@ case "$1" in
   upper) ${variant === 'bad' ? 'cat' : "tr 'a-z' 'A-Z'"} ;;
   fail) echo "$(basename "$0"): no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   self) echo "$0" ;;
+  nap) ${variant === 'bad' ? 'sleep 5' : 'true'} ;;
   warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
 
 /** Text output with the run ID, which differs on every run, replaced. */
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
+
+/** Text output without each candidate's parity lines, for tests about other parts of it. */
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|\d+ (waived|flaky|timed)).*\n/gm, '');
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
@@ -76,7 +80,11 @@ describe('executeRun', () => {
         'compare standard (stderr loose, similarity 0.6)',
         'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
+        '  parity n/a: no feature has 20 scored cases (corpus.min_cases_per_feature)',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
+        '  parity n/a: no feature has 20 scored cases (corpus.min_cases_per_feature)',
+        '  under-sampled, not in the parity: base 33.3% (3 cases)',
         '  cluster 1: 1 case · exit 1 vs 2 · features base (1)',
         `    ${shortCaseId(cases[2]!.id)}`,
         '  cluster 2: 1 case · stdout other · features base (1)',
@@ -111,11 +119,12 @@ describe('executeRun', () => {
       cases: 3,
       normalizers: [],
       candidates: [
-        { command: './bin/tool-copy', match: 3, diverge: 0, normalizers: [], divergences: [] },
+        { command: './bin/tool-copy', match: 3, diverge: 0, score: expect.objectContaining({ headline: null, underSampled: ['base'] }), normalizers: [], divergences: [] },
         {
           command: './bin/tool-bad',
           match: 1,
           diverge: 2,
+          score: expect.objectContaining({ headline: null, raw: expect.objectContaining({ scored: 3, match: 1 }) }),
           normalizers: [],
           divergences: [
             { case: cases[1]!.id, fields: ['stdout'] },
@@ -216,12 +225,12 @@ describe('executeRun profiles', () => {
 
   it('compares under the configured profile and says which one', async () => {
     // tool-copy prints the same message under its own file name with other spacing; tool-bad another message.
-    const standard = await run(undefined);
+    const standard = await run(undefined).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
     expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
     expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
 
-    const strict = await run({ profile: 'strict' });
+    const strict = await run({ profile: 'strict' }).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
 
     const lenient = await run({ profile: 'lenient' });
@@ -269,7 +278,7 @@ describe('executeRun clusters', () => {
     // The exit cluster is all of `error` (weight 1); the stdout cluster 7 of the 10 opt.u cases (0.7).
     const result = await exec();
     const ids = cases.slice(0, 5).map((c) => shortCaseId(c.id));
-    expect(result.stdout).toContain(
+    expect(unscored(result.stdout)).toContain(
       [
         'candidate 2 ./bin/tool-bad: 3 of 11 cases match, 8 diverge',
         '  cluster 1: 1 case · exit 1 vs 2 · features error (1)',
@@ -323,6 +332,61 @@ describe('executeRun clusters', () => {
   });
 });
 
+describe('executeRun scores', () => {
+  let project: string;
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-score-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = async (cases: CanonicalCase[], yaml: Record<string, unknown> = {}) => {
+    const config = parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-bad' }, ...yaml });
+    const args = { candidates: [], noSandbox: true };
+    const options = { projectDir: project, config, cases, probe: NO_SANDBOX };
+    const text = await executeRun({ ...options, args: { ...args, json: false } });
+    const json = JSON.parse((await executeRun({ ...options, args: { ...args, json: true } })).stdout);
+    return { text: text.stdout, score: json.candidates[0].score };
+  };
+  const echo = (n: number, features: string[], origin: 'recorded' | 'generated' = 'recorded') =>
+    Array.from({ length: n }, (_, i) => canonicalCase({ argv: ['echo', `${features.join(' ')} ${i}`], features, origin }));
+
+  it('scores 100% when the only difference is in a self-description feature, listed on its own line', async () => {
+    // tool-bad fails `fail`; tagged opt.help here, it stands for a --help text that differs.
+    const help = canonicalCase({ argv: ['fail'], features: ['opt.help'], origin: 'recorded' });
+    const { text, score } = await run([...echo(2, ['opt.a']), ...echo(2, ['opt.b'], 'generated'), help], { corpus: { min_cases_per_feature: 2 } });
+    expect(text).toContain(
+      [
+        'candidate 1 ./bin/tool-bad: 4 of 5 cases match, 1 diverge',
+        '  parity 100.0%, mean of 2 features (4 of 5 scored cases match)',
+        '  by origin: recorded 100.0% (3 cases), generated 100.0% (2 cases)',
+        '  self-description, not in the parity: opt.help 0.0% (1 case)',
+        '',
+      ].join('\n'),
+    );
+    expect(score).toMatchObject({ headline: 1, headlineFeatures: ['opt.a', 'opt.b'], selfDescription: ['opt.help'], minCasesPerFeature: 2 });
+  });
+
+  it('takes the mean over features, so many cheap error cases do not inflate it', async () => {
+    const errors = Array.from({ length: 30 }, (_, i) => canonicalCase({ argv: ['echo', `error ${i}`], features: ['error.usage'], origin: 'recorded' }));
+    const store = new BlobStore(cacheDir(project));
+    const upper = await Promise.all(['a', 'b', 'c', 'd'].map(async (w) => canonicalCase({ argv: ['upper'], stdin: await store.put(`${w}\n`), features: ['opt.u'], origin: 'recorded' })));
+    const { text, score } = await run([...errors, ...upper, ...echo(1, ['opt.x'])], { corpus: { min_cases_per_feature: 4 } });
+    expect(text).toContain('  parity 50.0%, mean of 2 features (31 of 35 scored cases match)\n  under-sampled, not in the parity: opt.x 100.0% (1 case)\n');
+    expect(score.raw.parity).toBeCloseTo(31 / 35);
+  });
+
+  it('counts a candidate timeout as a divergence and says so', async () => {
+    const nap = canonicalCase({ argv: ['nap'], origin: 'recorded' });
+    const { text, score } = await run([nap, ...echo(1, [])], { corpus: { min_cases_per_feature: 1 }, sandbox: { timeout: '500ms' } });
+    expect(text).toContain('  parity 50.0%, mean of 1 feature (1 of 2 scored cases match)\n  1 timed out (diverge)\n');
+    expect(score.raw).toMatchObject({ diverge: 1, timeouts: 1 });
+  });
+});
+
 describe('runCommand', () => {
   it('reads port-anything.yaml and the committed cases from the project directory', async () => {
     const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-')));
@@ -335,7 +399,7 @@ describe('runCommand', () => {
       writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
-      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
+      expect(unscored(result.stdout)).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
       const runId = /^run (\S+)$/m.exec(result.stdout)![1]!;
       expect((await loadRun(project, runId)).clusters).toHaveLength(1);
     } finally {

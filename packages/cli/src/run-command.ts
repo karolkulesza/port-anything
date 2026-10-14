@@ -24,6 +24,7 @@ import {
   resolveProgram,
   runCases,
   saveRun,
+  scoreCandidate,
   shortCaseId,
   stderrMode,
   type CanonicalCase,
@@ -32,6 +33,7 @@ import {
   type ResolvedCluster,
   type SandboxProbe,
   type SavedCluster,
+  type Score,
 } from '@port-anything/core';
 
 /** What a CLI command returns: the exit code and what to print. */
@@ -208,7 +210,17 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       const divergences = result.cases
         .filter((c) => c.candidates[i]!.comparison.verdict === 'diverge')
         .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, normalizers: changed(i), divergences };
+      const score = scoreCandidate(
+        result.cases.map((c, n) => ({
+          caseId: c.caseId,
+          features: cases[n]!.features,
+          origin: cases[n]!.origin,
+          verdict: c.candidates[i]!.comparison.verdict,
+          candidateTimeout: c.candidates[i]!.observation.timeout,
+        })),
+        config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
+      );
+      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, score, normalizers: changed(i), divergences };
     }),
     clusters,
   };
@@ -230,6 +242,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   }
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
+    lines.push(...scoreLines(c.score));
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
@@ -238,6 +251,43 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
+
+/**
+ * A candidate's parity: the headline (mean of per-feature parity), parity per origin, the cases
+ * left out or counted as divergences, and the features reported outside the headline.
+ */
+function scoreLines(score: Score): string[] {
+  const features = score.headlineFeatures.length;
+  const lines = [
+    score.headline === null
+      ? `  parity n/a: no feature has ${score.minCasesPerFeature} scored case${score.minCasesPerFeature === 1 ? '' : 's'} (corpus.min_cases_per_feature)`
+      : `  parity ${percent(score.headline)}, mean of ${features} feature${features === 1 ? '' : 's'} (${score.raw.match} of ${score.raw.scored} scored cases match)`,
+  ];
+  const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);
+  if (origins.length > 1) lines.push(`  by origin: ${origins.map(([name, o]) => `${name} ${o.parity === null ? 'n/a' : percent(o.parity)} (${count(o.cases, 'case')})`).join(', ')}`);
+  const { waived, flakyReference, flakyCandidate, timeouts } = score.raw;
+  const excluded = [
+    [waived, 'waived (not scored)'],
+    [flakyReference, 'flaky-reference (not scored)'],
+    [flakyCandidate, 'flaky-candidate (diverge)'],
+    [timeouts, 'timed out (diverge)'],
+  ] as const;
+  if (excluded.some(([n]) => n > 0)) lines.push(`  ${excluded.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(' · ')}`);
+  const list = (names: readonly string[]) =>
+    names
+      .map((name) => score.features.find((f) => f.feature === name)!)
+      .map((f) => `${f.feature} ${f.parity === null ? 'n/a' : percent(f.parity)} (${count(f.scored, 'case')})`)
+      .join(', ');
+  if (score.underSampled.length > 0) lines.push(`  under-sampled, not in the parity: ${list(score.underSampled)}`);
+  if (score.selfDescription.length > 0) lines.push(`  self-description, not in the parity: ${list(score.selfDescription)}`);
+  if (score.untested.length > 0) lines.push(`  untested: ${score.untested.join(', ')}`);
+  return lines;
+}
+
+/** Rounded down, so that only a full match shows as 100.0%. */
+const percent = (p: number) => `${(Math.floor(p * 1000 + 1e-9) / 10).toFixed(1)}%`;
+
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** Case IDs shown per cluster in the text output; `--json` lists them all. */
 const LISTED_CASES = 5;
