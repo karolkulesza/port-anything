@@ -35,6 +35,8 @@ interface MutationScore {
   score: number;
   /** Mutants the corpus doesn't catch, each with why: equivalent (no behavior change) or what isn't tested. */
   survivors: { mutant: string; why: string }[];
+  /** The mutants it catches, so that one no longer caught (or no longer generated) fails the check. */
+  caught_mutants: string[];
 }
 
 const BAD_ATTRIBUTE = /^\s*#\[cfg\((any\()?feature = "bad-/;
@@ -92,7 +94,9 @@ fn matches_the_reference() {
     let mut log = std::fs::OpenOptions::new().create(true).append(true).open(var("PA_MUTANTS_LOG")).unwrap();
     writeln!(log, "{code}").unwrap();
     if code != 0 && code != 1 {
-        eprintln!("PA_MUTANTS_UNEXPECTED {code}: {}", String::from_utf8_lossy(&out.stderr));
+        let path = format!("{}.unexpected-{}", var("PA_MUTANTS_LOG"), std::process::id());
+        let text = format!("exit {code} ({:?})\n--- stdout\n{}\n--- stderr\n{}", out.status, String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        std::fs::write(path, text).unwrap();
     }
     assert_eq!(code, 0, "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
 }
@@ -100,10 +104,17 @@ fn matches_the_reference() {
 
 const lines = (file: string) => (existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((l) => l !== '') : []);
 
-/** Why a result falls short of the recorded one: new survivors, a lower score, or survivors left unexplained. */
+/**
+ * Why a result falls short of the recorded one: no mutant tested, fewer mutants, a recorded catch
+ * no longer caught, new survivors, a lower score, or survivors left unexplained.
+ */
 function shortfalls(recorded: MutationScore, result: MutationScore): string[] {
   const known = new Set(recorded.survivors.map((s) => s.mutant));
+  const caught = new Set(result.caught_mutants);
   return [
+    ...(Number.isFinite(result.score) && result.caught + result.missed + result.timeout > 0 ? [] : ['no mutant was tested']),
+    ...(result.mutants < recorded.mutants ? [`${result.mutants} mutants, fewer than the recorded ${recorded.mutants}`] : []),
+    ...recorded.caught_mutants.filter((m) => !caught.has(m)).map((m) => `no longer caught: ${m}`),
     ...result.survivors.filter((s) => !known.has(s.mutant)).map((s) => `new survivor: ${s.mutant}`),
     ...(result.score < recorded.score ? [`score ${result.score} is below the recorded ${recorded.score}`] : []),
     ...recorded.survivors.filter((s) => s.why.trim() === '').map((s) => `no why for survivor: ${s.mutant}`),
@@ -124,15 +135,23 @@ describe('examples/wc-lite mutation harness', () => {
     for (const [i, line] of lines.entries()) expect([original[i], ''], `line ${i + 1}`).toContain(line);
   });
 
-  it('fails a result with a new survivor, a lower score or an unexplained survivor, and passes one that only improves', () => {
+  it('fails a result with a new survivor, a lower score, a lost catch, fewer or no mutants, or an unexplained survivor, and passes one that only improves', () => {
     const recorded: MutationScore = JSON.parse(readFileSync(scoreFile, 'utf8'));
+    expect(recorded.caught_mutants).toHaveLength(recorded.caught);
     const [first, ...rest] = recorded.survivors;
     expect(shortfalls(recorded, recorded)).toEqual([]);
     // One survivor fewer, caught now: better, so it passes.
-    const better = { ...recorded, caught: recorded.caught + 1, missed: recorded.missed - 1, score: recorded.score + 0.01, survivors: rest };
+    const better = { ...recorded, caught: recorded.caught + 1, missed: recorded.missed - 1, score: recorded.score + 0.01, survivors: rest, caught_mutants: [...recorded.caught_mutants, first!.mutant] };
     expect(shortfalls(recorded, better)).toEqual([]);
-    const worse = { ...recorded, score: recorded.score - 0.01, survivors: [...recorded.survivors, { mutant: 'src/main.rs:1:1: replace x with y', why: '' }] };
-    expect(shortfalls(recorded, worse)).toEqual(['new survivor: src/main.rs:1:1: replace x with y', `score ${worse.score} is below the recorded ${recorded.score}`]);
+    const added = 'src/main.rs:1:1: replace x with y';
+    const worse = { ...recorded, mutants: recorded.mutants + 1, score: recorded.score - 0.01, survivors: [...recorded.survivors, { mutant: added, why: '' }] };
+    expect(shortfalls(recorded, worse)).toEqual([`new survivor: ${added}`, `score ${worse.score} is below the recorded ${recorded.score}`]);
+    // A caught mutant that is no longer generated: the same score with one mutant fewer still fails.
+    const [lost, ...kept] = recorded.caught_mutants;
+    const fewer = { ...recorded, mutants: recorded.mutants - 1, caught: recorded.caught - 1, caught_mutants: kept };
+    expect(shortfalls(recorded, fewer)).toEqual([`${fewer.mutants} mutants, fewer than the recorded ${recorded.mutants}`, `no longer caught: ${lost}`]);
+    const nothing = { ...recorded, mutants: 0, caught: 0, missed: 0, timeout: 0, score: Number.NaN, survivors: [], caught_mutants: [] };
+    expect(shortfalls(recorded, nothing)).toEqual(['no mutant was tested', `0 mutants, fewer than the recorded ${recorded.mutants}`, ...recorded.caught_mutants.map((m) => `no longer caught: ${m}`)]);
     expect(shortfalls({ ...recorded, survivors: [{ ...first!, why: ' ' }, ...rest] }, recorded)).toEqual([`no why for survivor: ${first!.mutant}`]);
   });
 });
@@ -191,8 +210,8 @@ describe.runIf(mode !== undefined)('examples/wc-lite mutation score', () => {
     const dir = join(out, 'mutants.out');
     const unexpected = lines(log).filter((code) => code !== '0' && code !== '1');
     if (unexpected.length > 0) {
-      const logs = readdirSync(join(dir, 'log')).flatMap((f) => lines(join(dir, 'log', f)).filter((l) => l.includes('PA_MUTANTS_UNEXPECTED')).map((l) => `${f}: ${l}`));
-      expect.fail(`port-anything exited ${unexpected.join(', ')}:\n${logs.join('\n')}`);
+      const reports = readdirSync(root).filter((f) => f.startsWith('exit-codes.log.unexpected-')).map((f) => readFileSync(join(root!, f), 'utf8'));
+      expect.fail(`port-anything exited ${unexpected.join(', ')}:\n${reports.join('\n')}`);
     }
 
     const [caught, missed, timeout, unviable] = ['caught', 'missed', 'timeout', 'unviable'].map((k) => lines(join(dir, `${k}.txt`)));
@@ -206,6 +225,7 @@ describe.runIf(mode !== undefined)('examples/wc-lite mutation score', () => {
       unviable: unviable!.length,
       score: Math.round((caught!.length / counted) * 10_000) / 10_000,
       survivors: [...missed!, ...timeout!].sort().map((mutant) => ({ mutant, why: '' })),
+      caught_mutants: [...caught!].sort(),
     };
     const summary = `wc-lite mutation score: ${(result.score * 100).toFixed(2)}% (${result.caught} of ${counted} mutants caught, ${result.unviable} unviable) with ${result.tool}`;
     console.log([summary, ...result.survivors.map((s) => `  survived: ${s.mutant}`)].join('\n'));
