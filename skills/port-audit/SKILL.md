@@ -61,7 +61,7 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | `program_name` | The `argv[0]` every side ran as. |
 | `reference` | The reference command, as given. |
 | `sandbox` | The sandbox used (`none (--no-sandbox)` when unsandboxed: say so in the report). |
-| `spec.flags`, `spec.forms`, `spec.subcommands`, `spec.features` | What was read from the reference's `--help`. Few flags for a rich tool means its help text was hard to parse: say the audit covers only these. |
+| `spec.help`, `spec.flags`, `spec.forms`, `spec.subcommands`, `spec.features` | The help invocation read (`--help` or `-h`) and what was read from it. Few flags for a rich tool means its help text was hard to parse: say the audit covers only these. |
 | `corpus.cases`, `corpus.budget`, `corpus.seed`, `corpus.generator` | Cases generated, the budget asked for, and the seed and generator version (fixed, for repeatability). |
 | `corpus.stop`, `corpus.observed`, `corpus.dropped` | Why generation stopped (`budget`…), how many cases the reference ran while generating, and how many were dropped (duplicate output, too many errors, over budget). |
 | `corpus.skipped` | Destructive subcommands left out. |
