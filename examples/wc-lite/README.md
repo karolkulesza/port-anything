@@ -35,6 +35,20 @@ The racy one diverges differently on each run, so its cases are listed as flaky-
 count as divergences) instead of forming a cluster. The test suite runs every bad port and checks
 that each one is caught, lands in its expected cluster and minimizes to its expected repro.
 
+## Mutation ports
+
+[cargo-mutants](https://mutants.rs) turns the good port into dozens more bad ones, one small change
+each, and the share that `port-anything run` catches on the corpus is the corpus's mutation score.
+`mutation-score.json` records it with every mutant that survives and why: equivalent (the change
+can't show, as with argv[0], which is always the bare program name here) or not tested by the
+corpus. CI fails when the score drops or a new mutant survives. To run it (needs cargo-mutants):
+
+```sh
+cd packages/cli
+PA_MUTANTS=1 pnpm exec vitest run test/wc-lite-mutants.test.ts       # check
+PA_MUTANTS=update pnpm exec vitest run test/wc-lite-mutants.test.ts  # re-record, then explain new survivors
+```
+
 ## Running it
 
 Needs a C compiler and cargo.
