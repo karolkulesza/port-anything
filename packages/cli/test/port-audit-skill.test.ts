@@ -35,6 +35,16 @@ function shellWords(line: string): string[] {
   return [...line.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]!);
 }
 
+/** Every key path in a JSON value, `[]` standing for any element of an array. */
+function keyPaths(value: unknown, prefix = ''): string[] {
+  if (Array.isArray(value)) return value.flatMap((v) => keyPaths(v, `${prefix}[]`));
+  if (value === null || typeof value !== 'object') return [];
+  return Object.entries(value).flatMap(([key, v]) => {
+    const path = prefix === '' ? key : `${prefix}.${key}`;
+    return [path, ...keyPaths(v, path)];
+  });
+}
+
 /** The values at a path such as `candidates[].per_feature[].parity`; `[]` steps into every element. */
 function valuesAt(value: unknown, path: string): unknown[] {
   let values = [value];
@@ -95,6 +105,10 @@ describe('the port-audit skill', () => {
       expect(paths.length).toBeGreaterThan(15);
       expect(summary.candidates[0]!.divergences.length).toBeGreaterThan(0);
       for (const path of paths) expect(valuesAt(summary, path), path).not.toEqual([]);
+      // And the other way: every key the JSON has is in the table, itself, within a row it names
+      // (`corpus.dropped` covers its counts) or as the parent of named keys (`spec`).
+      const covered = (path: string) => paths.some((p) => path === p || path.startsWith(`${p}.`) || p.startsWith(`${path}.`) || p.startsWith(`${path}[]`));
+      for (const path of new Set(keyPaths(summary))) expect(covered(path), path).toBe(true);
     });
 
     it('in the keys it names inside a row', () => {
