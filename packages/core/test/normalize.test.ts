@@ -181,6 +181,8 @@ describe('float-tolerance', () => {
     const n = spec('float-tolerance');
     expect((await normalizeText(n, 'mean is 1.5. took 0.30000000000000004s\n', 'mean is 1.5000000000001. took 0.3s\n')).candidate).toBe('mean is 1.5. took 0.30000000000000004s\n');
     expect((await normalizeText(n, 'v 1.2.3\n', 'v 1.2.4\n')).candidate).toBe('v 1.2.4\n');
+    // An integer before a full stop stays an integer.
+    expect((await normalizeText(spec({ 'float-tolerance': { atol: 1 } }), 'exit 3.\n', 'exit 4.\n')).candidate).toBe('exit 4.\n');
   });
 
   it('uses atol near zero', async () => {

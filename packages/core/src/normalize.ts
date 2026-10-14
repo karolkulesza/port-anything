@@ -186,7 +186,7 @@ const TRAILING_WHITESPACE = /[ \t\f\v]+(?=\r?\n|$)/g;
 
 // A decimal number with a fraction or an exponent; integers are never treated as floats. A unit
 // (`0.3s`) or a full stop may follow, but not more digits (`1.2.3` is a version, not a number).
-const NUMBER = /(?<![\w.])[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?(?![\d_]|\.\d)/g;
+const NUMBER = /(?<![\w.])[-+]?(?:\d+\.\d+|\.\d+|\d+)(?:[eE][-+]?\d+)?(?![\d_]|\.\d)/g;
 const isFloat = (token: string) => /[.eE]/.test(token);
 
 /**
