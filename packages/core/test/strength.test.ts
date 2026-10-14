@@ -41,8 +41,8 @@ describe('sampleMutants', () => {
     const sample = sampleMutants(names, 10);
     const more = [...names, ...Array.from({ length: 50 }, (_, i) => `src/b.rs:${i + 1}:1: replace + with -`)];
     const bigger = sampleMutants(more, 20);
-    // Every name is ranked by its own hash, so a larger sample of a larger set holds most of the first.
-    expect(sample.filter((n) => bigger.includes(n)).length).toBeGreaterThanOrEqual(5);
+    // Every name is ranked by its own hash: here the larger sample of the larger set holds all of the first.
+    expect(bigger.filter((n) => sample.includes(n))).toEqual(sample);
   });
 });
 
