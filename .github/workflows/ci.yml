@@ -52,8 +52,8 @@ jobs:
           bwrap --version
           bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net true && echo "bwrap --unshare-net: works"
 
-  # cargo-mutants mutates the wc-lite example's good port; the share of mutants the corpus catches
-  # must not drop below examples/wc-lite/mutation-score.json. The hand-written bad ports run in
+  # port-anything strength has cargo-mutants mutate the wc-lite example's good port; the share of
+  # mutants the corpus catches must not drop below examples/wc-lite/mutation-score.json. The hand-written bad ports run in
   # build-test with the rest of the suite.
   mutation-score:
     name: wc-lite mutation score
