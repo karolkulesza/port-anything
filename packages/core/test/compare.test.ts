@@ -94,6 +94,11 @@ describe('stderrSimilarity', () => {
     expect(stderrSimilarity("sort: cannot read: x: No such file or directory", 'sort: open failed: x: no such file or directory')).toBeCloseTo(14 / 18);
   });
 
+  it('keeps the program-name placeholder apart from the word "program"', () => {
+    expect(stderrSimilarity('<PROGRAM>: x', '<PROGRAM>: x')).toBe(1);
+    expect(stderrSimilarity('<PROGRAM>: x', 'program: x')).toBe(0.5);
+  });
+
   it('counts repeated words as often as they appear on both sides', () => {
     expect(stderrSimilarity('x x x y', 'x y')).toBeCloseTo((2 * 2) / 6);
   });

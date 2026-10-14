@@ -75,7 +75,8 @@ export function exitClass(o: Observation): ExitClass {
   return o.exit === 2 || o.exit === 64 ? 'usage' : 'error';
 }
 
-const WORD = new RegExp(`${PROGRAM_PLACEHOLDER}|[\\p{L}\\p{N}]+`, 'gu');
+// Matched after lowercasing, so the placeholder is lowercased too; it stays one word of its own.
+const WORD = new RegExp(`${PROGRAM_PLACEHOLDER.toLowerCase()}|[\\p{L}\\p{N}]+`, 'gu');
 
 /**
  * Word similarity of two messages: twice the number of words they share (counting repeats) over
