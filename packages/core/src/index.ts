@@ -106,6 +106,22 @@ export {
   type ClusterSignature,
   type Divergence,
 } from './cluster.js';
+export {
+  RUN_FILE,
+  RUN_ID_PATTERN,
+  RunRecordSchema,
+  latestRun,
+  loadRun,
+  newRunId,
+  parseClusterAddress,
+  resolveCluster,
+  runsDir,
+  saveRun,
+  type ClusterAddress,
+  type ResolvedCluster,
+  type RunRecord,
+  type SavedCluster,
+} from './runs.js';
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
