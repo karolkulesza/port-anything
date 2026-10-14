@@ -12,6 +12,7 @@ case "$1" in
   upper) ${variant === 'bad' ? 'cat' : "tr 'a-z' 'A-Z'"} ;;
   fail) echo "$(basename "$0"): no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   self) echo "$0" ;;
+  warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
 
@@ -67,6 +68,7 @@ describe('executeRun', () => {
       [
         'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
         'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
         'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
@@ -95,6 +97,7 @@ describe('executeRun', () => {
       program_name: 'tool',
       sandbox: 'none (--no-sandbox)',
       reference: './bin/tool',
+      compare: { profile: 'standard', stderr: { mode: 'loose', similarity: 0.6 } },
       cases: 3,
       normalizers: [],
       candidates: [
@@ -151,6 +154,48 @@ describe('executeRun', () => {
     const noCases = await executeRun(options({ cases: [] }));
     expect(noCases.exitCode).toBe(3);
     expect(noCases.stderr).toMatch(/No cases to run/);
+  });
+});
+
+describe('executeRun profiles', () => {
+  let project: string;
+  let warn: CanonicalCase[];
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-profile-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    warn = [canonicalCase({ argv: ['warn'], origin: 'recorded' })];
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = (compare: unknown, json = false) =>
+    executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: './bin/tool-bad' }], compare }),
+      cases: warn,
+      args: { candidates: [], json, noSandbox: true },
+      probe: NO_SANDBOX,
+    });
+
+  it('compares under the configured profile and says which one', async () => {
+    // tool-copy prints the same message under its own file name with other spacing; tool-bad another message.
+    const standard = await run(undefined);
+    expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
+    expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
+    expect(standard.stdout).toMatch(/c_[0-9a-f]{8} {2}stderr\n$/);
+
+    const strict = await run({ profile: 'strict' });
+    expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
+
+    const lenient = await run({ profile: 'lenient' });
+    expect(lenient.exitCode).toBe(0);
+    expect(lenient.stdout).toContain('compare lenient (stderr ignored)\n');
+
+    const json = JSON.parse((await run({ fields: { stderr: { similarity: 0.8 } } }, true)).stdout);
+    expect(json.compare).toEqual({ profile: 'standard', stderr: { mode: 'loose', similarity: 0.8 } });
+    expect(JSON.parse((await run({ profile: 'lenient' }, true)).stdout).compare).toEqual({ profile: 'lenient' });
   });
 });
 

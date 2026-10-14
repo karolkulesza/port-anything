@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   BlobStore,
   ConfigError,
+  DEFAULT_STDERR_SIMILARITY,
   SandboxUnavailableError,
   cacheDir,
   chooseSandbox,
@@ -17,7 +18,9 @@ import {
   resolveProgram,
   runCases,
   shortCaseId,
+  stderrMode,
   type CanonicalCase,
+  type CompareOptions,
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
@@ -92,7 +95,7 @@ export interface ExecuteRunOptions {
 
 /**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
- * diverge (exact comparison after the configured normalizers), and how many cases each normalizer
+ * diverge (under the strictness profile, after the configured normalizers), and how many cases each normalizer
  * changed. Exit code 0 when every candidate matches on every case, 1 when any
  * case diverges, 3 when the run can't start (config, programs, sandbox).
  */
@@ -127,6 +130,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   const reference = await resolve(config.reference.cmd);
   const candidates = await Promise.all(commands.map(resolve));
   const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
+  const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
 
   // Scratch space inside the project rather than /tmp, which may be mounted noexec.
   const workDir = join(projectDir, '.port-anything', 'tmp', `run-${randomBytes(6).toString('hex')}`);
@@ -144,6 +148,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       envAllowlist: config.sandbox.env_allowlist,
       env: config.sandbox.env,
       normalizers: config.normalizers,
+      compare,
     });
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -160,6 +165,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     program_name: result.programName,
     sandbox: sandbox.label,
     reference: display(config.reference.cmd),
+    compare: describeCompare(compare),
     cases: result.cases.length,
     normalizers: changed(),
     candidates: commands.map((command, i) => {
@@ -172,7 +178,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
-  const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
+  const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`, `compare ${compareLabel(summary.compare)}`];
   if (summary.normalizers.length === 0) lines.push('normalizers: none');
   else {
     lines.push('normalizers (cases changed):');
@@ -183,6 +189,18 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+/** The profile a run compared under, with how it compared stderr (absent when the profile ignores stderr). */
+function describeCompare(options: CompareOptions): { profile: string; stderr?: { mode: string; similarity?: number } } {
+  if (options.profile === 'lenient') return { profile: options.profile };
+  const mode = stderrMode(options);
+  return { profile: options.profile, stderr: mode === 'loose' ? { mode, similarity: options.stderr?.similarity ?? DEFAULT_STDERR_SIMILARITY } : { mode } };
+}
+
+function compareLabel(c: ReturnType<typeof describeCompare>): string {
+  if (c.stderr === undefined) return `${c.profile} (stderr ignored)`;
+  return `${c.profile} (stderr ${c.stderr.mode}${c.stderr.similarity === undefined ? '' : `, similarity ${c.stderr.similarity}`})`;
 }
 
 /** A command as the user wrote it; an argv list is shown with quotes around words with spaces. */

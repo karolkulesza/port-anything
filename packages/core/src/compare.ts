@@ -49,7 +49,7 @@ export const PROFILE_FIELDS: Readonly<Record<Profile, readonly ComparedField[]>>
 /** How stderr is compared when the profile counts it (`compare.fields.stderr`). */
 export interface StderrOptions {
   /** `exact`: byte for byte. `loose`: see `looseStderrMatch`. Default: `exact` under strict, `loose` under standard. */
-  mode?: 'exact' | 'loose';
+  mode?: 'exact' | 'loose' | undefined;
   /** Loose mode: the word similarity at or above which two different messages still match. Default 0.6. */
   similarity?: number;
 }
