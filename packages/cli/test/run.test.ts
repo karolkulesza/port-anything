@@ -15,7 +15,7 @@ describe('run', () => {
   });
 
   it('exits 3 for a command this version does not have', async () => {
-    expect(await run(['compare', 'a', 'b'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"compare" is not available yet/) });
+    expect(await run(['compare', 'a', 'b'])).toEqual({ exitCode: 3, stdout: '', stderr: 'port-anything: "compare" is not available yet in this version; only "run" and "waive" are.\n' });
   });
 
   it('exits 3, not 1, when the run fails unexpectedly', async () => {

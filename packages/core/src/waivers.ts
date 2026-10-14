@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
-import { caseFeatures, describeFeatures, describeSignature, type ClusterSignature, type FeatureCount } from './cluster.js';
+import { caseFeatures, describeFeatures, describeSignature, type FeatureCount } from './cluster.js';
 import { COMPARED_FIELDS, type ComparedField } from './compare.js';
 import { ConfigError } from './config.js';
-import { DIFF_SHAPES, type FieldShape } from './diff-shape.js';
+import { DIFF_SHAPES, type DiffShape, type FieldShape } from './diff-shape.js';
 
 /** Where the waivers live, committed with the project. */
 export const WAIVERS_FILE = 'port-anything/waivers.yaml';
@@ -159,12 +159,18 @@ export function describeWaiver(w: Waiver): string {
   return `${keys.join(', ')} (${w.category})`;
 }
 
+/** What a suggestion reads from a cluster, live or saved with a run. */
+export interface SuggestionSource {
+  signature: { readonly fields: readonly ComparedField[]; readonly shapes: readonly { readonly field: ComparedField; readonly shape: DiffShape; readonly detail?: string | undefined }[] };
+  features: readonly FeatureCount[];
+}
+
 /**
  * The predicates that waive a cluster's divergences: one per diverging field (each field is waived
  * on its own), with its shape but not the shape's detail, which is heuristic wording, and with the
  * cluster's feature when it has only one.
  */
-export function suggestedPredicates(cluster: { signature: ClusterSignature; features: readonly FeatureCount[] }): WaiverPredicate[] {
+export function suggestedPredicates(cluster: SuggestionSource): WaiverPredicate[] {
   const feature = cluster.features.length === 1 ? { feature: cluster.features[0]!.feature } : {};
   return cluster.signature.fields.map((field) => ({ ...feature, field, shape: cluster.signature.shapes.find((s) => s.field === field)?.shape ?? 'exit-code' }));
 }
@@ -173,7 +179,7 @@ export function suggestedPredicates(cluster: { signature: ClusterSignature; feat
  * `waive --from-cluster`: the suggested waivers for a cluster as YAML to paste into the waivers
  * file. The reason is left empty, which the file doesn't accept, so it must be written in.
  */
-export function suggestWaivers(cluster: { address: string; signature: ClusterSignature; features: readonly FeatureCount[] }): string {
+export function suggestWaivers(cluster: SuggestionSource & { address: string }): string {
   const lines = [
     `# Cluster ${cluster.address}: ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`,
     `# Paste into ${WAIVERS_FILE}, pick the category and write the reason.`,

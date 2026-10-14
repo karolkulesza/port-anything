@@ -169,6 +169,7 @@ export {
   suggestWaivers,
   suggestedPredicates,
   waiverCoverage,
+  type SuggestionSource,
   type WaivableDivergence,
   type Waiver,
   type WaiverCoverage,
