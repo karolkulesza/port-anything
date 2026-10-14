@@ -227,25 +227,45 @@ describe('generateCorpus: error-path cap', { timeout: SLOW }, () => {
   });
 
   it('counts untagged cases against the whole corpus', async () => {
-    // Only the unknown-flag calls fail; they carry no feature.
-    const corpus = await generateCorpus(frob, options({ observe: reference((c) => c.features.length === 0) }));
-    const untagged = corpus.cases.filter((c) => c.case.features.length === 0);
-    expect(untagged.length).toBeGreaterThan(0);
-    expect(untagged.every((c) => isErrorObservation(c.observation))).toBe(true);
+    // Only the unknown-flag calls fail; they carry no feature, so only the whole-corpus cap holds them.
+    const untaggedFail = (c: CanonicalCase) => c.features.length === 0;
+    const generated = generateArgvCases(frob, { seed: 1, generator: 'v1' }).cases.filter((c) => untaggedFail(c.case));
+    expect(generated.length).toBeGreaterThan(0);
+    const open = await generateCorpus(frob, options({ observe: reference(untaggedFail) }));
+    expect(open.cases.filter((c) => untaggedFail(c.case))).toHaveLength(generated.length);
+    const closed = await generateCorpus(frob, options({ errorPathCap: 0, observe: reference(untaggedFail) }));
+    expect(closed.cases.filter((c) => untaggedFail(c.case))).toEqual([]);
+    expect(closed.stats.dropped.errorCap).toBe(generated.length);
+  });
+
+  it('keeps error cases held back by the cap once other cases make room', async () => {
+    // Everything in the first batch fails; later cases succeed.
+    let calls = 0;
+    const firstBatch = new Set<string>();
+    const observe: ObserveReference = async (cases, blobs) => {
+      calls++;
+      if (calls === 1) for (const c of cases) firstBatch.add(c.id);
+      return cases.map((c) => (calls === 1 ? observation(1, '', `frob: ${inputs(c, blobs)}`) : observation(0, inputs(c, blobs))));
+    };
+    const corpus = await generateCorpus(frob, options({ observe }));
+    const early = corpus.cases.filter((c) => firstBatch.has(c.case.id));
+    expect(early.length).toBeGreaterThan(0);
+    expect(early.every((c) => isErrorObservation(c.observation))).toBe(true);
+    for (const [group, { total, errors }] of tally(corpus.cases)) expect(errors / total, group).toBeLessThanOrEqual(0.3);
   });
 });
 
 describe('generateCorpus: minimum cases per feature', { timeout: SLOW }, () => {
   it('tops every feature up to the minimum before filling the rest', async () => {
     const argvCount = generateArgvCases(frob, { seed: 1, generator: 'v1' }).cases.length;
-    // Room for the argv cases plus the top-up only.
-    const corpus = await generateCorpus(frob, options({ budget: 200 }));
+    // Just enough room for the argv cases plus the top-up: plain round-robin would leave some feature short.
+    const corpus = await generateCorpus(frob, options({ budget: 120 }));
     const counts = tally(corpus.cases);
     for (const f of ['base', 'opt.numeric', 'opt.reverse', 'opt.u', 'opt.key', 'opt.output', 'opt.sort']) {
       expect(counts.get(f)?.total ?? 0, f).toBeGreaterThanOrEqual(20);
     }
     expect(corpus.stats.underSampled).toEqual([]);
-    expect(argvCount).toBeLessThan(200);
+    expect(argvCount).toBeLessThan(120);
   });
 
   it('does not top up self-description features', async () => {
