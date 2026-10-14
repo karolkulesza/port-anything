@@ -97,6 +97,7 @@ export {
 export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
 export {
   UNTAGGED_FEATURE,
+  caseFeatures,
   clusterDivergences,
   clusterSignature,
   describeFeatures,
@@ -143,6 +144,7 @@ export {
   type RunRecord,
   type SavedCluster,
 } from './runs.js';
+export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
 export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';

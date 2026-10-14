@@ -78,7 +78,8 @@ export function featureWeights(cases: readonly { features: readonly string[] }[]
   return new Map([...counts].map(([f, n]) => [f, 1 / n]));
 }
 
-const caseFeatures = (features: readonly string[]) => (features.length === 0 ? [UNTAGGED_FEATURE] : [...new Set(features)]);
+/** The features a case counts toward: its tags, or `base` when it has none. */
+export const caseFeatures = (features: readonly string[]): string[] => (features.length === 0 ? [UNTAGGED_FEATURE] : [...new Set(features)]);
 
 /**
  * Groups one candidate's divergences by signature (diverging fields + diff shapes; the cases'

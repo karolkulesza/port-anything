@@ -244,7 +244,7 @@ export async function minimizeCluster(options: MinimizeClusterOptions): Promise<
 }
 
 /** `caseSize` of a case whose stdin and fixtures are in the store. */
-async function storedCaseSize(c: CanonicalCase, store: BlobStore): Promise<number> {
+export async function storedCaseSize(c: CanonicalCase, store: BlobStore): Promise<number> {
   const size = async (ref: string) => (await store.get(ref)).length;
   let total = c.argv.reduce((n, a) => n + Buffer.byteLength(a), 0) + (c.stdin === null ? 0 : await size(c.stdin));
   for (const [path, ref] of Object.entries(c.fixtures)) total += Buffer.byteLength(path) + (await size(ref));
