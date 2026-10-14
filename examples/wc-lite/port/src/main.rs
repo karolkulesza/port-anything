@@ -24,8 +24,9 @@ type Counts = [u64; NCOUNTS];
 /// Exit status for a usage error.
 #[cfg(not(feature = "bad-exit-code"))]
 const USAGE_STATUS: i32 = 2;
+// Bug: usage errors must exit 2, like the reference.
 #[cfg(feature = "bad-exit-code")]
-const USAGE_STATUS: i32 = 1; // Bug: usage errors must exit 2, like the reference.
+const USAGE_STATUS: i32 = 1;
 
 fn usage(program: &str) -> String {
     format!(
@@ -58,9 +59,10 @@ fn os_message(err: &io::Error) -> String {
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
 }
+// Bug: tabs, newlines and the other C spaces must also end a word.
 #[cfg(feature = "bad-words")]
 fn is_space(b: u8) -> bool {
-    b == b' ' // Bug: tabs, newlines and the other C spaces must also end a word.
+    b == b' '
 }
 
 /// Run to run noise: the current time and process ID, never 0.
@@ -162,8 +164,9 @@ fn run() -> io::Result<i32> {
     // The name error messages start with.
     #[cfg(not(feature = "bad-program-name"))]
     let err_name = program.clone();
+    // Bug: errors must name the program as it was run (argv[0]).
     #[cfg(feature = "bad-program-name")]
-    let err_name = String::from("wc"); // Bug: errors must name the program as it was run (argv[0]).
+    let err_name = String::from("wc");
     let mut out = io::BufWriter::new(io::stdout().lock());
     let mut err = io::stderr().lock();
 
@@ -177,8 +180,15 @@ fn run() -> io::Result<i32> {
         if options_done || bytes.len() < 2 || bytes[0] != b'-' {
             files.push(arg);
         } else if bytes == b"--" {
+            #[cfg(not(feature = "bad-double-dash"))]
+            {
+                options_done = true;
+            }
             // Bug: after "--", arguments that look like options must be read as files.
-            options_done = !cfg!(feature = "bad-double-dash");
+            #[cfg(feature = "bad-double-dash")]
+            {
+                options_done = false;
+            }
         } else if bytes[1] == b'-' {
             if bytes == b"--help" {
                 out.write_all(usage(&program).as_bytes())?;
@@ -196,8 +206,10 @@ fn run() -> io::Result<i32> {
             return Ok(USAGE_STATUS);
         } else {
             for &letter in &bytes[1..] {
+                let known = LETTERS.iter().position(|&l| l == letter);
                 // Bug: -m is missing, so it is an invalid option.
-                let known = if cfg!(feature = "bad-missing-flag") && letter == b'm' { None } else { LETTERS.iter().position(|&l| l == letter) };
+                #[cfg(feature = "bad-missing-flag")]
+                let known = known.filter(|_| letter != b'm');
                 match known {
                     Some(k) => show[k] = true,
                     None => {
