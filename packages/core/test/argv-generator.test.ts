@@ -51,17 +51,17 @@ const gen = (spec: CliSpec, seed: string | number = 42, generator: GeneratorVers
 const ids = (out: GeneratedArgv) => out.cases.map((c) => c.case.id);
 const argvs = (out: GeneratedArgv) => out.cases.map((c) => c.case.argv);
 
-// Independent of the generator's own check: a token or a `--flag=value` value that is absolute,
-// starts at a home directory, or has a `..` segment.
+// Stricter than the generator's own check: a `/` or `~` right after the start, any `=` or an
+// attached short flag (`-o/x`), or a `..` anywhere between separators, counts as an escape.
 function escapes(token: string): boolean {
-  const parts = [token, ...(token.startsWith('-') && token.includes('=') ? [token.slice(token.indexOf('=') + 1)] : [])];
-  return parts.some((p) => p.startsWith('/') || p.startsWith('~') || p.split(/[/\\]/).includes('..'));
+  if (/(^|=)[/~]/.test(token) || /^-[^-][/~]/.test(token)) return true;
+  return /(^|[/\\=])\.\.([/\\=]|$)/.test(token) || /^-[^-]\.\.([/\\=]|$)/.test(token);
 }
 
 /** Random specs with hostile names and choices, to look for an escape the fixed specs miss. */
 function randomSpec(seed: number): CliSpec {
   const rng = createRng(seed, 'v1');
-  const words = ['a', 'b c', '/abs', '../x', 'x/../y', '~', '~user/f', '..', 'ok/sub', 'C:\\x', '-', 'é'];
+  const words = ['a', 'b c', '/abs', '../x', 'x/../y', '~', '~user/f', '..', 'ok/sub', 'C:\\x', '-', 'é', 'k=/abs', 'of=../x', 'a=~/x', 'a=b/..', 'k=v'];
   const types = ['string', 'int', 'size', 'path', 'enum'] as const;
   const flags = Array.from({ length: 1 + rng.int(8) }, (_, i) => {
     const arity = rng.int(3);
@@ -99,9 +99,26 @@ describe('generateArgvCases: paths stay inside the sandbox', () => {
     expect(argvs(gen(gitLike)).some((a) => a[0] === '..')).toBe(false);
   });
 
+  it('drops key=value choices that would escape, on long and short flags, without failing', () => {
+    const spec = parseCliSpec({
+      version: 1,
+      program: 'kv',
+      flags: [
+        { names: ['-x'], feature: 'opt.x', arity: 1, values: [{ name: 'KV', type: 'enum', choices: ['k=/etc/passwd', 'of=../x', 'a=~/x', 'ok=fine'] }] },
+        { names: ['--opt'], feature: 'opt.opt', arity: 1, values: [{ name: 'KV', type: 'enum', choices: ['k=/etc/passwd', 'of=../x', 'ok=fine'] }] },
+      ],
+    });
+    for (const seed of [1, 2, 3, 4]) {
+      const all = argvs(gen(spec, seed)).flat();
+      for (const token of all) expect(escapes(token), token).toBe(false);
+      expect(all.join('\n')).not.toMatch(/passwd|\.\.\/x|~\/x/);
+      expect(all.some((t) => t.includes('ok=fine'))).toBe(true);
+    }
+  });
+
   it('isSafeArgvToken accepts relative paths and rejects escapes', () => {
-    for (const ok of ['input.txt', 'dir with spaces/file name.txt', '--output=a/b', '-', '', 'a..b', '--x=a=b', '...']) expect(isSafeArgvToken(ok), ok).toBe(true);
-    for (const bad of ['/etc', '~', '~/x', '..', '../x', 'a/../b', 'a/..', '--output=/tmp/x', '--o=../x', '--o=~/x', 'a\\..\\b']) expect(isSafeArgvToken(bad), bad).toBe(false);
+    for (const ok of ['input.txt', 'dir with spaces/file name.txt', '--output=a/b', '-', '', 'a..b', '--x=a=b', '...', '-1', '-xa', '--of=k=v']) expect(isSafeArgvToken(ok), ok).toBe(true);
+    for (const bad of ['/etc', '~', '~/x', '..', '../x', 'a/../b', 'a/..', '--output=/tmp/x', '--o=../x', '--o=~/x', 'a\\..\\b', 'k=/etc', '--opt=k=/etc', '--opt=of=../x', 'of=..', '-x/etc', '-xa=/etc', '-x..', '-x~/x']) expect(isSafeArgvToken(bad), bad).toBe(false);
   });
 
   it('gives every existing path value its fixture, and none to the missing one', () => {
@@ -146,6 +163,31 @@ describe('generateArgvCases: destructive tools', () => {
     const all = gen(gitLike, 42, 'v1', true);
     expect(all.skipped).toEqual([]);
     expect(argvs(all).some((a) => a[0] === 'push' && a.includes('--force'))).toBe(true);
+  });
+});
+
+describe('generateArgvCases: nested destructive subcommands', () => {
+  const docker = parseCliSpec({
+    version: 1,
+    program: 'docker',
+    subcommands: [
+      { name: 'system', feature: 'cmd.system', subcommands: [{ name: 'prune', feature: 'cmd.system.prune' }, { name: 'df', feature: 'cmd.system.df' }] },
+      { name: 'container', feature: 'cmd.container', subcommands: [{ name: 'rm', feature: 'cmd.container.rm' }, { name: 'ls', feature: 'cmd.container.ls' }] },
+    ],
+  });
+
+  it('leaves them out without iKnow, keeping their harmless siblings', () => {
+    const out = gen(docker);
+    expect(out.skipped).toEqual(['docker system prune', 'docker container rm']);
+    const all = argvs(out);
+    expect(all.some((a) => a.includes('prune') || a.includes('rm'))).toBe(false);
+    expect(all.some((a) => a[0] === 'system' && a[1] === 'df')).toBe(true);
+    expect(all.some((a) => a[0] === 'container' && a[1] === 'ls')).toBe(true);
+  });
+
+  it('generates them with iKnow', () => {
+    const all = argvs(gen(docker, 42, 'v1', true));
+    expect(all.some((a) => a[0] === 'system' && a[1] === 'prune')).toBe(true);
   });
 });
 

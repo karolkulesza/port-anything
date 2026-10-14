@@ -100,14 +100,16 @@ const FORM_VARIANTS = 3;
 const PAIRWISE_CANDIDATES = 16;
 
 /**
- * True when an argv token can't name anything outside the case's directory: it doesn't start with
- * `/` or `~`, has no `..` path segment, and the same holds for the value of a `--flag=value`.
+ * True when an argv token can't name anything outside the case's directory. The token and every
+ * part of it a tool might read as a path (what follows each `=`, as in `--of=k=/x`, and the value
+ * of a short flag written attached, `-o/x`) must not start with `/` or `~`, and no `..` may stand
+ * between separators (`/`, `\`, `=`).
  */
 export function isSafeArgvToken(token: string): boolean {
   const parts = [token];
-  const eq = token.indexOf('=');
-  if (token.startsWith('-') && eq !== -1) parts.push(token.slice(eq + 1));
-  return parts.every((part) => !/^[/~]/.test(part) && !part.split(/[/\\]/).includes('..'));
+  for (let i = token.indexOf('='); i !== -1; i = token.indexOf('=', i + 1)) parts.push(token.slice(i + 1));
+  if (/^-[^-]/.test(token)) parts.push(token.slice(2));
+  return parts.every((part) => !/^[/~]/.test(part) && !part.split(/[/\\=]/).includes('..'));
 }
 
 /**
