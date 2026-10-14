@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
+import { appendFile, chmod, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -266,7 +266,11 @@ export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}):
 
   const words = parseProgramCommand(spec.candidate);
   let command = [words.executable, ...(words.tool === undefined ? [] : [words.tool]), ...words.args];
-  if (spec.root !== undefined) command = command.map((word) => fromRoot(word, spec.project, spec.root!, process.cwd()));
+  if (spec.root !== undefined) {
+    command = command.map((word) => fromRoot(word, spec.project, spec.root!, process.cwd()));
+    // The tool's copy of an executable script may have lost its mode bits (Stryker rewrites the file).
+    if (command[0] !== words.executable && existsSync(command[0]!)) await chmod(command[0]!, 0o755);
+  }
   if (overrides.executable !== undefined) command[0] = overrides.executable;
 
   const newEnv = spec.passNewEnv === true ? Object.keys(process.env).filter((name) => !(spec.hostEnv ?? []).includes(name)) : [];

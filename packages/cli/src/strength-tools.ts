@@ -401,6 +401,8 @@ async function mullTool(ctx: ToolContext, root: string, mull: Mull): Promise<Too
       const args = [
         `--workers=${ctx.jobs}`,
         `--timeout=${2 * ctx.caseTimeoutMs + 20_000}`,
+        // Survivors are what the report is for, not an error.
+        '--allow-surviving',
         '--reporters=Elements',
         `--report-dir=${out}`,
         '--report-name=strength',
