@@ -202,6 +202,11 @@ describe('observation', () => {
     expect(canonicalObservation(obs).fs.deleted).toEqual(['b', 'z']);
   });
 
+  it('accepts CPU time and peak RSS that were not measured', () => {
+    const unmeasured = { ...obs, time_ms: { wall: 12, user: null, sys: null }, rss_kb: null };
+    expect(canonicalObservation(unmeasured)).toMatchObject({ time_ms: { user: null, sys: null }, rss_kb: null });
+  });
+
   it('accepts a process ended by a signal', () => {
     expect(() => canonicalObservation({ ...obs, exit: null, signal: 'SIGKILL', timeout: true })).not.toThrow();
   });
@@ -214,6 +219,7 @@ describe('observation', () => {
     ['a path changed twice', { fs: { created: { a: blob('3') }, modified: {}, deleted: ['a'] } }],
     ['zero runs', { runs: 0 }],
     ['a negative time', { time_ms: { wall: -1, user: 0, sys: 0 } }],
+    ['a null wall time', { time_ms: { wall: null, user: null, sys: null } }],
     ['a missing field', { stable: undefined }],
   ];
   it.each(bad)('rejects %s', (_, variant) => {

@@ -23,7 +23,9 @@ export type { CaseIdErrorCode } from './case-id.js';
 export { BlobError, BlobStore, blobRef, cacheDir } from './blob-store.js';
 export type { BlobErrorCode } from './blob-store.js';
 export {
+  BWRAP_STATUS_FD,
   SandboxUnavailableError,
+  caseCommandOptions,
   chooseSandbox,
   localHost,
   probeSandbox,
@@ -32,6 +34,7 @@ export {
   type SandboxAttempt,
   type SandboxChoice,
   type SandboxCommand,
+  type SandboxCommandOptions,
   type SandboxHost,
   type SandboxKind,
   type SandboxProbe,
@@ -57,3 +60,129 @@ export { jqTestImporter, parseJqTest } from './import-jq-test.js';
 export type { JqTest, JqTestImportOptions, JqTestParse } from './import-jq-test.js';
 export { importCases } from './importers.js';
 export type { ImportOptions } from './importers.js';
+export {
+  BASE_ENV_ALLOWLIST,
+  DEFAULT_CASE_ENV,
+  DEFAULT_KILL_GRACE_MS,
+  DEFAULT_OUTPUT_CAP_BYTES,
+  DEFAULT_TIMEOUT_MS,
+  caseEnvironment,
+  runProcess,
+  type CaseEnvironmentOptions,
+  type ProcessResult,
+  type ProcessSpec,
+} from './process-runner.js';
+export {
+  MULTICALL_BINARIES,
+  defaultProgramName,
+  parseProgramCommand,
+  pinPrograms,
+  pinnedProcess,
+  resolveProgram,
+  type PinnedProgram,
+  type ProgramCommand,
+  type ResolveProgramOptions,
+  type ResolvedProgram,
+} from './program.js';
+export {
+  DEFAULT_MAX_STORED_FILE_BYTES,
+  diffSnapshots,
+  fsChanges,
+  isSymlinkBlob,
+  snapshotDir,
+  symlinkBlob,
+  type FsChanges,
+  type FsChangesOptions,
+  type FsSnapshot,
+} from './fs-diff.js';
+export { defaultConcurrency, mapPool } from './pool.js';
+export {
+  COMPARED_FIELDS,
+  DEFAULT_STDERR_SIMILARITY,
+  PROFILES,
+  PROFILE_FIELDS,
+  compareExact,
+  compareObservations,
+  exitClass,
+  stderrMode,
+  stderrSimilarity,
+  type CompareObservationsOptions,
+  type CompareOptions,
+  type ComparedField,
+  type Comparison,
+  type ExitClass,
+  type Profile,
+  type StderrOptions,
+} from './compare.js';
+export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
+export {
+  UNTAGGED_FEATURE,
+  caseFeatures,
+  clusterDivergences,
+  clusterSignature,
+  describeFeatures,
+  describeSignature,
+  featureWeights,
+  signatureKey,
+  type Cluster,
+  type ClusterSignature,
+  type Divergence,
+  type FeatureCount,
+} from './cluster.js';
+export {
+  DEFAULT_MINIMIZE_RUNS,
+  caseSize,
+  ddmin,
+  minimizeCase,
+  minimizeCluster,
+  type CaseTest,
+  type MinimizeClusterOptions,
+  type MinimizeOptions,
+  type Minimized,
+  type MinimizedCluster,
+} from './minimize.js';
+export {
+  RUN_FILE,
+  RUN_ID_PATTERN,
+  ReproRecordSchema,
+  RunRecordSchema,
+  inlineCase,
+  latestRun,
+  loadRepro,
+  loadRun,
+  newRunId,
+  reproPath,
+  parseClusterAddress,
+  resolveCluster,
+  runsDir,
+  saveRepro,
+  saveRun,
+  type ClusterAddress,
+  type InlineCase,
+  type ReproRecord,
+  type ResolvedCluster,
+  type RunRecord,
+  type SavedCluster,
+} from './runs.js';
+export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
+export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
+export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
+export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';
+export {
+  NORMALIZER_NAMES,
+  NormalizerEntrySchema,
+  NormalizersSchema,
+  PID_PLACEHOLDER,
+  PROGRAM_PLACEHOLDER,
+  TIMESTAMP_PLACEHOLDER,
+  TMP_PLACEHOLDER,
+  normalizePair,
+  normalizerLabel,
+  type NormalizePairOptions,
+  type NormalizeSide,
+  type NormalizedPair,
+  type NormalizerName,
+  type NormalizerSpec,
+  type ScopeEntry,
+  type SideContext,
+} from './normalize.js';
