@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { sandboxCommand, type SandboxSetup } from './sandbox.js';
+import { BWRAP_STATUS_FD, caseCommandOptions, sandboxCommand, type SandboxSetup } from './sandbox.js';
 
 /** How long a case may run before it is stopped (`sandbox.timeout`). */
 export const DEFAULT_TIMEOUT_MS = 10_000;
@@ -91,9 +91,6 @@ export interface ProcessResult {
   rss_kb: number | null;
 }
 
-/** bwrap writes its status (the sandboxed process's PID) on this descriptor. */
-const STATUS_FD = 3;
-
 /**
  * Runs one process in the given sandbox and captures what it did.
  *
@@ -106,14 +103,16 @@ const STATUS_FD = 3;
  *   after the grace period.
  *
  * Under bwrap the case is a child of bwrap, which reports a signal death as exit code 128 + n.
- * Rejects only when the process can't be started at all (e.g. the program doesn't exist).
+ * Rejects only when the process can't be started at all (e.g. the program doesn't exist). Inside
+ * a sandbox, a missing program is a case result instead: the sandbox tool starts, then reports the
+ * failed exec on stderr with a non-zero exit, just as both sides would see it.
  */
 export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const cap = spec.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES;
   const graceMs = spec.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
   const bwrap = spec.sandbox.kind === 'bwrap';
-  const { command, args, cwd } = sandboxCommand(spec.sandbox, spec.argv, spec.cwd, bwrap ? { statusFd: STATUS_FD } : {});
+  const { command, args, cwd } = sandboxCommand(spec.sandbox, spec.argv, spec.cwd, caseCommandOptions(spec.sandbox));
   const hasStdin = spec.stdin !== undefined && spec.stdin !== null;
 
   return new Promise((resolve, reject) => {
@@ -156,7 +155,7 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     }, timeoutMs);
 
     if (bwrap) {
-      const status = child.stdio[STATUS_FD] as NodeJS.ReadableStream;
+      const status = child.stdio[BWRAP_STATUS_FD] as NodeJS.ReadableStream;
       let text = '';
       status.setEncoding('utf8');
       status.on('data', (chunk: string) => {
@@ -180,6 +179,7 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
           chunks.push(chunk.subarray(0, cap - size));
           size = cap;
           truncated[name] = true;
+          clearTimeout(deadline); // stopped for its output, not its time
           stop();
           return;
         }
