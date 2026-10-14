@@ -6,6 +6,7 @@ import {
   BlobStore,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
+  PROFILE_FIELDS,
   SandboxUnavailableError,
   cacheDir,
   chooseSandbox,
@@ -193,7 +194,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
 
 /** The profile a run compared under, with how it compared stderr (absent when the profile ignores stderr). */
 function describeCompare(options: CompareOptions): { profile: string; stderr?: { mode: string; similarity?: number } } {
-  if (options.profile === 'lenient') return { profile: options.profile };
+  if (!PROFILE_FIELDS[options.profile].includes('stderr')) return { profile: options.profile };
   const mode = stderrMode(options);
   return { profile: options.profile, stderr: mode === 'loose' ? { mode, similarity: options.stderr?.similarity ?? DEFAULT_STDERR_SIMILARITY } : { mode } };
 }
