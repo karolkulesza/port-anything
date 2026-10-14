@@ -94,7 +94,12 @@ export function destructiveCommand(argv: readonly string[]): string | null {
  * denylisted path must start it, so `git stash push` and `git remote prune` are not refused.
  */
 export function destructiveSubcommand(program: string, path: readonly string[]): string | null {
-  return destructivePath(basename(program), path, false);
+  const name = basename(program);
+  // A multicall binary's subcommands are its applets: `busybox rm`.
+  if (MULTICALL_BINARIES.includes(name) && path.length > 0) {
+    return destructiveTool(basename(path[0]!)) ?? destructivePath(basename(path[0]!), path.slice(1), false);
+  }
+  return destructivePath(name, path, false);
 }
 
 /** A denylisted tool or subcommand, refused because `--i-know` wasn't given. A config error (exit 3). */

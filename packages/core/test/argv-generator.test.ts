@@ -201,6 +201,20 @@ describe('generateArgvCases: nested destructive subcommands', () => {
     expect(argvs(out).some((a) => a[0] === 'remote' && a[1] === 'prune')).toBe(true);
   });
 
+  it('leaves out the destructive applets of a multicall binary', () => {
+    for (const program of ['busybox', '/bin/toybox', 'coreutils']) {
+      const multi = parseCliSpec({
+        version: 1,
+        program,
+        subcommands: ['rm', 'shred', 'sort'].map((name) => ({ name, feature: `cmd.${name}`, flags: [{ names: ['-f'], feature: `cmd.${name}.opt.f`, arity: 0 }] })),
+      });
+      const out = gen(multi);
+      expect(out.skipped).toEqual([`${program} rm`, `${program} shred`]);
+      expect(argvs(out).some((a) => a[0] === 'rm' || a[0] === 'shred')).toBe(false);
+      expect(argvs(out).some((a) => a[0] === 'sort')).toBe(true);
+    }
+  });
+
   it('generates them with iKnow', () => {
     const all = argvs(gen(docker, 42, 'v1', true));
     expect(all.some((a) => a[0] === 'system' && a[1] === 'prune')).toBe(true);

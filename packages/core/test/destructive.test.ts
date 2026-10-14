@@ -60,6 +60,11 @@ describe('destructiveCommand', () => {
     expect(destructiveSubcommand('docker', ['compose', 'down'])).toBe('docker compose down');
     expect(destructiveSubcommand('docker', ['image', 'ls'])).toBeNull();
     expect(destructiveSubcommand('git', [])).toBeNull();
+    // A multicall binary's subcommands are its applets.
+    expect(destructiveSubcommand('busybox', ['rm'])).toBe('rm');
+    expect(destructiveSubcommand('/bin/toybox', ['shred'])).toBe('shred');
+    expect(destructiveSubcommand('coreutils', ['dd'])).toBe('dd');
+    expect(destructiveSubcommand('busybox', ['sort'])).toBeNull();
   });
 
   it('leaves ordinary tools alone', () => {
