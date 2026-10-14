@@ -98,6 +98,11 @@ function defaultCliEntry(): string {
 export interface CheckSpec {
   /** The project whose config and committed cases to use. */
   project: string;
+  /**
+   * When `project` is a copy (mull's build), the project it copies: candidate paths under it,
+   * absolute ones included, are taken from the copy.
+   */
+  origin?: string;
   /** The candidate's command, as configured. */
   candidate: string | string[];
   /** IDs of the cases to run: the ones the unmutated candidate matches. */
@@ -250,7 +255,7 @@ async function checkCommand(argv: readonly string[]): Promise<CliResult> {
 export interface CheckOverrides {
   /** Runs this file in place of the candidate's executable. */
   executable?: string;
-  /** Reads the config and cases here rather than in `spec.project` (a copy of the project). */
+  /** Reads the config and cases here rather than in `spec.project`: a copy of it, where the candidate's paths are taken from. */
   project?: string;
   probe?: SandboxProbe;
 }
@@ -265,6 +270,9 @@ export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}):
 
   const words = parseProgramCommand(spec.candidate);
   let command = [words.executable, ...(words.tool === undefined ? [] : [words.tool]), ...words.args];
+  // Checking in a copy of the project: absolute paths into the project lead into the copy (relative ones already do).
+  const original = spec.origin ?? spec.project;
+  if (projectDir !== original) command = command.map((word) => (isAbsolute(word) ? fromRoot(word, original, original, projectDir) : word));
   if (spec.root !== undefined) {
     command = command.map((word) => fromRoot(word, spec.project, spec.root!, process.cwd()));
     // The tool's copy of an executable script may have lost its mode bits (Stryker rewrites the file).

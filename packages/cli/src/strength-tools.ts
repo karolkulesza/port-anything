@@ -406,7 +406,7 @@ async function mullTool(ctx: ToolContext, root: string, mull: Mull): Promise<Too
       const built = await run('sh', ['-c', ctx.build!], { cwd: copy, env });
       if (built.code !== 0) throw new ConfigError(`Building the candidate with mull's clang plugin failed:\n${tail(built.stderr)}`);
       const exe = join(copy, relative(ctx.projectDir, (await resolveProgram(ctx.candidate, { cwd: ctx.projectDir })).path));
-      const specPath = await writeSpec(ctx, { ...ctx.spec, project: copy, passNewEnv: true });
+      const specPath = await writeSpec(ctx, { ...ctx.spec, project: copy, origin: ctx.projectDir, passNewEnv: true });
       const out = join(ctx.workDir, 'mull-out');
       const args = [
         `--workers=${ctx.jobs}`,

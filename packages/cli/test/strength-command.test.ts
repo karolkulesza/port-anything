@@ -142,6 +142,13 @@ describe('strengthCommand with the generic source mutator', { timeout: 60_000 },
     expect(readFileSync(join(cwd, 'port', 'out', 'tool.js'), 'utf8')).toBe(TOOL);
   });
 
+  it('mutates the copy when the candidate is given by an absolute path into the project', async () => {
+    const cwd = makeProject();
+    writeFileSync(join(cwd, 'port-anything.yaml'), `version: 1\nprogram_name: tool\nreference: { cmd: ./ref/tool.js }\ncandidate: { cmd: ${JSON.stringify(join(cwd, 'port', 'tool.js'))} }\n`);
+    const json = JSON.parse((await strength(['--json'], cwd)).stdout);
+    expect(json).toMatchObject({ mutants: 6, caught: 4, missed: 2, score: 0.6667 });
+  });
+
   it('exits 3 when the candidate matches no case, or has neither a build step nor a script to mutate', async () => {
     const wrong = makeProject(TOOL.replace("console.log(Number(a) + Number(b))", "console.log('?')").replace('? a : b', "? '?' : '?'"));
     const none = await strength([], wrong);
