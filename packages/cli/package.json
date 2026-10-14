@@ -1,6 +1,6 @@
 {
   "name": "port-anything",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports.",
   "keywords": ["port", "rewrite", "parity", "differential-testing", "mcp", "claude-code", "codex", "agents"],
   "homepage": "https://portanything.com",
@@ -10,6 +10,9 @@
     "directory": "packages/cli"
   },
   "author": "Karol Kulesza",
+  "bugs": {
+    "url": "https://github.com/karolkulesza/port-anything/issues"
+  },
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -25,12 +28,21 @@
   "engines": {
     "node": ">=22.15"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "tsup"
   },
   "dependencies": {
-    "@port-anything/core": "workspace:*"
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@port-anything/core": "workspace:*",
+    "@port-anything/report": "workspace:*"
   }
 }
