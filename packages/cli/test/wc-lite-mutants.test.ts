@@ -92,7 +92,8 @@ fn matches_the_reference() {
     let out = cmd.current_dir(var("PA_MUTANTS_PROJECT")).output().expect("node runs");
     let code = out.status.code().unwrap_or(-1);
     let mut log = std::fs::OpenOptions::new().create(true).append(true).open(var("PA_MUTANTS_LOG")).unwrap();
-    writeln!(log, "{code}").unwrap();
+    // One write per line: parallel jobs append to the same file.
+    log.write_all(format!("{code}\n").as_bytes()).unwrap();
     if code != 0 && code != 1 {
         let path = format!("{}.unexpected-{}", var("PA_MUTANTS_LOG"), std::process::id());
         let text = format!("exit {code} ({:?})\n--- stdout\n{}\n--- stderr\n{}", out.status, String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
