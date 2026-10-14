@@ -18,6 +18,10 @@ describe('run', () => {
     expect(await run(['compare', 'a', 'b'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"compare" is not available yet/) });
   });
 
+  it('routes spec to the spec command', async () => {
+    expect(await run(['spec'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/^port-anything spec: which spec command\?/) });
+  });
+
   it('exits 3, not 1, when the run fails unexpectedly', async () => {
     const project = mkdtempSync(join(tmpdir(), 'pa-cli-crash-'));
     try {
