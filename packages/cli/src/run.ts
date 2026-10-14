@@ -1,5 +1,6 @@
 import { baselineCommand } from './baseline-command.js';
 import { compareCommand } from './compare-command.js';
+import { minimizeCommand } from './minimize-command.js';
 import { runCommand } from './run-command.js';
 import { specCommand } from './spec-command.js';
 
@@ -47,7 +48,8 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
     return compareCommand(rest, { cwd: options.cwd ?? process.cwd(), ...(options.progress === undefined ? {} : { progress: options.progress }) });
   }
   if (command === 'run') return runCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'minimize') return minimizeCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'spec') return specCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'baseline') return baselineCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "compare", "run", "baseline" and "spec infer" are.\n` };
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "compare", "run", "minimize", "baseline" and "spec infer" are.\n` };
 }

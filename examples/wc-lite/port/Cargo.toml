@@ -1,0 +1,18 @@
+[package]
+name = "wc-lite"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.70"
+license = "Apache-2.0"
+publish = false
+description = "Rust port of the wc-lite reference, used to test Port Anything"
+
+# The port is correct without features. Each feature compiles in one deliberate bug, giving the
+# bad ports that Port Anything must catch.
+[features]
+bad-off-by-one = []
+bad-crlf = []
+bad-exit-code = []
+
+[profile.release]
+debug = false
