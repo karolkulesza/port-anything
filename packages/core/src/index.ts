@@ -108,6 +108,7 @@ export {
   type Divergence,
   type FeatureCount,
 } from './cluster.js';
+export { DEFAULT_MINIMIZE_RUNS, caseSize, ddmin, minimizeCase, type CaseTest, type MinimizeOptions, type Minimized } from './minimize.js';
 export {
   RUN_FILE,
   RUN_ID_PATTERN,
