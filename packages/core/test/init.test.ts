@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigError, readConfigFile } from '../src/config.js';
 import { HISTORY_GITATTRIBUTES } from '../src/history.js';
 import { initProject } from '../src/init.js';
+import { parseProgramCommand } from '../src/program.js';
 
 let root: string;
 beforeEach(() => {
@@ -40,6 +41,22 @@ describe('initProject', () => {
       reference: { cmd: ['coreutils', 'sort'] },
       candidates: [{ cmd: ['/usr/bin/sort', '-s'] }, { cmd: ['python3', 'my tool.py'] }],
     });
+  });
+
+  it('writes a one-word command with spaces or quotes in it as a list, so it reads back as one word', async () => {
+    mkdirSync(join(root, 'my tool'));
+    await initProject('p', { reference: "'./my tool/bin'", candidates: [`"it's"`], cwd: root });
+    const config = await readConfigFile(join(root, 'p'));
+    expect(config).toMatchObject({ reference: { cmd: ['../my tool/bin'] }, candidate: { cmd: ["it's"] } });
+    expect(parseProgramCommand(config.reference.cmd)).toEqual({ executable: '../my tool/bin', args: [] });
+  });
+
+  it.skipIf(process.getuid?.() === 0)('throws a config error, not a crash, for a file it cannot read or write', async () => {
+    writeFileSync(join(root, '.gitignore'), 'node_modules/\n', { mode: 0o444 });
+    await expect(initProject('.', { reference: 'sort', cwd: root })).rejects.toThrow(/^Cannot write .*\.gitignore: EACCES/);
+    const other = join(root, 'other');
+    mkdirSync(join(other, '.gitignore'), { recursive: true });
+    await expect(initProject('other', { reference: 'sort', cwd: root })).rejects.toThrow(/^Cannot read .*\.gitignore: EISDIR/);
   });
 
   it('writes no candidate when none is given', async () => {

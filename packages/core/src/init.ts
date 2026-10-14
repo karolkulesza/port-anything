@@ -43,7 +43,7 @@ export async function initProject(dir: string, options: InitOptions = {}): Promi
   } catch (e) {
     throw new ConfigError(`Cannot create the project directory ${projectDir}: ${(e as Error).message}`);
   }
-  if (config !== undefined) await writeFile(configFile, stringify(config), { flag: 'wx' });
+  if (config !== undefined) await write(configFile, stringify(config), 'wx');
   const steps: InitStep[] = [{ path: CONFIG_FILE, action: config === undefined ? 'unchanged' : 'created' }];
 
   const stateDir = join(projectDir, '.port-anything');
@@ -82,7 +82,7 @@ async function newConfig(file: string, cwd: string, { reference, candidates = []
 }
 
 /**
- * A command as `port-anything.yaml` holds it: one word as a string, several as a list. A relative
+ * A command as `port-anything.yaml` holds it: one plain word as a string, otherwise a list. A relative
  * executable path is rewritten to start at the project directory, where the config's paths start;
  * arguments are left as typed.
  */
@@ -99,7 +99,8 @@ function rebase(command: string, cwd: string, projectDir: string): string | stri
     executable = path === '..' || path.startsWith('../') ? path : `./${path}`;
   }
   const words = [executable, ...(parsed.tool === undefined ? [] : [parsed.tool]), ...parsed.args];
-  return words.length === 1 ? words[0]! : words;
+  // One word as a string only when it reads back as itself: no whitespace or quotes to split on.
+  return words.length === 1 && !/[\s'"]/.test(words[0]!) ? words[0]! : words;
 }
 
 /** A `.gitattributes` line for the history path that sets `merge=union`. */
@@ -128,8 +129,16 @@ async function ensureLines(
   const added = wanted.filter((line) => !has(lines, line));
   if (added.length === 0) return { path: name, action: 'unchanged' };
   const before = text === undefined || text === '' || text.endsWith('\n') ? (text ?? '') : `${text}\n`;
-  await writeFile(file, `${before}${added.join('\n')}\n`);
+  await write(file, `${before}${added.join('\n')}\n`);
   return { path: name, action: text === undefined ? 'created' : 'updated', added };
+}
+
+async function write(file: string, text: string, flag = 'w'): Promise<void> {
+  try {
+    await writeFile(file, text, { flag });
+  } catch (e) {
+    throw new ConfigError(`Cannot write ${file}: ${(e as Error).message}`);
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
