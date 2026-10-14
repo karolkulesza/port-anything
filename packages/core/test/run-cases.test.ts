@@ -26,6 +26,21 @@ case "$1" in
 esac
 `;
 
+// A racy port: every other run of the same command gives the reference's answer, so whether a case
+// diverges depends on the run. Its run count per command lives in $PA_TEST_STATE.<command>.
+const RACY = `#!/bin/sh
+echo "racy $*" >> "$PA_TEST_LOG"
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ $((n % 2)) = 0 ]; then cat; else tr 'a-z' 'A-Z'; fi ;;
+  name) echo "$(basename "$0"): usage" >&2; exit $((2 - n % 2)) ;;
+  stamp) echo "run $n" ;;
+esac
+`;
+
 describe('runCases', () => {
   let root: string;
   let store: BlobStore;
@@ -33,6 +48,7 @@ describe('runCases', () => {
   let ref: ResolvedProgram;
   let good: ResolvedProgram;
   let bad: ResolvedProgram;
+  let racy: ResolvedProgram;
   let cases: CanonicalCase[];
   let scratch = 0;
 
@@ -42,11 +58,13 @@ describe('runCases', () => {
     for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
       writeFileSync(join(root, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
+    writeFileSync(join(root, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
     log = join(root, 'runs.log');
     store = new BlobStore(join(root, 'cache'));
     ref = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool')));
     good = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-copy')));
     bad = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-bad')));
+    racy = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-racy')));
     const input = await store.put('hello\n');
     const fixture = await store.put('fixture text\n');
     const doomed = await store.put('bye\n');
@@ -69,9 +87,9 @@ describe('runCases', () => {
     store,
     sandbox: { kind: 'none' },
     workDir: join(root, `work-${scratch++}`),
-    envAllowlist: ['PA_TEST_LOG'],
+    envAllowlist: ['PA_TEST_LOG', 'PA_TEST_STATE'],
     env: { PA_TEST_SETTING: 'from-config' },
-    hostEnv: { ...process.env, PA_TEST_LOG: log },
+    hostEnv: { ...process.env, PA_TEST_LOG: log, PA_TEST_STATE: join(root, `state-${scratch}`) },
     ...extra,
   });
   const verdicts = (result: Awaited<ReturnType<typeof runCases>>, candidate: number) =>
@@ -137,7 +155,68 @@ describe('runCases', () => {
     const lines = logLines();
     expect(lines.filter((l) => l.startsWith('ref ')).length).toBe(cases.length);
     expect(lines.filter((l) => l.startsWith('good ')).length).toBe(2 * cases.length);
-    expect(lines.filter((l) => l.startsWith('bad ')).length).toBe(cases.length);
+    // Plus one re-run of each of its 2 diverging cases.
+    expect(lines.filter((l) => l.startsWith('bad ')).length).toBe(cases.length + 2);
+  });
+
+  it('re-runs each diverging case once; a steady divergence is not flaky', async () => {
+    rmSync(log, { force: true });
+    const result = await runCases(options([good, bad]));
+    const lines = logLines();
+    expect(lines.filter((l) => l.startsWith('bad ')).sort()).toEqual(
+      [...cases.map((c) => `bad ${c.argv.join(' ')}`), 'bad upper', 'bad name'].sort(),
+    );
+    for (const c of result.cases) {
+      expect(c.candidates[0]).toMatchObject({ flaky: false });
+      expect(c.candidates[0]!.rerun).toBeUndefined();
+      const run = c.candidates[1]!;
+      expect(run.flaky).toBe(false);
+      if (run.comparison.verdict === 'match') {
+        expect(run.rerun).toBeUndefined();
+        expect(run.observation).toMatchObject({ runs: 1, stable: true });
+      } else {
+        expect(compareExact(run.observation, run.rerun!).verdict).toBe('match');
+        expect(run.observation).toMatchObject({ runs: 2, stable: true });
+      }
+    }
+  });
+
+  it('labels a racy port flaky-candidate and still counts the case as diverging (done when)', async () => {
+    const result = await runCases(options([good, racy], { concurrency: 1 }));
+    const runs = result.cases.map((c) => c.candidates[1]!);
+    // First run of upper and name: wrong; re-run: right. Excluding them would give 7 of 7.
+    expect(runs.map((r) => r.comparison.verdict)).toEqual(['match', 'diverge', 'diverge', 'diverge', 'diverge', 'diverge', 'diverge']);
+    expect(runs.map((r) => r.flaky)).toEqual([false, true, false, false, false, true, false]);
+    const [, upper, , , , name] = runs;
+    expect(upper!.comparison.fields).toEqual(['stdout']);
+    expect(name!.comparison.fields).toEqual(['exit']);
+    expect(compareExact(result.cases[1]!.reference, upper!.rerun!).verdict).toBe('match');
+    expect(upper!.observation).toMatchObject({ runs: 2, stable: false });
+    const matching = (i: number) => result.cases.filter((c) => c.candidates[i]!.comparison.verdict === 'match').length;
+    expect(matching(1)).toBeLessThan(matching(0));
+  });
+
+  it('compares the re-run with the first run after normalizing both, as the reference comparison does', async () => {
+    // Prints a count that changes on every run, where the reference prints nothing: a steady divergence once normalized.
+    const stamp = [canonicalCase({ argv: ['stamp'], origin: 'recorded' })];
+    const raw = await runCases(options([racy], { cases: stamp }));
+    expect(raw.cases[0]!.candidates[0]).toMatchObject({ comparison: { verdict: 'diverge' }, flaky: true });
+    const normalizers = NormalizersSchema.parse([{ regex: { pattern: 'run \\d+', replacement: 'run N' } }]);
+    const normalized = await runCases(options([racy], { cases: stamp, normalizers }));
+    expect(normalized.cases[0]!.candidates[0]).toMatchObject({ comparison: { verdict: 'diverge' }, flaky: false, observation: { runs: 2, stable: true } });
+  });
+
+  it('runs each case once with rerun off, still classifying the divergences', async () => {
+    rmSync(log, { force: true });
+    const result = await runCases(options([bad], { rerun: false }));
+    expect(logLines().filter((l) => l.startsWith('bad ')).sort()).toEqual(cases.map((c) => `bad ${c.argv.join(' ')}`).sort());
+    const diverging = result.cases.map((c) => c.candidates[0]!).filter((r) => r.comparison.verdict === 'diverge');
+    expect(diverging).toHaveLength(2);
+    for (const run of diverging) {
+      expect(run).toMatchObject({ flaky: false, observation: { runs: 1 } });
+      expect(run.rerun).toBeUndefined();
+      expect(run.shapes).not.toEqual([]);
+    }
   });
 
   it('records what the reference did: output, exit code, stdin, fixtures and the fs diff', async () => {

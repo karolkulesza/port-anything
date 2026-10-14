@@ -42,10 +42,19 @@ export interface RunCasesOptions {
   compare?: CompareOptions;
   /** Called as each case finishes (in completion order, not case order). */
   onCase?: (result: CaseRun) => void;
+  /**
+   * Re-run a candidate once on each case it diverges on, to tell flaky-candidate cases apart.
+   * Defaults to true; the minimizer turns it off, since it only needs the first run's signature.
+   */
+  rerun?: boolean;
 }
 
 /** One candidate's observation of a case and how it compares with the reference's. */
 export interface CandidateRun {
+  /**
+   * The first run's observation, the one compared. After a re-run, `runs` is 2 and `stable` says
+   * whether the re-run observed the same.
+   */
   observation: Observation;
   /** Of the normalized observations, under the strictness profile. */
   comparison: Comparison;
@@ -53,6 +62,15 @@ export interface CandidateRun {
   shapes: FieldShape[];
   /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
   normalizedBy: number[];
+  /** The re-run's observation; only a diverging case is re-run. */
+  rerun?: Observation;
+  /**
+   * `flaky-candidate`: the case diverged and its re-run observed something else, once both were
+   * normalized and compared under the same profile. It still counts as a divergence (otherwise a
+   * port could answer at random on cases it can't handle and have them dropped), but is kept out of
+   * clustering and listed on its own.
+   */
+  flaky: boolean;
 }
 
 export interface CaseRun {
@@ -71,9 +89,11 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's under the strictness profile, once both have been normalized. Cases run in a worker pool;
- * within a case the sides run one after another, in the same working directory path (also HOME),
- * so a program that prints its directory doesn't diverge for that alone.
+ * candidate's observation with the reference's under the strictness profile, once both have been
+ * normalized. A candidate that diverges on a case runs it once more, to tell a racy port (`flaky`)
+ * from a steady divergence. Cases run in a worker pool; within a case the sides run one after
+ * another, in the same working directory path (also HOME), so a program that prints its directory
+ * doesn't diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const runner = await openCaseRunner(options);
@@ -123,20 +143,31 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
     for (const [i, side] of sides.entries()) {
       if (i === 0) continue;
       const observation = await observe(side);
-      const normalized = await normalizePair({
-        normalizers: options.normalizers ?? [],
-        features: c.features,
-        reference: { observation: reference, context: context(0, caseDir) },
-        candidate: { observation, context: context(i, caseDir) },
-        store: options.store,
-      });
-      const comparison = await compareObservations(normalized.reference, normalized.candidate, {
-        ...(options.compare ?? { profile: 'standard' }),
-        store: options.store,
-        programNames: { reference: programNames[0]!, candidate: programNames[i]! },
-      });
-      const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
-      candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy });
+      const compare = async (left: { observation: Observation; side: number }, right: Observation) => {
+        const normalized = await normalizePair({
+          normalizers: options.normalizers ?? [],
+          features: c.features,
+          reference: { observation: left.observation, context: context(left.side, caseDir) },
+          candidate: { observation: right, context: context(i, caseDir) },
+          store: options.store,
+        });
+        const comparison = await compareObservations(normalized.reference, normalized.candidate, {
+          ...(options.compare ?? { profile: 'standard' }),
+          store: options.store,
+          programNames: { reference: programNames[left.side]!, candidate: programNames[i]! },
+        });
+        return { normalized, comparison };
+      };
+      const { normalized, comparison } = await compare({ observation: reference, side: 0 }, observation);
+      if (comparison.verdict === 'match' || options.rerun === false) {
+        const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
+        candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy, flaky: false });
+        continue;
+      }
+      const shapes = await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
+      const rerun = await observe(side);
+      const flaky = (await compare({ observation, side: i }, rerun)).comparison.verdict === 'diverge';
+      candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, shapes, normalizedBy: normalized.changedBy, rerun, flaky });
     }
     return { caseId: c.id, reference, candidates };
   };

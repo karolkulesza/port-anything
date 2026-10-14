@@ -24,6 +24,18 @@ const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
 const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|\d+ (waived|flaky|timed)).*\n/gm, '');
 
+// A racy port: every other run of a command gets upper wrong. Its run counts live in $PA_TEST_STATE.<command>.
+const RACY = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ $((n % 2)) = 0 ]; then cat; else tr 'a-z' 'A-Z'; fi ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
@@ -55,6 +67,7 @@ describe('executeRun', () => {
     for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
+    writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -120,7 +133,7 @@ describe('executeRun', () => {
       cases: 3,
       normalizers: [],
       candidates: [
-        { command: './bin/tool-copy', match: 3, diverge: 0, score: expect.objectContaining({ headline: null, underSampled: ['base'] }), normalizers: [], divergences: [] },
+        { command: './bin/tool-copy', match: 3, diverge: 0, score: expect.objectContaining({ headline: null, underSampled: ['base'] }), normalizers: [], divergences: [], flaky_candidate: [] },
         {
           command: './bin/tool-bad',
           match: 1,
@@ -131,6 +144,7 @@ describe('executeRun', () => {
             { case: cases[1]!.id, fields: ['stdout'] },
             { case: cases[2]!.id, fields: ['exit'] },
           ],
+          flaky_candidate: [],
         },
       ],
       clusters: [
@@ -159,6 +173,57 @@ describe('executeRun', () => {
     expect(saved).toEqual(json);
     expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
     expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
+    let state = 0;
+    const racy = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidates: [{ cmd: './bin/tool-copy' }, { cmd: './bin/tool-racy' }],
+            sandbox: { env: { PA_TEST_STATE: join(project, `racy-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await racy(false);
+    expect(text.exitCode).toBe(1);
+    expect(stable(text.stdout)).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
+        'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
+        'normalizers: none',
+        'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
+        'candidate 2 ./bin/tool-racy: 2 of 3 cases match, 1 diverge (1 flaky-candidate)',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  1 flaky-candidate (diverge)',
+        '  under-sampled, not in the parity: base 66.6% (3 cases)',
+        '  flaky-candidate, a re-run gave a different result:',
+        `    ${shortCaseId(cases[1]!.id)}  stdout`,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await racy(true)).stdout);
+    expect(json.candidates[1]).toEqual({
+      command: './bin/tool-racy',
+      match: 2,
+      diverge: 1,
+      score: expect.objectContaining({ raw: expect.objectContaining({ scored: 3, match: 2, flakyCandidate: 1 }) }),
+      normalizers: [],
+      divergences: [],
+      flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+    });
+    // Kept out of the clusters, which only hold steady divergences.
+    expect(json.clusters).toEqual([]);
+    // Scores lower than the faithful port, not 2 of 2 as it would if flaky cases were dropped.
+    expect(json.candidates[1].match / json.cases).toBeLessThan(json.candidates[0].match / json.cases);
   });
 
   it('runs the --candidate programs instead of the configured ones, and exits 0 when all match', async () => {

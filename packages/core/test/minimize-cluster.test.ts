@@ -35,7 +35,7 @@ describe('minimizeCluster', () => {
     store = new BlobStore(join(root, 'cache'));
     ref = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool')));
     bad = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-bad')));
-    runner = await openCaseRunner(options());
+    runner = await openCaseRunner({ ...options(), rerun: false });
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 

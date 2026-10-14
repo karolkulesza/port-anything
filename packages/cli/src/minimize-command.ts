@@ -105,7 +105,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteMinimi
   let result;
   let programName;
   try {
-    const runner = await openCaseRunner({ ...runnerOptions, workDir });
+    const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
     programName = runner.programName;
     result = await minimizeCluster({ runner, key: signatureKey(target.cluster.signature), cases: clusterOf, store, maxRuns: DEFAULT_MINIMIZE_RUNS });
   } finally {

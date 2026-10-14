@@ -121,8 +121,10 @@ export interface ExecuteRunOptions {
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
  * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
- * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
- * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
+ * against its candidate unless `--candidate` is given. Flaky-candidate cases (a re-run gave a
+ * different result) count as diverging but are listed apart and kept out of the clusters. Exit code
+ * 0 when every candidate matches on every case, 1 when any case diverges, 3 when the run can't start
+ * (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
   try {
@@ -169,7 +171,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   for (const i of commands.keys()) {
     const divergences = result.cases.flatMap((c, n) => {
       const run = c.candidates[i]!;
-      return run.comparison.verdict === 'diverge' ? [{ caseId: c.caseId, features: cases[n]!.features, shapes: run.shapes }] : [];
+      return run.comparison.verdict === 'diverge' && !run.flaky ? [{ caseId: c.caseId, features: cases[n]!.features, shapes: run.shapes }] : [];
     });
     for (const cluster of clusterDivergences(divergences, weights)) {
       clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, features: cluster.features, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
@@ -183,21 +185,31 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     cases: result.cases.length,
     normalizers: changed(),
     candidates: commands.map((command, i) => {
-      const divergences = result.cases
-        .filter((c) => c.candidates[i]!.comparison.verdict === 'diverge')
-        .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
+      const diverging = result.cases.filter((c) => c.candidates[i]!.comparison.verdict === 'diverge');
+      const list = (flaky: boolean) =>
+        diverging.filter((c) => c.candidates[i]!.flaky === flaky).map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
       const score = scoreCandidate(
         result.cases.map((c, n) => ({
           caseId: c.caseId,
           features: cases[n]!.features,
           origin: cases[n]!.origin,
           verdict: c.candidates[i]!.comparison.verdict,
+          flakyCandidate: c.candidates[i]!.flaky,
           // A case the reference also times out on is compared like any other.
           candidateTimeout: c.candidates[i]!.observation.timeout && !c.reference.timeout,
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, score, normalizers: changed(i), divergences };
+      // Flaky-candidate cases count as diverging but are listed apart from the steady divergences.
+      return {
+        command: display(command),
+        match: result.cases.length - diverging.length,
+        diverge: diverging.length,
+        score,
+        normalizers: changed(i),
+        divergences: list(false),
+        flaky_candidate: list(true),
+      };
     }),
     clusters,
   };
@@ -218,13 +230,16 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     for (const n of summary.normalizers) lines.push(`  ${n.normalizer}: ${n.cases}`);
   }
   for (const [i, c] of summary.candidates.entries()) {
-    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
+    const flaky = c.flaky_candidate.length > 0 ? ` (${c.flaky_candidate.length} flaky-candidate)` : '';
+    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge${flaky}` : ''}`);
     lines.push(...scoreLines(c.score));
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
       lines.push(`    ${listed.join('  ')}${cluster.size > LISTED_CASES ? `  … and ${cluster.size - LISTED_CASES} more` : ''}`);
     }
+    if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
+    for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }

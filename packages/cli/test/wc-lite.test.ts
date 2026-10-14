@@ -106,7 +106,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     const summary = JSON.parse(stdout) as RunSummary;
     expect(summary.cases).toBeGreaterThanOrEqual(20);
     expect(summary.candidates).toEqual([
-      { command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, score: expect.any(Object), normalizers: [], divergences: [] },
+      { command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, score: expect.any(Object), normalizers: [], divergences: [], flaky_candidate: [] },
     ]);
     // The good port scores 100%, over every feature but the self-description ones.
     const { score } = summary.candidates[0]!;
