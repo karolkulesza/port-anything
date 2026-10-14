@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { rm, rmdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
@@ -8,6 +8,7 @@ import {
   DEFAULT_STDERR_SIMILARITY,
   PROFILE_FIELDS,
   SandboxUnavailableError,
+  appendHistory,
   cacheDir,
   chooseSandbox,
   clusterDivergences,
@@ -15,6 +16,7 @@ import {
   describeFeatures,
   describeSignature,
   featureWeights,
+  gitHead,
   loadCommittedCases,
   normalizerLabel,
   parseProgramCommand,
@@ -119,8 +121,10 @@ export interface ExecuteRunOptions {
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
  * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
- * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
- * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
+ * against its candidate unless `--candidate` is given. A run of the whole corpus is also appended
+ * to the parity history, with the commit checked out in the git repository holding each
+ * candidate's executable. Exit code 0 when every candidate matches on every case, 1 when any case
+ * diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
   try {
@@ -226,6 +230,19 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     clusters,
   };
   const saved = await saveRun(projectDir, { subset: subset === undefined ? null : { cluster: subset.address }, ...report, candidate_commands: commands });
+  if (subset === undefined) {
+    const shas = await Promise.all(candidates.map((c) => gitHead(dirname(c.realPath))));
+    await appendHistory(projectDir, {
+      version: 1,
+      run_id: saved.run_id,
+      created: saved.created,
+      cases: report.cases,
+      candidates: commands.map((command, i) => {
+        const { score } = report.candidates[i]!;
+        return { command, sha: shas[i]!, parity: score.headline, features: score.headlineFeatures.length, scored: score.raw.scored, match: score.raw.match };
+      }),
+    });
+  }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };

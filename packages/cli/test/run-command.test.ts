@@ -1,7 +1,21 @@
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import {
+  BlobStore,
+  RUN_ID_PATTERN,
+  cacheDir,
+  canonicalCase,
+  historyPath,
+  loadRun,
+  parseConfig,
+  readHistory,
+  runsDir,
+  shortCaseId,
+  type CanonicalCase,
+  type SandboxProbe,
+} from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
@@ -330,6 +344,81 @@ describe('executeRun clusters', () => {
     const gone = await exec({ cluster: '2' }, { cases: cases.slice(3) });
     expect(gone.exitCode).toBe(3);
     expect(gone.stderr).toMatch(new RegExp(`Cluster ${runId}/2 has 3 cases that the corpus no longer has \\(c_`));
+  });
+});
+
+describe('executeRun history', () => {
+  let project: string;
+  let outside: string;
+  let head: string;
+  let cases: CanonicalCase[];
+
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+      cwd: project,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    });
+
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-')));
+    outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-outside-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    writeFileSync(join(outside, 'tool-bad'), TOOL('bad'), { mode: 0o755 });
+    git('init', '-q', '-b', 'main');
+    git('add', 'bin');
+    git('commit', '-q', '-m', 'tools');
+    head = git('rev-parse', 'HEAD').trim();
+    const store = new BlobStore(cacheDir(project));
+    const input = await store.put('hello\n');
+    cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  const options = (args: Partial<ExecuteRunOptions['args']> = {}): ExecuteRunOptions => ({
+    projectDir: project,
+    config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: [join(outside, 'tool-bad')] }], corpus: { min_cases_per_feature: 1 } }),
+    cases,
+    args: { candidates: [], json: true, noSandbox: true, ...args },
+    probe: NO_SANDBOX,
+  });
+
+  it('appends each run of the whole corpus with every candidate\'s parity and git commit, but not a cluster re-run', async () => {
+    expect(existsSync(historyPath(project))).toBe(false);
+    const first = JSON.parse((await executeRun(options())).stdout);
+    const again = JSON.parse((await executeRun(options())).stdout);
+    await executeRun(options({ cluster: '1' }));
+    const { entries, damaged } = await readHistory(project);
+    expect(damaged).toEqual([]);
+    expect(entries.map((e) => e.run_id)).toEqual([first.run_id, again.run_id]);
+    expect(entries[0]).toEqual({
+      version: 1,
+      run_id: first.run_id,
+      created: (await loadRun(project, first.run_id)).created,
+      cases: 3,
+      candidates: [
+        { command: './bin/tool-copy', sha: head, parity: 1, features: 1, scored: 3, match: 3 },
+        // Outside any git repository: no commit to record.
+        { command: [join(outside, 'tool-bad')], sha: null, parity: 1 / 3, features: 1, scored: 3, match: 1 },
+      ],
+    });
+  });
+
+  it('records the commit checked out when the run happened', async () => {
+    copyFileSync(join(project, 'bin', 'tool-copy'), join(project, 'bin', 'tool-copy2'));
+    git('add', 'bin');
+    git('commit', '-q', '-m', 'another copy');
+    const next = git('rev-parse', 'HEAD').trim();
+    const { run_id: runId } = JSON.parse((await executeRun(options({ candidates: ['./bin/tool-copy2'] }))).stdout);
+    const last = (await readHistory(project)).entries.at(-1)!;
+    expect(last).toMatchObject({ run_id: runId, candidates: [{ command: './bin/tool-copy2', sha: next, parity: 1 }] });
+    expect(next).not.toBe(head);
   });
 });
 
