@@ -168,7 +168,6 @@ async function measure({ projectDir, config, cases, args, cliEntry, probe }: Mea
     };
     const context: ToolContext = {
       projectDir,
-      config,
       candidate: parseProgramCommand(candidate.cmd),
       ...(candidate.build === undefined ? {} : { build: candidate.build }),
       reference: parseProgramCommand(config.reference.cmd),

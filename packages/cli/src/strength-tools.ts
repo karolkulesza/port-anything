@@ -12,7 +12,6 @@ import {
   resolveProgram,
   sampleMutants,
   sourceMutants,
-  type Config,
   type MutantResult,
   type ProgramCommand,
   type SourceMutant,
@@ -22,7 +21,6 @@ import type { CheckOverrides, CheckSpec } from './strength-command.js';
 /** What a mutation tool needs from `strength`. */
 export interface ToolContext {
   projectDir: string;
-  config: Config;
   candidate: ProgramCommand;
   /** The candidate's build command (`candidate.build`), run from the project directory. */
   build?: string;
