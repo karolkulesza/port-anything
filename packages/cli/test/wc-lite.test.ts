@@ -24,6 +24,13 @@ const BAD_PORTS = {
 } as const;
 type BadPort = keyof typeof BAD_PORTS;
 
+/**
+ * Each bad port's parity: the mean over 8 features of their parity. off-by-one: opt.l 3/5, base 3/4,
+ * error.file 2/3, five at 1 (87.70…%); crlf: opt.L 3/4 (96.875%, shown rounded down); exit code:
+ * error.usage 0/3 (87.5%).
+ */
+const PARITY: Record<BadPort, string> = { 'bad-off-by-one': '87.7%', 'bad-crlf': '96.8%', 'bad-exit-code': '87.5%' };
+
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
 const toolchain = (await has('cc')) && (await has('cargo'));
 // On a developer machine without the toolchain the test is skipped; in CI it must run.
@@ -114,10 +121,9 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(text.code).toBe(1);
     expect(text.stdout).toContain(`candidate 1 ./copy/wc-copy: ${cases} of ${cases} cases match\n`);
     for (const [i, feature] of bad.entries()) {
-      const { match, diverge, score } = candidates[i + 1]!;
+      const { match, diverge } = candidates[i + 1]!;
       const { size, signature, features } = BAD_PORTS[feature];
-      const parity = (Math.floor(score.headline! * 1000 + 1e-9) / 10).toFixed(1);
-      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  parity ${parity}%, mean of 8 features`);
+      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  parity ${PARITY[feature]}, mean of 8 features`);
       expect(text.stdout).toContain(`  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
     }
   }, 120_000);
