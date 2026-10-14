@@ -109,3 +109,5 @@ export {
   type NormalizerProposal,
   type ProposableNormalizer,
 } from './baseline.js';
+export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';

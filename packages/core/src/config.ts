@@ -47,6 +47,12 @@ const SandboxSchema = z.strictObject({
 /** Sections read by later commands; accepted here so a config written for them still loads. */
 const later = z.unknown().optional();
 
+/** `corpus`: only `repeats` is read so far (by `baseline`); the other keys are left to later commands. */
+const CorpusSchema = z.looseObject({
+  /** Runs of each case against the reference in `baseline`. */
+  repeats: z.number().int().min(2).optional(),
+});
+
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
 export const ConfigSchema = z
   .strictObject({
@@ -61,7 +67,7 @@ export const ConfigSchema = z
     compare: later,
     /** Applied in order to both sides before comparing. */
     normalizers: NormalizersSchema.default([]),
-    corpus: later,
+    corpus: CorpusSchema.optional(),
     holdout: later,
     report: later,
   })
