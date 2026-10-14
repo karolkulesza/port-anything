@@ -9,3 +9,6 @@ candidate:
 sandbox:
   mode: local
   timeout: 10s
+corpus:
+  # A few cases per feature here; with the default of 20, every feature would be under-sampled.
+  min_cases_per_feature: 3
