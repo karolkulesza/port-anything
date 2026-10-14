@@ -47,7 +47,8 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 - One reference, any number of candidates (N-way: every candidate runs on the same cases).
 - `--budget N` sets how many cases to generate (default 500). Raise it (`--budget 2000`) when
   the result lists many under-sampled features; lower it for a quick first look.
-- Progress lines go to stderr; stdout is the JSON only.
+- Progress lines go to stderr; stdout is the JSON only. A run takes from seconds to a few
+  minutes, mostly depending on the budget and on how many candidates there are.
 - **Exit codes:** `0` every candidate matched on every case; `1` at least one case diverged (the
   normal outcome of an audit, not a failure of the run); `3` the run couldn't start (arguments,
   a program not found, no sandbox, a destructive tool): read stderr, fix, rerun.
@@ -95,13 +96,15 @@ Don't report raw divergence counts. Turn them into a few **findings**, each veri
    candidate with the same `argv` under the same name, in an empty temporary directory, with a
    small stdin or input file you write. Compare exit code, stdout and stderr (`diff <(ref …)
    <(cand …)`, `echo $?`). Keep the side effects inside the temporary directory. Write probe
-   loops for `bash` and quote every argument (`"$@"`, arrays): an unquoted `$args` is not split
-   into words in zsh, which gives false differences.
+   loops as `#!/bin/bash` scripts (or run them with `bash -c`) and quote every argument (`"$@"`,
+   arrays): in zsh an unquoted `$args` is not split into words, which gives false differences.
+   Keep scripts and inputs in a working directory next to the report.
 3. **Minimize**: shrink the arguments and the input until removing anything makes the difference
    go away. A finding is one short command line plus a few bytes of input, the reference's
    output and the candidate's.
 4. **Rule out false positives** before calling anything a bug:
-   - version skew: the reference is an older or newer release than the one the rewrite targets;
+   - version skew: the reference is an older or newer release than the one the rewrite targets
+     (when versions can't be told apart, say that this wasn't checked);
    - environment: locale, time zone, terminal width, the user, files that exist on one machine;
    - noise the normalizers missed (paths, dates, PIDs): rerun twice;
    - documented, intentional differences of the candidate (check its docs and issue tracker,
@@ -129,12 +132,13 @@ and keep `audit.json` next to it. Structure:
 1. **Setup**: reference and candidates with versions, OS and architecture, sandbox, budget, cases,
    date, the exact `compare` command.
 2. **Results**: one line per candidate (parity as a percentage, features averaged, matching
-   cases), then the feature × candidate matrix from `per_feature` (mark under-sampled and
+   cases, divergences), then the feature × candidate matrix from `per_feature` (mark under-sampled and
    self-description features).
 3. **Findings**, most important first. For each: a one-line title, the minimized command and
    input, the reference's and the candidate's output (or exit code), which feature it falls
-   under, how many divergences it explains, and whether it was reproduced by hand (or found by
-   hand only).
+   under, how many divergences it explains (inferred from the argv and fields pattern, since the
+   inputs aren't in the JSON: say so), and whether it was reproduced by hand (or found by hand
+   only).
 4. **Coverage and caveats**: `untested` features, under-sampled features, `flaky_reference`
    cases, the `normalizers` applied, skipped destructive subcommands, anything you ruled out as
    a false positive and why.
