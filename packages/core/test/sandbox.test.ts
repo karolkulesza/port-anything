@@ -69,6 +69,20 @@ describe('sandboxCommand', () => {
     expect(sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['true'], '/w', { statusFd: 3 }).args).not.toContain('--json-status-fd');
   });
 
+  it('shows extra paths read-only in bwrap, above the private /tmp and below the workdir', () => {
+    const args = sandboxCommand(BWRAP, ['sort'], '/tmp/case-1', { readOnlyPaths: ['/tmp/run-1/bin', '/tmp/build/sort'] }).args;
+    const bin = args.indexOf('/tmp/run-1/bin');
+    expect(args.slice(bin - 1, bin + 2)).toEqual(['--ro-bind', '/tmp/run-1/bin', '/tmp/run-1/bin']);
+    const tool = args.indexOf('/tmp/build/sort');
+    expect(args.slice(tool - 1, tool + 2)).toEqual(['--ro-bind', '/tmp/build/sort', '/tmp/build/sort']);
+    expect(bin).toBeGreaterThan(args.lastIndexOf('--tmpfs'));
+    expect(args.indexOf('--bind')).toBeGreaterThan(tool);
+    // Without a filesystem view of their own, the other sandboxes see these paths anyway.
+    const unshare = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w', { readOnlyPaths: ['/x'] });
+    expect(unshare.args).not.toContain('/x');
+    expect(() => sandboxCommand(BWRAP, ['sort'], '/w', { readOnlyPaths: ['bin'] })).toThrow(/absolute/);
+  });
+
   it('runs unshare with a new user and network namespace, as the current user when it can', () => {
     const mapped = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w');
     expect(mapped).toEqual({ command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', 'sort'], cwd: '/w' });

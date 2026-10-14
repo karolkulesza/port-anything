@@ -69,6 +69,8 @@ export interface ProcessSpec {
   /** Bytes for stdin; null or absent means `/dev/null`. */
   stdin?: Uint8Array | null;
   sandbox: SandboxSetup;
+  /** Paths outside `cwd` the process needs to see, such as a pinned program (see `pinnedProcess`). */
+  readOnlyPaths?: readonly string[];
   timeoutMs?: number;
   /** Per stream. */
   outputCapBytes?: number;
@@ -112,7 +114,10 @@ export function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
   const cap = spec.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES;
   const graceMs = spec.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
   const bwrap = spec.sandbox.kind === 'bwrap';
-  const { command, args, cwd } = sandboxCommand(spec.sandbox, spec.argv, spec.cwd, caseCommandOptions(spec.sandbox));
+  const { command, args, cwd } = sandboxCommand(spec.sandbox, spec.argv, spec.cwd, {
+    ...caseCommandOptions(spec.sandbox),
+    readOnlyPaths: spec.readOnlyPaths ?? [],
+  });
   const hasStdin = spec.stdin !== undefined && spec.stdin !== null;
 
   return new Promise((resolve, reject) => {

@@ -42,6 +42,12 @@ export interface SandboxCommandOptions {
    * itself doesn't get the descriptor.
    */
   statusFd?: number;
+  /**
+   * Absolute paths outside the workdir that bwrap shows read-only, at the same place: e.g. the
+   * directory holding the pinned program, which may live under the private /tmp. The other
+   * sandboxes don't hide the host's files, so they need nothing.
+   */
+  readOnlyPaths?: readonly string[];
 }
 
 /** The descriptor bwrap reports its status on when the runner starts a case. */
@@ -64,6 +70,9 @@ export function sandboxCommand(
 ): SandboxCommand {
   if (argv.length === 0) throw new Error('Cannot run an empty argv.');
   if (!isAbsolute(workdir)) throw new Error(`The case workdir must be an absolute path, got "${workdir}".`);
+  for (const path of options.readOnlyPaths ?? []) {
+    if (!isAbsolute(path)) throw new Error(`A path shown in the sandbox must be absolute, got "${path}".`);
+  }
   switch (setup.kind) {
     case 'bwrap':
       return {
@@ -73,7 +82,9 @@ export function sandboxCommand(
           // Read-only doesn't stop connect() on a socket file: hide the service sockets (D-Bus,
           // docker.sock, ...) under /run, and under /var/run where it isn't a symlink to /run.
           ...['--tmpfs', '/run', ...(varRunIsDirectory() ? ['--tmpfs', '/var/run'] : [])],
-          // Order matters: later mounts go on top, so the workdir bind must follow the tmpfs mounts.
+          // Order matters: later mounts go on top, so these binds must follow the tmpfs mounts, and
+          // the writable workdir comes last.
+          ...(options.readOnlyPaths ?? []).flatMap((path) => ['--ro-bind', path, path]),
           ...['--bind', workdir, workdir, '--chdir', workdir],
           ...['--unshare-user', '--unshare-ipc', '--unshare-uts', '--unshare-net'],
           // Without a PID namespace a case could signal any of the user's processes (kill -9 -1).
