@@ -19,7 +19,13 @@ export interface RunOptions {
 
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
-Not released yet. Follow progress at https://github.com/karolkulesza/port-anything
+Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]
+       port-anything spec infer [--no-sandbox]
+       port-anything baseline [--repeats N] [--no-sandbox]
+       port-anything run [--candidate <cmd>]… [--json] [--no-sandbox]
+
+Exit codes: 0 all good, 1 divergences, 3 config or usage error.
+Docs: https://github.com/karolkulesza/port-anything
 `;
 
 /**
