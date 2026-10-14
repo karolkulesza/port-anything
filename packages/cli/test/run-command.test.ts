@@ -11,6 +11,7 @@ case "$1" in
   echo) shift; echo "$@" ;;
   upper) ${variant === 'bad' ? 'cat' : "tr 'a-z' 'A-Z'"} ;;
   fail) echo "$(basename "$0"): no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
+  self) echo "$0" ;;
 esac
 `;
 
@@ -66,6 +67,7 @@ describe('executeRun', () => {
       [
         'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
         'reference ./bin/tool',
+        'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
         `  ${shortCaseId(cases[1]!.id)}  stdout`,
@@ -94,12 +96,14 @@ describe('executeRun', () => {
       sandbox: 'none (--no-sandbox)',
       reference: './bin/tool',
       cases: 3,
+      normalizers: [],
       candidates: [
-        { command: './bin/tool-copy', match: 3, diverge: 0, divergences: [] },
+        { command: './bin/tool-copy', match: 3, diverge: 0, normalizers: [], divergences: [] },
         {
           command: './bin/tool-bad',
           match: 1,
           diverge: 2,
+          normalizers: [],
           divergences: [
             { case: cases[1]!.id, fields: ['stdout'] },
             { case: cases[2]!.id, fields: ['exit'] },
@@ -163,6 +167,43 @@ describe('runCommand', () => {
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}c_[0-9a-f]{8} {2}stdout\n$/);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the configured normalizers and prints how many cases each changed', async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-')));
+    try {
+      mkdirSync(join(project, 'bin'));
+      writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
+      writeFileSync(join(project, 'bin', 'tool-copy'), TOOL('good'), { mode: 0o755 });
+      writeFileSync(join(project, 'bin', 'tool-bad'), TOOL('bad'), { mode: 0o755 });
+      const config = (normalizers: string) =>
+        `version: 1\nreference: { cmd: ./bin/tool }\ncandidates: [{ cmd: ./bin/tool-copy }, { cmd: ./bin/tool-bad }]\n${normalizers}`;
+      mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+      // Each side runs from its own program directory, so `self` ($0) differs until tmp-paths replaces it.
+      writeFileSync(
+        join(project, 'port-anything', 'recorded', 'cases.jsonl'),
+        ['self', 'echo'].map((cmd) => `{"argv":["${cmd}","x"],"origin":"recorded"}`).join('\n'),
+      );
+
+      writeFileSync(join(project, 'port-anything.yaml'), config(''));
+      const raw = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+      expect(raw.stdout).toContain('normalizers: none\ncandidate 1 ./bin/tool-copy: 1 of 2 cases match, 1 diverge\n');
+
+      writeFileSync(join(project, 'port-anything.yaml'), config('normalizers:\n  - tmp-paths\n  - { iso-timestamps: null, scope: stderr }\n'));
+      const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        ['normalizers (cases changed):', '  tmp-paths: 1', '  iso-timestamps on stderr: 0', 'candidate 1 ./bin/tool-copy: 2 of 2 cases match', ''].join('\n'),
+      );
+      const json = JSON.parse((await runCommand(['--no-sandbox', '--json'], { cwd: project, probe: NO_SANDBOX })).stdout);
+      expect(json.normalizers).toEqual([
+        { normalizer: 'tmp-paths', cases: 1 },
+        { normalizer: 'iso-timestamps on stderr', cases: 0 },
+      ]);
+      expect(json.candidates.map((c: { normalizers: unknown }) => c.normalizers)).toEqual([json.normalizers, json.normalizers]);
     } finally {
       rmSync(project, { recursive: true, force: true });
     }

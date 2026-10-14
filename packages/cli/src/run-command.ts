@@ -10,6 +10,7 @@ import {
   chooseSandbox,
   configCandidates,
   loadCommittedCases,
+  normalizerLabel,
   parseProgramCommand,
   probeSandbox,
   readConfigFile,
@@ -91,7 +92,8 @@ export interface ExecuteRunOptions {
 
 /**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
- * diverge (exact comparison). Exit code 0 when every candidate matches on every case, 1 when any
+ * diverge (exact comparison after the configured normalizers), and how many cases each normalizer
+ * changed. Exit code 0 when every candidate matches on every case, 1 when any
  * case diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
@@ -141,28 +143,41 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       timeoutMs: config.sandbox.timeout,
       envAllowlist: config.sandbox.env_allowlist,
       env: config.sandbox.env,
+      normalizers: config.normalizers,
     });
   } finally {
     await rm(workDir, { recursive: true, force: true });
     await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another run uses it
   }
 
+  // Per normalizer, the cases where it changed either side of a comparison (of any candidate, or of one).
+  const changed = (candidate?: number) =>
+    config.normalizers.map((spec, n) => ({
+      normalizer: normalizerLabel(spec),
+      cases: result.cases.filter((c) => c.candidates.some((run, i) => (candidate === undefined || i === candidate) && run.normalizedBy.includes(n))).length,
+    }));
   const summary = {
     program_name: result.programName,
     sandbox: sandbox.label,
     reference: display(config.reference.cmd),
     cases: result.cases.length,
+    normalizers: changed(),
     candidates: commands.map((command, i) => {
       const divergences = result.cases
         .filter((c) => c.candidates[i]!.comparison.verdict === 'diverge')
         .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, divergences };
+      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, normalizers: changed(i), divergences };
     }),
   };
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
+  if (summary.normalizers.length === 0) lines.push('normalizers: none');
+  else {
+    lines.push('normalizers (cases changed):');
+    for (const n of summary.normalizers) lines.push(`  ${n.normalizer}: ${n.cases}`);
+  }
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
     for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
