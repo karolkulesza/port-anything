@@ -13,6 +13,7 @@ export const NORMALIZER_NAMES = [
   'float-tolerance',
   'regex',
   'program-name',
+  'sort-lines',
 ] as const;
 
 export type NormalizerName = (typeof NORMALIZER_NAMES)[number];
@@ -62,6 +63,7 @@ const OPTIONS = {
   'float-tolerance': FloatToleranceSchema,
   regex: RegexSchema,
   'program-name': NoOptionsSchema,
+  'sort-lines': NoOptionsSchema,
 } as const;
 
 /** A configured normalizer: which one, its options, and where it applies. */
@@ -226,6 +228,13 @@ export function replaceProgramNames(text: string, programNames: readonly string[
   return text.replace(pattern, PROGRAM_PLACEHOLDER);
 }
 
+/** Lines in code-unit order; a final newline stays at the end. For output whose line order varies between runs. */
+function sortLines(text: string): string {
+  const final = text.endsWith('\n');
+  const lines = (final ? text.slice(0, -1) : text).split('\n');
+  return lines.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join('\n') + (final ? '\n' : '');
+}
+
 type Step = { side: (text: string, side: SideContext) => string } | { pair: (reference: string, candidate: string) => string };
 
 function step(spec: NormalizerSpec): Step {
@@ -251,6 +260,8 @@ function step(spec: NormalizerSpec): Step {
     }
     case 'program-name':
       return { side: programName };
+    case 'sort-lines':
+      return { side: sortLines };
   }
 }
 
