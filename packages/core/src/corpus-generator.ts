@@ -263,7 +263,8 @@ class Selector {
 
   /** Offers the waiting error cases again, in their original order, now that more cases are kept. */
   retryDeferred(): void {
-    if (!this.roomGrew) return;
+    // Once the budget is full they stay counted as dropped by the cap.
+    if (!this.roomGrew || this.full) return;
     this.roomGrew = false;
     const waiting = this.deferred;
     this.deferred = [];
