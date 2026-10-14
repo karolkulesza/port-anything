@@ -1,9 +1,10 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BlobStore } from './blob-store.js';
 import { compareExact, type Comparison } from './compare.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
+import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
 import { defaultConcurrency, mapPool } from './pool.js';
 import { caseEnvironment, runProcess } from './process-runner.js';
 import { pinPrograms, pinnedProcess, type PinnedProgram, type ResolvedProgram } from './program.js';
@@ -34,6 +35,8 @@ export interface RunCasesOptions {
   env?: Readonly<Record<string, string>>;
   /** Defaults to this process's environment. */
   hostEnv?: Readonly<Record<string, string | undefined>>;
+  /** Applied in order to both sides before each comparison (`normalizers` in the config). */
+  normalizers?: readonly NormalizerSpec[];
   /** Called as each case finishes (in completion order, not case order). */
   onCase?: (result: CaseRun) => void;
 }
@@ -41,7 +44,10 @@ export interface RunCasesOptions {
 /** One candidate's observation of a case and how it compares with the reference's. */
 export interface CandidateRun {
   observation: Observation;
+  /** Of the normalized observations. */
   comparison: Comparison;
+  /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
+  normalizedBy: number[];
 }
 
 export interface CaseRun {
@@ -60,7 +66,7 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's (exactly, for now). Cases run in a worker pool;
+ * candidate's observation with the reference's, exactly once both have been normalized. Cases run in a worker pool;
  * within a case the sides run one after another, in the same working directory path (also HOME),
  * so a program that prints its directory doesn't diverge for that alone.
  */
@@ -70,15 +76,31 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
   const programs = [options.reference, ...options.candidates];
   const pinOptions = options.programName === undefined ? {} : { name: options.programName };
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), programs, pinOptions);
+  // Paths a side may print that differ between sides or runs, as given and with links resolved.
+  const realWorkDir = await realpath(workDir);
+  const spellings = (path: string) => [path, join(realWorkDir, relative(workDir, path))];
+  const programNames = programs.map((p) => [name, basename(p.path), basename(p.realPath), ...(p.tool === undefined ? [] : [p.tool])]);
+  const context = (side: number, caseDir: string): SideContext => ({
+    tempRoots: [caseDir, sides[side]!.binDir, workDir].flatMap(spellings),
+    programNames: programNames[side]!,
+  });
 
   const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
     const caseDir = join(workDir, `slot-${slot}`, 'case');
     const observe = (side: PinnedProgram) => observeCase(c, caseDir, name, side, options);
     const reference = await observe(sides[0]!);
     const candidates: CandidateRun[] = [];
-    for (const side of sides.slice(1)) {
+    for (const [i, side] of sides.entries()) {
+      if (i === 0) continue;
       const observation = await observe(side);
-      candidates.push({ observation, comparison: compareExact(reference, observation) });
+      const normalized = await normalizePair({
+        normalizers: options.normalizers ?? [],
+        features: c.features,
+        reference: { observation: reference, context: context(0, caseDir) },
+        candidate: { observation, context: context(i, caseDir) },
+        store: options.store,
+      });
+      candidates.push({ observation, comparison: compareExact(normalized.reference, normalized.candidate), normalizedBy: normalized.changedBy });
     }
     const result: CaseRun = { caseId: c.id, reference, candidates };
     options.onCase?.(result);
