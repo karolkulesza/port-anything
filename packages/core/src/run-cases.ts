@@ -53,6 +53,8 @@ export interface CandidateRun {
   shapes: FieldShape[];
   /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
   normalizedBy: number[];
+  /** Both observations as compared, after the normalizers (for waivers' regexes and diffs). */
+  normalized: { reference: Observation; candidate: Observation };
 }
 
 export interface CaseRun {
@@ -111,7 +113,7 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
         programNames: { reference: programNames[0]!, candidate: programNames[i]! },
       });
       const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
-      candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy });
+      candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate } });
     }
     const result: CaseRun = { caseId: c.id, reference, candidates };
     options.onCase?.(result);

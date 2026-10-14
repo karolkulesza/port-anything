@@ -6,7 +6,7 @@ import { BlobStore, blobRef } from '../src/blob-store.js';
 import { compareExact } from '../src/compare.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { parseProgramCommand, resolveProgram, type ResolvedProgram } from '../src/program.js';
-import { NormalizersSchema } from '../src/normalize.js';
+import { NormalizersSchema, TMP_PLACEHOLDER } from '../src/normalize.js';
 import { runCases, type RunCasesOptions } from '../src/run-cases.js';
 
 // A small program and two ports of it, as shell scripts. Each logs its runs to $PA_TEST_LOG
@@ -106,6 +106,10 @@ describe('runCases', () => {
     const self = result.cases[0]!;
     expect((await store.get(self.reference.stdout)).toString()).toMatch(/\/programs\/side-0\/tool\n$/);
     expect((await store.get(self.candidates[0]!.observation.stdout)).toString()).toMatch(/\/programs\/side-1\/tool\n$/);
+    // The normalized pair, as compared, is kept too.
+    const { normalized } = self.candidates[0]!;
+    expect(normalized.reference.stdout).toBe(normalized.candidate.stdout);
+    expect((await store.get(normalized.reference.stdout)).toString()).toBe(`${TMP_PLACEHOLDER}/tool\n`);
   });
 
   it('classifies the shape of each diverging field, after normalizing, and none for a match', async () => {
