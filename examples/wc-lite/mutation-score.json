@@ -1,0 +1,31 @@
+{
+  "tool": "cargo-mutants 26.0.0",
+  "mutants": 59,
+  "caught": 54,
+  "missed": 5,
+  "timeout": 0,
+  "unviable": 0,
+  "score": 0.9153,
+  "survivors": [
+    {
+      "mutant": "src/main.rs:160:29: replace + with * in run",
+      "why": "equivalent here: every side runs with argv[0] set to the bare program name, so there is no \"/\" to cut the name after"
+    },
+    {
+      "mutant": "src/main.rs:160:29: replace + with - in run",
+      "why": "equivalent here: every side runs with argv[0] set to the bare program name, so there is no \"/\" to cut the name after"
+    },
+    {
+      "mutant": "src/main.rs:88:23: replace match guard e.kind() == ErrorKind::Interrupted with false in count",
+      "why": "untested: a read interrupted by a signal (EINTR) never happens on the corpus"
+    },
+    {
+      "mutant": "src/main.rs:88:23: replace match guard e.kind() == ErrorKind::Interrupted with true in count",
+      "why": "untested: no case makes a read fail (e.g. a directory as FILE), where this mutant would loop"
+    },
+    {
+      "mutant": "src/main.rs:88:32: replace == with != in count",
+      "why": "untested: no case makes a read fail (e.g. a directory as FILE), where this mutant would loop"
+    }
+  ]
+}
