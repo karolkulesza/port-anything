@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { NormalizersSchema } from './normalize.js';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
 
 const text = z.string().refine((s) => !s.includes('\0'), 'must not contain a NUL byte');
@@ -46,6 +47,12 @@ const SandboxSchema = z.strictObject({
 /** Sections read by later commands; accepted here so a config written for them still loads. */
 const later = z.unknown().optional();
 
+/** `corpus`: only `repeats` is read so far (by `baseline`); the other keys are left to later commands. */
+const CorpusSchema = z.looseObject({
+  /** Runs of each case against the reference in `baseline`. */
+  repeats: z.number().int().min(2).optional(),
+});
+
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
 export const ConfigSchema = z
   .strictObject({
@@ -58,8 +65,9 @@ export const ConfigSchema = z
     candidates: z.array(ProgramSchema).min(1).optional(),
     sandbox: SandboxSchema.default(() => SandboxSchema.parse({})),
     compare: later,
-    normalizers: later,
-    corpus: later,
+    /** Applied in order to both sides before comparing. */
+    normalizers: NormalizersSchema.default([]),
+    corpus: CorpusSchema.optional(),
     holdout: later,
     report: later,
   })
@@ -100,10 +108,15 @@ export async function readConfigFile(projectDir: string): Promise<Config> {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new ConfigError(`No ${CONFIG_FILE} in ${projectDir}.`);
     throw new ConfigError(`Cannot read ${CONFIG_FILE}: ${(e as Error).message}`);
   }
+  return parseConfigSource(source);
+}
+
+/** Parses and validates the text of a `port-anything.yaml`. Every failure is a `ConfigError`. */
+export function parseConfigSource(source: string, name = CONFIG_FILE): Config {
   // YAML 1.2 core schema (no `yes`/`no` booleans); duplicate keys are errors.
   const doc = parseDocument(source, { prettyErrors: true });
   if (doc.errors.length > 0) {
-    throw new ConfigError([`${CONFIG_FILE} is not valid YAML:`, ...doc.errors.map((e) => `  ${e.message.replace(/\n/g, '\n  ')}`)].join('\n'));
+    throw new ConfigError([`${name} is not valid YAML:`, ...doc.errors.map((e) => `  ${e.message.replace(/\n/g, '\n  ')}`)].join('\n'));
   }
-  return parseConfig(doc.toJS(), CONFIG_FILE);
+  return parseConfig(doc.toJS(), name);
 }

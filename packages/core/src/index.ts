@@ -68,6 +68,7 @@ export {
   DEFAULT_MAX_STORED_FILE_BYTES,
   diffSnapshots,
   fsChanges,
+  isSymlinkBlob,
   snapshotDir,
   symlinkBlob,
   type FsChanges,
@@ -77,7 +78,7 @@ export {
 export { defaultConcurrency, mapPool } from './pool.js';
 export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
-export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
+export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, parseConfigSource, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
 export {
   CLI_SPEC_FILE,
@@ -139,3 +140,34 @@ export {
   type GeneratedCorpus,
   type ObserveReference,
 } from './corpus-generator.js';
+export {
+  NORMALIZER_NAMES,
+  NormalizerEntrySchema,
+  NormalizersSchema,
+  PID_PLACEHOLDER,
+  PROGRAM_PLACEHOLDER,
+  TIMESTAMP_PLACEHOLDER,
+  TMP_PLACEHOLDER,
+  normalizePair,
+  normalizerLabel,
+  type NormalizePairOptions,
+  type NormalizeSide,
+  type NormalizedPair,
+  type NormalizerName,
+  type NormalizerSpec,
+  type ScopeEntry,
+  type SideContext,
+} from './normalize.js';
+export {
+  DEFAULT_REPEATS,
+  PROPOSABLE_NORMALIZERS,
+  baselineCases,
+  type BaselineField,
+  type BaselineOptions,
+  type BaselineResult,
+  type CaseBaseline,
+  type NormalizerProposal,
+  type ProposableNormalizer,
+} from './baseline.js';
+export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';

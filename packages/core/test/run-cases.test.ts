@@ -6,6 +6,7 @@ import { BlobStore, blobRef } from '../src/blob-store.js';
 import { compareExact } from '../src/compare.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { parseProgramCommand, resolveProgram, type ResolvedProgram } from '../src/program.js';
+import { NormalizersSchema } from '../src/normalize.js';
 import { runCases, type RunCasesOptions } from '../src/run-cases.js';
 
 // A small program and two ports of it, as shell scripts. Each logs its runs to $PA_TEST_LOG
@@ -20,6 +21,7 @@ case "$1" in
   pwd) pwd; echo "$HOME" ;;
   name) echo "$(basename "$0"): usage" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   env) echo "$PA_TEST_SETTING $LANG $TZ" ;;
+  self) echo "$0" ;;
 esac
 `;
 
@@ -86,6 +88,22 @@ describe('runCases', () => {
     // The reference did the same in every run; only `pwd` prints the run's own scratch directory.
     const references = both.cases.map((c, i) => compareExact(c.reference, alone[0]!.cases[i]!.reference).fields);
     expect(references).toEqual([[], [], [], [], ['stdout'], [], []]);
+  });
+
+  it('compares the normalized observations, keeps the raw ones, and says which normalizers changed each comparison', async () => {
+    // Each side runs from its own program directory, so $0 differs until tmp-paths replaces it.
+    const own = [{ argv: ['self'] }, { argv: ['echo', 'x'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+    const raw = await runCases(options([good], { cases: own }));
+    expect(raw.cases.map((c) => c.candidates[0]!.comparison.verdict)).toEqual(['diverge', 'match']);
+    expect(raw.cases.map((c) => c.candidates[0]!.normalizedBy)).toEqual([[], []]);
+
+    const normalizers = NormalizersSchema.parse(['pids', 'tmp-paths']);
+    const result = await runCases(options([good], { cases: own, normalizers }));
+    expect(result.cases.map((c) => c.candidates[0]!.comparison.verdict)).toEqual(['match', 'match']);
+    expect(result.cases.map((c) => c.candidates[0]!.normalizedBy)).toEqual([[1], []]);
+    const self = result.cases[0]!;
+    expect((await store.get(self.reference.stdout)).toString()).toMatch(/\/programs\/side-0\/tool\n$/);
+    expect((await store.get(self.candidates[0]!.observation.stdout)).toString()).toMatch(/\/programs\/side-1\/tool\n$/);
   });
 
   it('observes the reference once per case, however many candidates there are', async () => {

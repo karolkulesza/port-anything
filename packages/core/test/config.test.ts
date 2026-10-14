@@ -11,6 +11,7 @@ describe('parseConfig', () => {
       version: 1,
       reference: { cmd: './ref/tool' },
       sandbox: { mode: 'local', timeout: 10_000, env_allowlist: [], env: {} },
+      normalizers: [],
     });
     expect(configCandidates(config)).toEqual([]);
   });
@@ -24,11 +25,12 @@ describe('parseConfig', () => {
       sandbox: { mode: 'container', image: 'debian:12-slim', timeout: '10s', env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } },
       compare: { profile: 'standard' },
       normalizers: ['tmp-paths'],
-      corpus: { repeats: 3 },
+      corpus: { repeats: 5, generator: 'v1', budget: 10000 },
       holdout: { fresh_cases: 1000 },
       report: { title: 'tool → Rust' },
     });
     expect(config.program_name).toBe('tool');
+    expect(config.corpus?.repeats).toBe(5);
     expect(config.sandbox).toEqual({ mode: 'container', image: 'debian:12-slim', timeout: 10_000, env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } });
     expect(configCandidates(config)).toEqual([{ cmd: ['./port/target/release/tool'], build: 'cargo build --release' }]);
   });
@@ -68,6 +70,11 @@ describe('parseConfig', () => {
     expect(message).toMatch(/reference: /);
     expect(message).toMatch(/refrence/);
     expect(message).toMatch(/sandbox\.env\.A=B: /);
+  });
+
+  it('takes at least 2 corpus repeats', () => {
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 1 } })).toThrow(/corpus\.repeats/);
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 2.5 } })).toThrow(/corpus\.repeats/);
   });
 
   it('takes only a plain file name as program_name', () => {
@@ -115,6 +122,7 @@ describe('readConfigFile', () => {
     expect(config.reference.cmd).toEqual(['./ref/bin/tool']);
     expect(configCandidates(config).map((c) => c.cmd)).toEqual(['./port/tool', 'coreutils sort']);
     expect(config.sandbox).toMatchObject({ timeout: 2000, env: { TZ: 'UTC' } });
+    expect(config.normalizers).toEqual([{ name: 'float-tolerance', options: { rtol: 1e-9, atol: 0 }, scope: ['stdout'] }]);
   });
 
   it('says when the file is missing, is not YAML, or has a duplicate key (ConfigError)', async () => {
@@ -131,5 +139,7 @@ describe('readConfigFile', () => {
     await expect(readConfigFile(dir)).rejects.toThrow(/port-anything\.yaml is not valid:\n {2}\(top level\)/);
     writeFileSync(join(dir, CONFIG_FILE), 'version: 1\nreference: { cmd: a }\nsandbox: { timeout: soon }\n');
     await expect(readConfigFile(dir)).rejects.toThrow(/sandbox\.timeout: must be a positive duration/);
+    writeFileSync(join(dir, CONFIG_FILE), 'version: 1\nreference: { cmd: a }\nnormalizers: [tmp-paths, pid]\n');
+    await expect(readConfigFile(dir)).rejects.toThrow(/normalizers\.1: unknown normalizer "pid"/);
   });
 });
