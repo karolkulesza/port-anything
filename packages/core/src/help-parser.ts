@@ -28,7 +28,12 @@ const CHOICE = /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
  * the text shows and guesses nothing it doesn't, so the result is a first draft to refine.
  */
 export function parseHelp(raw: string, options: { program?: string } = {}): ParsedHelp {
-  const lines = raw.replace(ANSI, '').replace(/\r\n?/g, '\n').split('\n');
+  // Control characters other than tabs and newlines (NUL, stray escapes) carry nothing to read.
+  const lines = raw
+    .replace(ANSI, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+    .split('\n');
   const usage = readUsage(lines, options.program);
   const program = options.program ?? usage.program;
   const body = readOptionLines(lines, usage.lines);
@@ -198,7 +203,7 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
         if (ctx.required && !('literal' in item && item.literal !== undefined)) form.flags.push(item.name);
         continue;
       }
-      const bare = stripMeta(word);
+      const bare = stripMeta(word) || 'ARG'; // `<...>` names nothing
       if (OPTION_PLACEHOLDER.test(bare) || /^\[?options?\]?$/i.test(word)) continue;
       if (!ctx.positionals) continue;
       const repeat = ctx.repeat || node.repeat;

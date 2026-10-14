@@ -57,7 +57,13 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
       if (!o.timeout && useful(parsed)) subHelp[subcommands[i]!] = parsed;
     }
   }
-  const spec = cliSpecFromHelp(program, help, subHelp);
+  let spec: CliSpec;
+  try {
+    spec = cliSpecFromHelp(program, help, subHelp);
+  } catch (e) {
+    // The parser keeps its output valid; this is a safety net, not an expected path.
+    throw new ConfigError(`The reference's help text gave a spec that isn't valid: ${(e as Error).message}`);
+  }
 
   const probes = specProbes(spec, { maxSubcommands: options.maxSubcommands ?? 20 });
   const { observations } = await run(probes.map((p) => p.argv));

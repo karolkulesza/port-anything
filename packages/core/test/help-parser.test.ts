@@ -218,6 +218,16 @@ options:
     expect(help.forms[0]!.args).toEqual([{ name: 'DIR', type: 'path', arity: '1' }]);
   });
 
+  it('drops control characters and names an empty placeholder, so the spec stays valid', () => {
+    const help = parseHelp('Usage: frob <...> [<>]\n  -a, --all   frob\0 all\x07\n');
+    expect(help.forms[0]!.args).toEqual([
+      { name: 'ARG', type: 'string', arity: '1' },
+      { name: 'ARG', type: 'string', arity: '?' },
+    ]);
+    expect(flag(help.flags, '-a').description).toBe('frob all');
+    expect(() => cliSpecFromHelp('frob', help)).not.toThrow();
+  });
+
   it('copes with text that has no usage line or no options', () => {
     expect(parseHelp('')).toEqual({ flags: [], forms: [], subcommands: [] });
     expect(parseHelp('Just a sentence about frob.\n')).toEqual({ flags: [], forms: [], subcommands: [] });
