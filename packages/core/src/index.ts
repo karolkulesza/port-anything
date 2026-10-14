@@ -101,3 +101,4 @@ export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type Spe
 export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
 export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
 export { DESTRUCTIVE_SUBCOMMANDS, DESTRUCTIVE_TOOLS, DestructiveToolError, assertNotDestructive, destructiveCommand } from './destructive.js';
+export { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArgvOptions, type GeneratedArgv, type GeneratedCase } from './argv-generator.js';
