@@ -52,3 +52,15 @@ export {
   type ProcessResult,
   type ProcessSpec,
 } from './process-runner.js';
+export {
+  MULTICALL_BINARIES,
+  defaultProgramName,
+  parseProgramCommand,
+  pinPrograms,
+  pinnedProcess,
+  resolveProgram,
+  type PinnedProgram,
+  type ProgramCommand,
+  type ResolveProgramOptions,
+  type ResolvedProgram,
+} from './program.js';
