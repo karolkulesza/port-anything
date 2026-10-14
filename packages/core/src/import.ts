@@ -114,7 +114,7 @@ export interface Importer<O extends ImportOptionsBase = ImportOptionsBase> {
 }
 
 /** Source kinds `port-anything import` understands (§11). More (bats, cram, examples) come later. */
-export const IMPORT_KINDS = ['fixtures'] as const;
+export const IMPORT_KINDS = ['fixtures', 'jq-test'] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];
 
 /** Runs an importer: checks the source's license, reads it, stores the blobs, returns the cases. */

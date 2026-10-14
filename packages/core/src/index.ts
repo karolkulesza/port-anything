@@ -53,5 +53,7 @@ export type {
 } from './import.js';
 export { DEFAULT_MAX_FIXTURE_BYTES, FIXTURE_PLACEHOLDER, fixturesImporter } from './import-fixtures.js';
 export type { FixturesImportOptions } from './import-fixtures.js';
+export { jqTestImporter, parseJqTest } from './import-jq-test.js';
+export type { JqTest, JqTestImportOptions, JqTestParse } from './import-jq-test.js';
 export { importCases } from './importers.js';
 export type { ImportOptions } from './importers.js';

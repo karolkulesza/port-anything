@@ -113,6 +113,6 @@ describe('importCases: fixtures', () => {
   });
 
   it('refuses an unknown source kind', async () => {
-    await expect(importCases({ kind: 'bats', path: src } as never, store)).rejects.toThrow(/Unknown import source "bats".*fixtures/);
+    await expect(importCases({ kind: 'bats', path: src } as never, store)).rejects.toThrow(/Unknown import source "bats".*fixtures, jq-test/);
   });
 });
