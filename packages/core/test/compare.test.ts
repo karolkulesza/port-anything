@@ -146,6 +146,8 @@ describe('compareObservations', () => {
     expect((await compare(ref, cand)).fields).toEqual(['exit', 'stderr']);
     // Same class (other error), different code: only the exit code diverges.
     expect((await compare(await failing('cat: bad\n', { exit: 3 }), cand)).fields).toEqual(['exit']);
+    // Loose never asks more than exact: the same bytes match whatever the exit codes.
+    expect((await compare(ref, await failing('cat: bad\n', { exit: 1 }))).fields).toEqual(['exit']);
   });
 
   it('compares stderr byte for byte under strict, or when the stderr mode is exact', async () => {

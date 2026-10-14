@@ -125,7 +125,8 @@ export interface CompareObservationsOptions extends CompareOptions {
 /**
  * Compares two (already normalized) observations under a strictness profile: the fields the
  * profile counts, each byte for byte except stderr in loose mode. A difference in a field the
- * profile doesn't count is not a divergence.
+ * profile doesn't count is not a divergence. Loose never asks more than exact: stderr that is the
+ * same byte for byte matches, even across exit classes (the exit code diverges on its own).
  */
 export async function compareObservations(reference: Observation, candidate: Observation, options: CompareObservationsOptions): Promise<Comparison> {
   const counted = PROFILE_FIELDS[options.profile];

@@ -22,6 +22,7 @@ case "$1" in
   name) echo "$(basename "$0"): usage" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   env) echo "$PA_TEST_SETTING $LANG $TZ" ;;
   self) echo "$0" ;;
+  warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
 
@@ -84,6 +85,7 @@ describe('runCases', () => {
     expect(verdicts(both, 1)).toEqual(verdicts(alone[1]!, 0));
     // And the verdicts are the expected ones, so the equality above isn't vacuous.
     expect(verdicts(both, 0).every((v) => v.verdict === 'match')).toBe(true);
+    // `name` exits 2 where the reference exits 1; its stderr is byte for byte the same, so only the exit code diverges.
     expect(verdicts(both, 1).filter((v) => v.verdict === 'diverge').map((v) => v.fields)).toEqual([['stdout'], ['exit']]);
     // The reference did the same in every run; only `pwd` prints the run's own scratch directory.
     const references = both.cases.map((c, i) => compareExact(c.reference, alone[0]!.cases[i]!.reference).fields);
@@ -104,6 +106,16 @@ describe('runCases', () => {
     const self = result.cases[0]!;
     expect((await store.get(self.reference.stdout)).toString()).toMatch(/\/programs\/side-0\/tool\n$/);
     expect((await store.get(self.candidates[0]!.observation.stdout)).toString()).toMatch(/\/programs\/side-1\/tool\n$/);
+  });
+
+  it('compares under the standard profile by default, or the one given', async () => {
+    // The good port prints the same message under its own file name, with other spacing; the bad one another message.
+    const warn = [canonicalCase({ argv: ['warn'], origin: 'recorded' })];
+    const fields = (result: Awaited<ReturnType<typeof runCases>>) => result.cases[0]!.candidates.map((c) => c.comparison.fields);
+    expect(fields(await runCases(options([good, bad], { cases: warn })))).toEqual([[], ['stderr']]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'strict' } })))).toEqual([['stderr'], ['stderr']]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'lenient' } })))).toEqual([[], []]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'standard', stderr: { similarity: 0 } } })))).toEqual([[], []]);
   });
 
   it('observes the reference once per case, however many candidates there are', async () => {

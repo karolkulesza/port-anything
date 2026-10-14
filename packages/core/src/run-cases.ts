@@ -1,7 +1,7 @@
 import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BlobStore } from './blob-store.js';
-import { compareExact, type Comparison } from './compare.js';
+import { compareObservations, type CompareOptions, type Comparison } from './compare.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
 import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
@@ -37,6 +37,8 @@ export interface RunCasesOptions {
   hostEnv?: Readonly<Record<string, string | undefined>>;
   /** Applied in order to both sides before each comparison (`normalizers` in the config). */
   normalizers?: readonly NormalizerSpec[];
+  /** Strictness profile and stderr mode (`compare` in the config). Defaults to the standard profile. */
+  compare?: CompareOptions;
   /** Called as each case finishes (in completion order, not case order). */
   onCase?: (result: CaseRun) => void;
 }
@@ -44,7 +46,7 @@ export interface RunCasesOptions {
 /** One candidate's observation of a case and how it compares with the reference's. */
 export interface CandidateRun {
   observation: Observation;
-  /** Of the normalized observations. */
+  /** Of the normalized observations, under the strictness profile. */
   comparison: Comparison;
   /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
   normalizedBy: number[];
@@ -66,7 +68,7 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's, exactly once both have been normalized. Cases run in a worker pool;
+ * candidate's observation with the reference's under the strictness profile, once both have been normalized. Cases run in a worker pool;
  * within a case the sides run one after another, in the same working directory path (also HOME),
  * so a program that prints its directory doesn't diverge for that alone.
  */
@@ -100,7 +102,12 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
         candidate: { observation, context: context(i, caseDir) },
         store: options.store,
       });
-      candidates.push({ observation, comparison: compareExact(normalized.reference, normalized.candidate), normalizedBy: normalized.changedBy });
+      const comparison = await compareObservations(normalized.reference, normalized.candidate, {
+        ...(options.compare ?? { profile: 'standard' }),
+        store: options.store,
+        programNames: { reference: programNames[0]!, candidate: programNames[i]! },
+      });
+      candidates.push({ observation, comparison, normalizedBy: normalized.changedBy });
     }
     const result: CaseRun = { caseId: c.id, reference, candidates };
     options.onCase?.(result);
