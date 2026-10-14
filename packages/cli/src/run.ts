@@ -1,3 +1,4 @@
+import { minimizeCommand } from './minimize-command.js';
 import { runCommand } from './run-command.js';
 
 export interface RunResult {
@@ -33,5 +34,6 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   const [command, ...rest] = argv;
   if (command === undefined || command === '--help' || command === '-h') return { exitCode: 0, stdout: NOTICE, stderr: '' };
   if (command === 'run') return runCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "run" is.\n` };
+  if (command === 'minimize') return minimizeCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "run" and "minimize" are.\n` };
 }
