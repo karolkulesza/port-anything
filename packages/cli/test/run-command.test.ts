@@ -1,0 +1,151 @@
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { BlobStore, cacheDir, canonicalCase, parseConfig, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { executeRun, parseRunArgs, type ExecuteRunOptions } from '../src/run-command.js';
+
+// Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
+const TOOL = (variant: 'ref' | 'good' | 'bad') => `#!/bin/sh
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) ${variant === 'bad' ? 'cat' : "tr 'a-z' 'A-Z'"} ;;
+  fail) echo "$(basename "$0"): no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
+esac
+`;
+
+const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
+
+describe('parseRunArgs', () => {
+  it('reads repeated --candidate, --json and --no-sandbox', () => {
+    expect(parseRunArgs(['--candidate', './a', '--candidate=coreutils sort', '--json', '--no-sandbox'])).toEqual({
+      candidates: ['./a', 'coreutils sort'],
+      json: true,
+      noSandbox: true,
+    });
+    expect(parseRunArgs([])).toEqual({ candidates: [], json: false, noSandbox: false });
+  });
+
+  it('says which documented options are not available yet, and rejects unknown ones', () => {
+    expect(() => parseRunArgs(['--smoke'])).toThrow(/--smoke is not available yet/);
+    expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
+    expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
+    expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
+  });
+});
+
+describe('executeRun', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-run-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    const store = new BlobStore(cacheDir(project));
+    const input = await store.put('hello\n');
+    cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const options = (over: Partial<ExecuteRunOptions> = {}): ExecuteRunOptions => ({
+    projectDir: project,
+    config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: ['./bin/tool-bad'] }] }),
+    cases,
+    args: { candidates: [], json: false, noSandbox: true },
+    probe: NO_SANDBOX,
+    ...over,
+  });
+
+  it('prints each candidate with its diverging cases, and exits 1 when any diverges', async () => {
+    const result = await executeRun(options());
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'reference ./bin/tool',
+        'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
+        'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
+        `  ${shortCaseId(cases[1]!.id)}  stdout`,
+        `  ${shortCaseId(cases[2]!.id)}  exit`,
+        '',
+      ].join('\n'),
+    );
+    expect(result.stderr).toBe('');
+  });
+
+  it('gives the same verdicts for 2 candidates as for two separate runs (done when)', async () => {
+    const json = { candidates: [], json: true, noSandbox: true };
+    const both = JSON.parse((await executeRun(options({ args: json }))).stdout);
+    const config = (cmd: string) => parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd } });
+    const copy = JSON.parse((await executeRun(options({ args: json, config: config('./bin/tool-copy') }))).stdout);
+    const bad = JSON.parse((await executeRun(options({ args: json, config: config('./bin/tool-bad') }))).stdout);
+    expect(both.candidates).toEqual([...copy.candidates, ...bad.candidates]);
+    expect(both.candidates[1].divergences).toHaveLength(2);
+  });
+
+  it('writes JSON with --json', async () => {
+    const result = await executeRun(options({ args: { candidates: [], json: true, noSandbox: true } }));
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({
+      program_name: 'tool',
+      sandbox: 'none (--no-sandbox)',
+      reference: './bin/tool',
+      cases: 3,
+      candidates: [
+        { command: './bin/tool-copy', match: 3, diverge: 0, divergences: [] },
+        {
+          command: './bin/tool-bad',
+          match: 1,
+          diverge: 2,
+          divergences: [
+            { case: cases[1]!.id, fields: ['stdout'] },
+            { case: cases[2]!.id, fields: ['exit'] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('runs the --candidate programs instead of the configured ones, and exits 0 when all match', async () => {
+    const result = await executeRun(options({ args: { candidates: ['./bin/tool-copy'], json: false, noSandbox: true } }));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('candidate 1 ./bin/tool-copy: 3 of 3 cases match\n');
+    expect(result.stdout).not.toContain('tool-bad');
+  });
+
+  it('cleans up its scratch directory', async () => {
+    await executeRun(options());
+    expect(readdirSync(join(project, '.port-anything'))).not.toContain('tmp');
+  });
+
+  it('refuses to run without a sandbox unless --no-sandbox is given, printing the fix (exit 3)', async () => {
+    const result = await executeRun(options({ args: { candidates: [], json: false, noSandbox: false } }));
+    expect(result.exitCode).toBe(3);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toMatch(/No local sandbox works here/);
+    expect(result.stderr).toMatch(/Install bubblewrap/);
+  });
+
+  it('exits 3 with a message for what it cannot run', async () => {
+    const noCandidate = await executeRun(options({ config: parseConfig({ version: 1, reference: { cmd: './bin/tool' } }) }));
+    expect(noCandidate).toMatchObject({ exitCode: 3, stdout: '' });
+    expect(noCandidate.stderr).toMatch(/No candidate to run/);
+
+    const missing = await executeRun(options({ args: { candidates: ['./bin/nope'], json: false, noSandbox: true } }));
+    expect(missing.exitCode).toBe(3);
+    expect(missing.stderr).toMatch(/nope not found/);
+
+    const container = await executeRun(
+      options({ config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-copy' }, sandbox: { mode: 'container' } }) }),
+    );
+    expect(container.exitCode).toBe(3);
+    expect(container.stderr).toMatch(/sandbox mode "container" is not available yet/);
+
+    const noCases = await executeRun(options({ cases: [] }));
+    expect(noCases.exitCode).toBe(3);
+    expect(noCases.stderr).toMatch(/No cases to run/);
+  });
+});

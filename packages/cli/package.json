@@ -29,5 +29,8 @@
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@port-anything/core": "workspace:*"
   }
 }
