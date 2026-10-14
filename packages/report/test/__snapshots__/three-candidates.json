@@ -1,0 +1,529 @@
+{
+  "version": 1,
+  "run_id": "20261014-180203-a1b2",
+  "created": "2026-10-14T18:02:03.000Z",
+  "program_name": "tool",
+  "reference": "./bin/tool",
+  "sandbox": "bwrap (no network)",
+  "cases": 55,
+  "compare": {
+    "profile": "default",
+    "stderr": {
+      "mode": "loose",
+      "similarity": 0.8
+    }
+  },
+  "min_cases_per_feature": 20,
+  "normalizers": [
+    {
+      "normalizer": "tmp-paths",
+      "cases": 4
+    }
+  ],
+  "waivers": [
+    {
+      "waiver": 1,
+      "match": {
+        "feature": "opt.x",
+        "field": "stdout",
+        "shape": "missing-trailing-newline"
+      },
+      "category": "intentional",
+      "reason": "trailing newline <by design>"
+    },
+    {
+      "waiver": 2,
+      "match": {
+        "feature": "base",
+        "field": "exit",
+        "shape": "exit-code"
+      },
+      "category": "reference-bug",
+      "reason": "the original exits 0 after \"write error\""
+    }
+  ],
+  "candidates": [
+    {
+      "candidate": 1,
+      "command": "./port-a/tool",
+      "headline": 1,
+      "badge": "parity 100.0% · 2 features · 55 cases",
+      "headline_features": [
+        "base",
+        "opt.n"
+      ],
+      "raw": {
+        "cases": 55,
+        "scored": 55,
+        "match": 55,
+        "diverge": 0,
+        "waived": 0,
+        "flaky_reference": 0,
+        "flaky_candidate": 0,
+        "timeouts": 0,
+        "parity": 1
+      },
+      "origins": {
+        "recorded": {
+          "cases": 40,
+          "scored": 40,
+          "match": 40,
+          "features": 2,
+          "parity": 1
+        },
+        "imported": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "generated": {
+          "cases": 15,
+          "scored": 15,
+          "match": 15,
+          "features": 1,
+          "parity": 1
+        }
+      },
+      "features": [
+        {
+          "feature": "base",
+          "parity": 1,
+          "cases": 25,
+          "scored": 25,
+          "match": 25,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.help",
+          "parity": 1,
+          "cases": 3,
+          "scored": 3,
+          "match": 3,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.n",
+          "parity": 1,
+          "cases": 22,
+          "scored": 22,
+          "match": 22,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.x",
+          "parity": 1,
+          "cases": 5,
+          "scored": 5,
+          "match": 5,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        }
+      ],
+      "self_description": [
+        "opt.help"
+      ],
+      "under_sampled": [
+        "opt.x"
+      ],
+      "untested": [
+        "opt.z"
+      ],
+      "waivers": [
+        {
+          "waiver": 1,
+          "cases": 0,
+          "share": 0,
+          "large": false
+        },
+        {
+          "waiver": 2,
+          "cases": 0,
+          "share": 0,
+          "large": false
+        }
+      ]
+    },
+    {
+      "candidate": 2,
+      "command": "./port-b/tool",
+      "headline": 0.9372727272727273,
+      "badge": "parity 93.7% · 2 features · 55 cases",
+      "headline_features": [
+        "base",
+        "opt.n"
+      ],
+      "raw": {
+        "cases": 55,
+        "scored": 55,
+        "match": 50,
+        "diverge": 5,
+        "waived": 0,
+        "flaky_reference": 0,
+        "flaky_candidate": 0,
+        "timeouts": 0,
+        "parity": 0.9090909090909091
+      },
+      "origins": {
+        "recorded": {
+          "cases": 40,
+          "scored": 40,
+          "match": 37,
+          "features": 2,
+          "parity": 0.9266666666666667
+        },
+        "imported": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "generated": {
+          "cases": 15,
+          "scored": 15,
+          "match": 13,
+          "features": 1,
+          "parity": 1
+        }
+      },
+      "features": [
+        {
+          "feature": "base",
+          "parity": 0.92,
+          "cases": 25,
+          "scored": 25,
+          "match": 23,
+          "diverge": 2,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.help",
+          "parity": 0.3333333333333333,
+          "cases": 3,
+          "scored": 3,
+          "match": 1,
+          "diverge": 2,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.n",
+          "parity": 0.9545454545454546,
+          "cases": 22,
+          "scored": 22,
+          "match": 21,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.x",
+          "parity": 1,
+          "cases": 5,
+          "scored": 5,
+          "match": 5,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        }
+      ],
+      "self_description": [
+        "opt.help"
+      ],
+      "under_sampled": [
+        "opt.x"
+      ],
+      "untested": [
+        "opt.z"
+      ],
+      "waivers": [
+        {
+          "waiver": 1,
+          "cases": 0,
+          "share": 0,
+          "large": false
+        },
+        {
+          "waiver": 2,
+          "cases": 0,
+          "share": 0,
+          "large": false
+        }
+      ]
+    },
+    {
+      "candidate": 3,
+      "command": "'./port c/tool' --strict",
+      "headline": 0.9109848484848485,
+      "badge": "parity 91.0% · 2 features · 55 cases",
+      "headline_features": [
+        "base",
+        "opt.n"
+      ],
+      "raw": {
+        "cases": 55,
+        "scored": 52,
+        "match": 48,
+        "diverge": 4,
+        "waived": 3,
+        "flaky_reference": 0,
+        "flaky_candidate": 0,
+        "timeouts": 0,
+        "parity": 0.9230769230769231
+      },
+      "origins": {
+        "recorded": {
+          "cases": 40,
+          "scored": 39,
+          "match": 35,
+          "features": 2,
+          "parity": 0.8791666666666667
+        },
+        "imported": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "generated": {
+          "cases": 15,
+          "scored": 13,
+          "match": 13,
+          "features": 1,
+          "parity": 1
+        }
+      },
+      "features": [
+        {
+          "feature": "base",
+          "parity": 0.9583333333333334,
+          "cases": 25,
+          "scored": 24,
+          "match": 23,
+          "diverge": 1,
+          "waived": 1,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.help",
+          "parity": 1,
+          "cases": 3,
+          "scored": 3,
+          "match": 3,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.n",
+          "parity": 0.8636363636363636,
+          "cases": 22,
+          "scored": 22,
+          "match": 19,
+          "diverge": 3,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.x",
+          "parity": 1,
+          "cases": 5,
+          "scored": 3,
+          "match": 3,
+          "diverge": 0,
+          "waived": 2,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        }
+      ],
+      "self_description": [
+        "opt.help"
+      ],
+      "under_sampled": [
+        "opt.x"
+      ],
+      "untested": [
+        "opt.z"
+      ],
+      "waivers": [
+        {
+          "waiver": 1,
+          "cases": 2,
+          "share": 0.03636363636363636,
+          "large": false
+        },
+        {
+          "waiver": 2,
+          "cases": 1,
+          "share": 0.01818181818181818,
+          "large": false
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "cluster": 1,
+      "candidate": 2,
+      "description": "stdout number-value",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "number-value"
+        }
+      ],
+      "features": [
+        {
+          "feature": "base",
+          "cases": 2
+        },
+        {
+          "feature": "opt.n",
+          "cases": 1
+        }
+      ],
+      "size": 3,
+      "weight": 0.12,
+      "cases": [
+        "sha256:00000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:00000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:0000001eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "repro": "sha256:00000003aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "cluster": 2,
+      "candidate": 2,
+      "description": "stdout other",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "other"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.help",
+          "cases": 2
+        }
+      ],
+      "size": 2,
+      "weight": 0.6,
+      "cases": [
+        "sha256:00000035aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:00000036aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "repro": null
+    },
+    {
+      "cluster": 3,
+      "candidate": 3,
+      "description": "exit 0 vs 2",
+      "fields": [
+        "exit"
+      ],
+      "shapes": [
+        {
+          "field": "exit",
+          "shape": "exit-code",
+          "detail": "0 vs 2"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.n",
+          "cases": 3
+        },
+        {
+          "feature": "base",
+          "cases": 1
+        }
+      ],
+      "size": 4,
+      "weight": 0.17,
+      "cases": [
+        "sha256:00000004aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:0000001baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:0000001caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "repro": "sha256:0000001aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}

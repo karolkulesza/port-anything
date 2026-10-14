@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest';
+import { ConfigError } from '../src/config.js';
+import { DESTRUCTIVE_SUBCOMMANDS, DESTRUCTIVE_TOOLS, DestructiveToolError, assertNotDestructive, destructiveCommand, destructiveSubcommand } from '../src/destructive.js';
+
+describe('destructiveCommand', () => {
+  it('names the tools the plan lists, and finds them by path or GNU prefix', () => {
+    for (const tool of ['rm', 'dd', 'mkfs', 'shred']) expect(DESTRUCTIVE_TOOLS).toContain(tool);
+    expect(destructiveCommand(['rm'])).toBe('rm');
+    expect(destructiveCommand(['/bin/rm', '-rf', 'x'])).toBe('rm');
+    expect(destructiveCommand(['grm'])).toBe('rm');
+    expect(destructiveCommand(['gshred'])).toBe('shred');
+    expect(destructiveCommand(['mkfs.ext4'])).toBe('mkfs');
+    expect(destructiveCommand(['/usr/sbin/mkfs.vfat'])).toBe('mkfs');
+  });
+
+  it('looks through multicall binaries and privilege wrappers', () => {
+    expect(destructiveCommand(['busybox', 'rm'])).toBe('rm');
+    expect(destructiveCommand(['/usr/bin/coreutils', 'dd'])).toBe('dd');
+    expect(destructiveCommand(['toybox', 'sort'])).toBeNull();
+    expect(destructiveCommand(['sudo'])).toBe('sudo');
+  });
+
+  it('finds destructive subcommands, skipping flags before them', () => {
+    expect(DESTRUCTIVE_SUBCOMMANDS).toContainEqual(['git', 'push']);
+    expect(destructiveCommand(['git', 'push'])).toBe('git push');
+    expect(destructiveCommand(['git', '--no-pager', 'push', 'origin'])).toBe('git push');
+    expect(destructiveCommand(['/usr/bin/git', 'clean', '-fdx'])).toBe('git clean');
+    expect(destructiveCommand(['git', '-C', 'repo', 'push'])).toBe('git push');
+    expect(destructiveCommand(['git', 'log'])).toBeNull();
+    expect(destructiveCommand(['git'])).toBeNull();
+  });
+
+  it('finds nested subcommands such as docker system prune', () => {
+    expect(destructiveCommand(['docker', 'system', 'prune', '-a'])).toBe('docker system prune');
+    expect(destructiveCommand(['docker', 'container', 'rm', 'x'])).toBe('docker container rm');
+    expect(destructiveCommand(['docker', '--context', 'c', 'image', 'rm', 'x'])).toBe('docker image rm');
+    expect(destructiveCommand(['podman', 'volume', 'prune'])).toBe('podman volume prune');
+    expect(destructiveCommand(['docker', 'rm', 'x'])).toBe('docker rm');
+    expect(destructiveCommand(['docker', 'system', 'df'])).toBeNull();
+    expect(destructiveCommand(['docker', 'image', 'ls'])).toBeNull();
+    for (const argv of [
+      ['docker', 'compose', 'down'],
+      ['docker', 'buildx', 'prune'],
+      ['docker', 'volume', 'remove', 'v'],
+      ['docker', 'container', 'remove', 'c'],
+      ['docker', 'container', 'stop', 'c'],
+      ['podman', 'system', 'reset'],
+    ]) {
+      expect(destructiveCommand(argv), argv.join(' ')).not.toBeNull();
+    }
+  });
+
+  it('matches a spec subcommand path only from its start', () => {
+    expect(destructiveSubcommand('git', ['push'])).toBe('git push');
+    expect(destructiveSubcommand('/usr/bin/git', ['clean'])).toBe('git clean');
+    expect(destructiveSubcommand('git', ['stash', 'push'])).toBeNull();
+    expect(destructiveSubcommand('git', ['remote', 'prune'])).toBeNull();
+    expect(destructiveSubcommand('git', ['worktree', 'prune'])).toBeNull();
+    expect(destructiveSubcommand('docker', ['container', 'rm'])).toBe('docker container rm');
+    expect(destructiveSubcommand('docker', ['compose', 'down'])).toBe('docker compose down');
+    expect(destructiveSubcommand('docker', ['image', 'ls'])).toBeNull();
+    expect(destructiveSubcommand('git', [])).toBeNull();
+    // A multicall binary's subcommands are its applets.
+    expect(destructiveSubcommand('busybox', ['rm'])).toBe('rm');
+    expect(destructiveSubcommand('/bin/toybox', ['shred'])).toBe('shred');
+    expect(destructiveSubcommand('coreutils', ['dd'])).toBe('dd');
+    expect(destructiveSubcommand('busybox', ['sort'])).toBeNull();
+  });
+
+  it('leaves ordinary tools alone', () => {
+    for (const argv of [['sort'], ['wc', '-l'], ['jq', '.'], ['rmdir-lookalike'], ['ddate'], ['firm']]) {
+      expect(destructiveCommand(argv), argv.join(' ')).toBeNull();
+    }
+    expect(destructiveCommand([])).toBeNull();
+  });
+});
+
+describe('assertNotDestructive', () => {
+  it('refuses a denylisted tool without iKnow, with a config error that names --i-know', () => {
+    const run = () => assertNotDestructive(['rm']);
+    expect(run).toThrow(DestructiveToolError);
+    expect(run).toThrow(ConfigError);
+    expect(run).toThrow(/rm.*--i-know/s);
+  });
+
+  it('lets a denylisted tool through with iKnow, and ordinary tools always', () => {
+    expect(() => assertNotDestructive(['rm'], { iKnow: true })).not.toThrow();
+    expect(() => assertNotDestructive(['sort'])).not.toThrow();
+  });
+});
