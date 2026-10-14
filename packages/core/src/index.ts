@@ -111,3 +111,17 @@ export {
   destructiveSubcommand,
 } from './destructive.js';
 export { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArgvOptions, type GeneratedArgv, type GeneratedCase } from './argv-generator.js';
+export {
+  EDGE,
+  TOKEN_KINDS,
+  buildTokenDictionary,
+  pairKey,
+  tokenShape,
+  tokenize,
+  type DictionarySources,
+  type Token,
+  type TokenDictionary,
+  type TokenKind,
+} from './token-dictionary.js';
+export { TOKEN_MUTATION_OPS, generateTokenMutants, mutateTokens, type TokenMutant, type TokenMutationOp } from './token-mutation.js';
+export { BYTE_MUTATION_OPS, generateByteMutants, mutateBytes, type ByteMutant, type ByteMutationOp } from './byte-mutation.js';
