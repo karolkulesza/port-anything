@@ -33,7 +33,7 @@ cargo build --release --manifest-path port/Cargo.toml --features bad-crlf --targ
 
 port-anything run                         # the port: every case matches
 port-anything run --candidate ./port/target/release/wc-lite --candidate ./port/target/bad-crlf/release/wc-lite
-port-anything report                      # the latest run as port-anything-report.html
+port-anything report                      # the latest run: port-anything-report.html and .json, port-anything-badge*.svg
 ```
 
 The cases run in the local sandbox (bubblewrap on Linux); add `--no-sandbox` where there is none.

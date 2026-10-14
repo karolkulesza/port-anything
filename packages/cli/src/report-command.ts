@@ -2,49 +2,64 @@ import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { BlobStore, ConfigError, cacheDir, latestRun, loadCommittedCases, type CanonicalCase, type RunRecord } from '@port-anything/core';
-import { renderReportHtml, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
+import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
 import type { CliResult } from './run-command.js';
 
-/** Where `report --html` writes, in the project directory (the name `compare` uses too). */
+/** Where `report` writes, in the project directory (the HTML under the name `compare` uses too). */
 export const REPORT_HTML_FILE = 'port-anything-report.html';
+export const REPORT_JSON_FILE = 'port-anything-report.json';
 
-const USAGE = 'Usage: port-anything report [--html]';
+/** The badge of candidate `n` (from 1): the first candidate's is `port-anything-badge.svg`, the others' `port-anything-badge-<n>.svg`. */
+export function badgeFile(n: number): string {
+  return n === 1 ? 'port-anything-badge.svg' : `port-anything-badge-${n}.svg`;
+}
 
-// Documented options that later versions add.
-const NOT_YET = ['badge', 'json'];
+const USAGE = 'Usage: port-anything report [--html] [--badge] [--json]';
 
 /**
- * `port-anything report [--html]`: writes the latest saved run of the whole corpus as a
- * self-contained HTML page, `port-anything-report.html` in the project directory, with a repro for
- * each cluster taken from the committed cases. Exit 0, or 3 when there is no run to report.
+ * `port-anything report [--html] [--badge] [--json]`: writes the latest saved run of the whole
+ * corpus to the project directory as a self-contained HTML page (`port-anything-report.html`, with
+ * a repro for each cluster taken from the committed cases), a parity badge per candidate
+ * (`port-anything-badge.svg`, then `port-anything-badge-2.svg`…) and machine-readable JSON
+ * (`port-anything-report.json`). Without options it writes all three. Exit 0, or 3 when there is
+ * no run to report.
  */
 export async function reportCommand(argv: readonly string[], options: { cwd: string }): Promise<CliResult> {
   try {
-    const later = NOT_YET.find((name) => argv.some((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`)));
-    if (later !== undefined) throw new ConfigError(`--${later} is not available yet in this version of port-anything report.`);
+    let values: { html?: boolean; badge?: boolean; json?: boolean };
     try {
-      parseArgs({ args: [...argv], options: { html: { type: 'boolean' } }, strict: true, allowPositionals: false });
+      ({ values } = parseArgs({ args: [...argv], options: { html: { type: 'boolean' }, badge: { type: 'boolean' }, json: { type: 'boolean' } }, strict: true, allowPositionals: false }));
     } catch (e) {
       throw new ConfigError(`${(e as Error).message}\n${USAGE}`);
     }
+    const all = values.html !== true && values.badge !== true && values.json !== true;
     const run = await latestRun(options.cwd);
     if (run === undefined) throw new ConfigError('No saved run of the whole corpus yet: run port-anything run first.');
     const store = new BlobStore(cacheDir(options.cwd));
     const cases = await loadCommittedCases(options.cwd, store);
-    const html = renderReportHtml(await reportInput(run, cases, store));
-    const file = join(options.cwd, REPORT_HTML_FILE);
-    const temp = `${file}.tmp`;
-    try {
-      await writeFile(temp, html);
-      await rename(temp, file);
-    } catch (e) {
-      await rm(temp, { force: true });
-      throw new ConfigError(`Cannot write ${REPORT_HTML_FILE}: ${(e as Error).message}`);
-    }
-    return { exitCode: 0, stdout: `report of run ${run.run_id}: ./${REPORT_HTML_FILE}\n`, stderr: '' };
+    const input = await reportInput(run, cases, store);
+    const files: [string, string][] = [];
+    if (all || values.html === true) files.push([REPORT_HTML_FILE, renderReportHtml(input)]);
+    if (all || values.json === true) files.push([REPORT_JSON_FILE, `${JSON.stringify(reportJson(input), null, 2)}\n`]);
+    if (all || values.badge === true) for (const [i, c] of input.candidates.entries()) files.push([badgeFile(i + 1), renderBadgeSvg(c.score)]);
+    for (const [name, content] of files) await writeAtomically(options.cwd, name, content);
+    return { exitCode: 0, stdout: `report of run ${run.run_id}: ${files.map(([name]) => `./${name}`).join(', ')}\n`, stderr: '' };
   } catch (e) {
     if (e instanceof ConfigError) return { exitCode: 3, stdout: '', stderr: `port-anything report: ${e.message}\n` };
     throw e;
+  }
+}
+
+/** Writes through a temporary file and a rename, so a reader never sees half a file. */
+async function writeAtomically(dir: string, name: string, content: string): Promise<void> {
+  const file = join(dir, name);
+  const temp = `${file}.tmp`;
+  try {
+    await writeFile(temp, content);
+    await rename(temp, file);
+  } catch (e) {
+    await rm(temp, { force: true });
+    throw new ConfigError(`Cannot write ${name}: ${(e as Error).message}`);
   }
 }
 

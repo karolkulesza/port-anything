@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { ReportJsonSchema } from '@port-anything/report';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { run } from '../src/run.js';
 
@@ -14,7 +15,7 @@ case "$1" in
 esac
 `;
 
-describe('report --html', () => {
+describe('report', () => {
   let project: string;
   beforeAll(() => {
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-report-')));
@@ -75,6 +76,49 @@ describe('report --html', () => {
     expect(clusters).toContain('<pre>$ tool fail</pre>');
   });
 
+  it('writes report.json, valid against its schema, and a badge per candidate whose text matches the headline (done when)', async () => {
+    const runId = /<p class="meta">run (\S+)/.exec(readFileSync(join(project, 'port-anything-report.html'), 'utf8'))![1]!;
+    const result = await run(['report', '--json', '--badge'], { cwd: project });
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: `report of run ${runId}: ./port-anything-report.json, ./port-anything-badge.svg, ./port-anything-badge-2.svg, ./port-anything-badge-3.svg\n`,
+      stderr: '',
+    });
+
+    const json = ReportJsonSchema.parse(JSON.parse(readFileSync(join(project, 'port-anything-report.json'), 'utf8')));
+    expect(json.run_id).toBe(runId);
+    expect(json.candidates.map((c) => [c.command, c.headline])).toEqual([
+      ['./bin/tool-copy', 1],
+      ['./bin/tool-count', 0.75],
+      ['./bin/tool-exit', 0.75],
+    ]);
+    expect(json.clusters.map((k) => [k.candidate, k.description, k.size])).toEqual([
+      [2, 'stdout number-value', 2],
+      [3, 'exit 1 vs 2', 1],
+    ]);
+
+    // The headline row of the HTML report: 100.0%, 75.0%, 75.0%.
+    const html = readFileSync(join(project, 'port-anything-report.html'), 'utf8');
+    const headlines = [...html.matchAll(/<td class="num \w+"><strong>([^<]+)<\/strong><\/td>/g)].map((m) => m[1]);
+    expect(headlines).toEqual(['100.0%', '75.0%', '75.0%']);
+    for (const [i, file] of ['port-anything-badge.svg', 'port-anything-badge-2.svg', 'port-anything-badge-3.svg'].entries()) {
+      const svg = readFileSync(join(project, file), 'utf8');
+      const label = /aria-label="([^"]*)"/.exec(svg)![1];
+      expect(label).toBe(`parity ${headlines[i]} · 4 features · 5 cases`);
+      expect(label).toBe(json.candidates[i]!.badge);
+    }
+  });
+
+  it('writes the page, the JSON and the badges without options', async () => {
+    rmSync(join(project, 'port-anything-report.json'));
+    rmSync(join(project, 'port-anything-badge-3.svg'));
+    const result = await run(['report'], { cwd: project });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/: \.\/port-anything-report\.html, \.\/port-anything-report\.json, \.\/port-anything-badge\.svg, \.\/port-anything-badge-2\.svg, \.\/port-anything-badge-3\.svg\n$/);
+    expect(readFileSync(join(project, 'port-anything-badge-3.svg'), 'utf8')).toMatch(/^<svg /);
+    expect(ReportJsonSchema.safeParse(JSON.parse(readFileSync(join(project, 'port-anything-report.json'), 'utf8'))).success).toBe(true);
+  });
+
   it('shows stdin in a repro, and a case the corpus lost by its ID', async () => {
     writeFileSync(join(project, 'bin', 'tool-count'), TOOL('ref').replace('cat) cat', 'cat) tr x z'), { mode: 0o755 });
     expect((await run(['run', '--no-sandbox'], { cwd: project })).exitCode).toBe(1);
@@ -111,9 +155,8 @@ describe('report --html', () => {
     }
   });
 
-  it('refuses options it does not have yet', async () => {
-    expect(await run(['report', '--json'], { cwd: project })).toEqual({ exitCode: 3, stdout: '', stderr: 'port-anything report: --json is not available yet in this version of port-anything report.\n' });
-    expect((await run(['report', '--badge'], { cwd: project })).exitCode).toBe(3);
-    expect((await run(['report', '--nope'], { cwd: project })).stderr).toContain('Usage: port-anything report [--html]');
+  it('refuses an unknown option with the usage', async () => {
+    expect(await run(['report', '--nope'], { cwd: project })).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringContaining('Usage: port-anything report [--html] [--badge] [--json]') });
+    expect((await run(['report', 'extra'], { cwd: project })).exitCode).toBe(3);
   });
 });
