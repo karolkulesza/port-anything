@@ -1,1 +1,1 @@
-export { run, type RunResult } from './run.js';
+export { run, type RunOptions, type RunResult } from './run.js';

@@ -9,8 +9,10 @@ import {
   cacheDir,
   chooseSandbox,
   configCandidates,
+  loadCommittedCases,
   parseProgramCommand,
   probeSandbox,
+  readConfigFile,
   resolveProgram,
   runCases,
   shortCaseId,
@@ -58,6 +60,24 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
   }
 }
 
+/**
+ * `port-anything run` in a project directory: reads `port-anything.yaml` and the committed cases
+ * there, then runs them (see `executeRun`).
+ */
+export async function runCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
+  let prepared: ExecuteRunOptions;
+  try {
+    const args = parseRunArgs(argv);
+    const config = await readConfigFile(options.cwd);
+    const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
+    prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
+  } catch (e) {
+    if (e instanceof ConfigError) return fail(e.message);
+    throw e;
+  }
+  return executeRun(prepared);
+}
+
 export interface ExecuteRunOptions {
   /** Holds `.port-anything/`; relative program paths in the config start here. */
   projectDir: string;
@@ -93,7 +113,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   if (commands.length === 0) {
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
-  if (cases.length === 0) throw new ConfigError('No cases to run.');
+  if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
 
   const resolve = async (cmd: string | readonly string[]) => {
     try {
@@ -142,7 +162,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
-  const lines = [`Ran ${summary.cases} cases as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
+  const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
     for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);

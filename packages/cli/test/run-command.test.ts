@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BlobStore, cacheDir, canonicalCase, parseConfig, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { executeRun, parseRunArgs, type ExecuteRunOptions } from '../src/run-command.js';
+import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
 const TOOL = (variant: 'ref' | 'good' | 'bad') => `#!/bin/sh
@@ -147,5 +147,39 @@ describe('executeRun', () => {
     const noCases = await executeRun(options({ cases: [] }));
     expect(noCases.exitCode).toBe(3);
     expect(noCases.stderr).toMatch(/No cases to run/);
+  });
+});
+
+describe('runCommand', () => {
+  it('reads port-anything.yaml and the committed cases from the project directory', async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-')));
+    try {
+      mkdirSync(join(project, 'bin'));
+      writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
+      writeFileSync(join(project, 'bin', 'tool-bad'), TOOL('bad'), { mode: 0o755 });
+      writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-bad }\n');
+      mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+      writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
+      const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}c_[0-9a-f]{8} {2}stdout\n$/);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('exits 3 for bad arguments, a bad config or a broken case file', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-'));
+    try {
+      expect((await runCommand(['--smoke'], { cwd: project })).stderr).toMatch(/--smoke is not available yet/);
+      writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./ref }\ncandidate: { cmd: ./port }\n');
+      mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+      writeFileSync(join(project, 'port-anything', 'recorded', 'x.jsonl'), '{"argv":[]}\n');
+      const broken = await runCommand([], { cwd: project, probe: NO_SANDBOX });
+      expect(broken).toMatchObject({ exitCode: 3, stdout: '' });
+      expect(broken.stderr).toMatch(/port-anything\/recorded\/x\.jsonl:1: origin/);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
