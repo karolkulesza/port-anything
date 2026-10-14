@@ -91,15 +91,17 @@ export interface Score {
   minCasesPerFeature: number;
 }
 
-const SELF_DESCRIPTION_FLAGS = new Set(['help', 'version', 'usage']);
+const SELF_DESCRIPTION_NAMES = new Set(['help', 'version', 'usage']);
 
 /**
- * A feature tag of `--help`, `--version` or `--usage`, of the program or of a subcommand
- * (`opt.help`, `cmd.add.opt.help`). Other self-description features come from the spec's marks.
+ * A `help`, `version` or `usage` flag of the program or of a subcommand (`opt.help`,
+ * `cmd.add.opt.version`), such a subcommand (`cmd.help`), or such a bare tag (`help`). Not a feature
+ * that merely ends in one of those words, such as `error.usage` (usage errors). Other
+ * self-description features come from the spec's marks.
  */
 export function isSelfDescriptionFeature(feature: string): boolean {
-  const match = /(?:^|\.)opt\.([^.]+)$/.exec(feature);
-  return match !== null && SELF_DESCRIPTION_FLAGS.has(match[1]!);
+  const match = /(?:^|(?:^|\.)(?:opt|cmd)\.)([^.]+)$/.exec(feature);
+  return match !== null && SELF_DESCRIPTION_NAMES.has(match[1]!);
 }
 
 type Outcome = 'match' | 'diverge' | 'waived' | 'flaky-reference';

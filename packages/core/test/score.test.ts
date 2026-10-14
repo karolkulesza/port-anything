@@ -78,17 +78,17 @@ describe('scoreCandidate', () => {
     expect(score.underSampled).toEqual([]);
   });
 
-  it('treats --help, --version and --usage of subcommands, and features the spec marks, as self-description', () => {
-    expect(['opt.help', 'opt.version', 'opt.usage', 'cmd.add.opt.help'].map((f) => isSelfDescriptionFeature(f))).toEqual([true, true, true, true]);
-    expect(['opt.h', 'opt.helper', 'cmd.help', 'base', 'help'].map((f) => isSelfDescriptionFeature(f))).toEqual([false, false, false, false, false]);
-    const score = scoreCandidate([...many('opt.l', 20), ...many('cmd.help', 20, 20), ...many('opt.h', 20, 20)], {
+  it('treats help, version and usage tags, of subcommands too, and features the spec marks, as self-description', () => {
+    expect(['opt.help', 'opt.version', 'opt.usage', 'cmd.add.opt.help', 'cmd.help', 'help', 'version'].map((f) => isSelfDescriptionFeature(f))).toEqual(Array(7).fill(true));
+    expect(['opt.h', 'opt.helper', 'cmd.help.opt.all', 'base', 'helpful', 'opt.help-all', 'error.usage', 'fmt.version'].map((f) => isSelfDescriptionFeature(f))).toEqual(Array(8).fill(false));
+    const score = scoreCandidate([...many('opt.l', 20), ...many('cmd.info', 20, 20), ...many('opt.h', 20, 20)], {
       features: [
-        { name: 'cmd.help', selfDescription: true },
+        { name: 'cmd.info', selfDescription: true },
         { name: 'opt.h', selfDescription: true },
         { name: 'opt.l', selfDescription: false },
       ],
     });
-    expect(score).toMatchObject({ headline: 1, selfDescription: ['cmd.help', 'opt.h'] });
+    expect(score).toMatchObject({ headline: 1, selfDescription: ['cmd.info', 'opt.h'] });
   });
 
   it('excludes flaky-reference cases and counts flaky-candidate cases and candidate timeouts as divergences', () => {
