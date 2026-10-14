@@ -35,8 +35,22 @@ export interface SandboxCommand {
   cwd: string;
 }
 
+export interface SandboxCommandOptions {
+  /**
+   * bwrap only: a file descriptor the spawned bwrap inherits, on which it writes JSON lines, the
+   * first being `{"child-pid": <pid>}` (the sandboxed process, as seen from outside). The case
+   * itself doesn't get the descriptor.
+   */
+  statusFd?: number;
+}
+
 /** Wraps `argv` so it runs in `workdir` (an absolute path) inside the given sandbox. */
-export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], workdir: string): SandboxCommand {
+export function sandboxCommand(
+  setup: SandboxSetup,
+  argv: readonly string[],
+  workdir: string,
+  options: SandboxCommandOptions = {},
+): SandboxCommand {
   if (argv.length === 0) throw new Error('Cannot run an empty argv.');
   if (!isAbsolute(workdir)) throw new Error(`The case workdir must be an absolute path, got "${workdir}".`);
   switch (setup.kind) {
@@ -54,6 +68,7 @@ export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], wor
           // Without a PID namespace a case could signal any of the user's processes (kill -9 -1).
           ...(setup.isolatePids ? ['--unshare-pid'] : []),
           ...['--die-with-parent', '--new-session'],
+          ...(options.statusFd === undefined ? [] : ['--json-status-fd', String(options.statusFd)]),
           '--',
           ...argv,
         ],

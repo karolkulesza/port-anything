@@ -60,6 +60,14 @@ describe('sandboxCommand', () => {
     expect(sandboxCommand({ kind: 'bwrap', isolatePids: false }, ['true'], '/w').args).not.toContain('--unshare-pid');
   });
 
+  it('asks bwrap for its status on a file descriptor only when given one', () => {
+    expect(sandboxCommand(BWRAP, ['true'], '/w').args).not.toContain('--json-status-fd');
+    const args = sandboxCommand(BWRAP, ['true'], '/w', { statusFd: 3 }).args;
+    expect(args.slice(args.indexOf('--json-status-fd'), args.indexOf('--json-status-fd') + 2)).toEqual(['--json-status-fd', '3']);
+    expect(args.slice(-2)).toEqual(['--', 'true']);
+    expect(sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['true'], '/w', { statusFd: 3 }).args).not.toContain('--json-status-fd');
+  });
+
   it('runs unshare with a new user and network namespace, as the current user when it can', () => {
     const mapped = sandboxCommand({ kind: 'unshare', mapCurrentUser: true }, ['sort'], '/w');
     expect(mapped).toEqual({ command: 'unshare', args: ['--user', '--map-current-user', '--net', '--', 'sort'], cwd: '/w' });
