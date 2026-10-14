@@ -29,6 +29,9 @@ importers:
       '@port-anything/core':
         specifier: workspace:*
         version: link:../core
+      '@port-anything/report':
+        specifier: workspace:*
+        version: link:../report
 
   packages/core:
     dependencies:

@@ -1,3 +1,4 @@
+import { reportCommand } from './report-command.js';
 import { runCommand } from './run-command.js';
 import { waiveCommand } from './waive-command.js';
 
@@ -35,5 +36,6 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   if (command === undefined || command === '--help' || command === '-h') return { exitCode: 0, stdout: NOTICE, stderr: '' };
   if (command === 'run') return runCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'waive') return waiveCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "run" and "waive" are.\n` };
+  if (command === 'report') return reportCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "run", "waive" and "report" are.\n` };
 }
