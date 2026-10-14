@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, parseWaivers, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
@@ -14,6 +14,7 @@ case "$1" in
   self) echo "$0" ;;
   nap) ${variant === 'bad' ? 'sleep 5' : 'true'} ;;
   hang) sleep 5 ;;
+  both) echo ${variant === 'bad' ? 2 : 1}; exit ${variant === 'bad' ? 3 : 0} ;;
   warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
@@ -119,18 +120,32 @@ describe('executeRun', () => {
       compare: { profile: 'standard', stderr: { mode: 'loose', similarity: 0.6 } },
       cases: 3,
       normalizers: [],
+      waivers: [],
       candidates: [
-        { command: './bin/tool-copy', match: 3, diverge: 0, score: expect.objectContaining({ headline: null, underSampled: ['base'] }), normalizers: [], divergences: [] },
+        {
+          command: './bin/tool-copy',
+          match: 3,
+          diverge: 0,
+          waived: 0,
+          score: expect.objectContaining({ headline: null, underSampled: ['base'] }),
+          normalizers: [],
+          waivers: [],
+          divergences: [],
+          waived_cases: [],
+        },
         {
           command: './bin/tool-bad',
           match: 1,
           diverge: 2,
+          waived: 0,
           score: expect.objectContaining({ headline: null, raw: expect.objectContaining({ scored: 3, match: 1 }) }),
           normalizers: [],
+          waivers: [],
           divergences: [
             { case: cases[1]!.id, fields: ['stdout'] },
             { case: cases[2]!.id, fields: ['exit'] },
           ],
+          waived_cases: [],
         },
       ],
       clusters: [
@@ -199,6 +214,105 @@ describe('executeRun', () => {
     const noCases = await executeRun(options({ cases: [] }));
     expect(noCases.exitCode).toBe(3);
     expect(noCases.stderr).toMatch(/No cases to run/);
+  });
+});
+
+describe('executeRun waivers', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-waivers-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    const store = new BlobStore(cacheDir(project));
+    // tool-bad: `upper` diverges in stdout, `fail` in its exit code, `warn` in its message, `both` in stdout and exit code.
+    const input = await store.put('hello\n');
+    cases = [
+      { argv: ['echo', 'hi'] },
+      { argv: ['upper'], stdin: input, features: ['opt.u'] },
+      { argv: ['fail'], features: ['error'] },
+      { argv: ['warn'], features: ['error'] },
+      { argv: ['both'], features: ['opt.b'] },
+    ].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = async (waivers: unknown[], json = true) => {
+    const result = await executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: './bin/tool-bad' }] }),
+      cases,
+      waivers: parseWaivers(waivers),
+      args: { candidates: [], json, noSandbox: true },
+      probe: NO_SANDBOX,
+    });
+    return json ? { exitCode: result.exitCode, ...JSON.parse(result.stdout) } : result;
+  };
+  const w = (match: object, category = 'intentional', reason = 'on purpose') => ({ match, category, reason });
+
+  it('leaves a waived case out of the score and the clusters, never counting it as a match', async () => {
+    const json = await run([w({ feature: 'opt.u', field: 'stdout', shape: 'other' })]);
+    const bad = json.candidates[1];
+    expect(bad).toMatchObject({ match: 1, diverge: 3, waived: 1, waived_cases: [{ case: cases[1]!.id, waivers: [1] }] });
+    expect(bad.divergences.map((d: { case: string }) => d.case)).toEqual([cases[2]!.id, cases[3]!.id, cases[4]!.id]);
+    expect(bad.score.raw).toMatchObject({ cases: 5, scored: 4, match: 1, waived: 1 });
+    expect(bad.score.features.find((f: { feature: string }) => f.feature === 'opt.u')).toMatchObject({ cases: 1, scored: 0, waived: 1, parity: null });
+    expect(json.clusters.flatMap((k: { cases: string[] }) => k.cases)).not.toContain(cases[1]!.id);
+    expect(json.waivers).toEqual([w({ feature: 'opt.u', field: 'stdout', shape: 'other' })]);
+  });
+
+  it('waives fields, not cases: a case still diverges in the fields no waiver covers, and is clustered on them', async () => {
+    const json = await run([w({ field: 'stdout' })]);
+    const bad = json.candidates[1];
+    expect(bad.divergences.find((d: { case: string }) => d.case === cases[4]!.id)).toEqual({ case: cases[4]!.id, fields: ['exit'], waived_fields: ['stdout'] });
+    const both = json.clusters.find((k: { cases: string[] }) => k.cases.includes(cases[4]!.id));
+    expect(both.signature).toEqual({ fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs 3' }] });
+    // It covers a field of 2 of the 5 cases: more than 10%.
+    expect(bad.waivers).toEqual([{ waiver: 1, cases: 2, share: 0.4, large: true }]);
+    expect(json.candidates[0].waivers).toEqual([{ waiver: 1, cases: 0, share: 0, large: false }]);
+  });
+
+  it("matches a regex against the reference's output only, and exits 0 once every divergence is waived", async () => {
+    // The reference says `tool: x: cannot open`, tool-bad `error: no such thing`.
+    const theirs = await run([w({ field: 'stderr', regex: '^error: ' })]);
+    expect(theirs.candidates[1].waived).toBe(0);
+    const ours = await run([w({ field: 'stderr', regex: '^tool: ' }, 'platform')]);
+    expect(ours.candidates[1].waived_cases).toEqual([{ case: cases[3]!.id, waivers: [1] }]);
+
+    const all = [w({ field: 'stdout' }), w({ feature: 'error' }, 'reference-bug', 'the reference is wrong here'), w({ feature: 'opt.b', shape: 'exit-code' })];
+    const result = await run(all, false);
+    expect(result.exitCode).toBe(0);
+    expect(unscored(result.stdout)).toContain(
+      [
+        'waivers (port-anything/waivers.yaml):',
+        '  1. field stdout (intentional): on purpose',
+        '  2. feature error (reference-bug): the reference is wrong here',
+        '  3. feature opt.b, shape exit-code (intentional): on purpose',
+        'candidate 1 ./bin/tool-copy: 5 of 5 cases match',
+        '  waivers (cases covered): 1: 0, 2: 0, 3: 0',
+        'candidate 2 ./bin/tool-bad: 1 of 5 cases match, 4 waived',
+        '  waivers (cases covered): 1: 2 (40.0%, more than 10% of the cases), 2: 2 (40.0%, more than 10% of the cases), 3: 1 (20.0%, more than 10% of the cases)',
+        '',
+      ].join('\n'),
+    );
+    expect(result.stdout).toContain('  4 waived (not scored)\n');
+  });
+
+  it('never waives a candidate that timed out where the reference finished', async () => {
+    const result = await executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-bad' }, sandbox: { timeout: '1s' } }),
+      cases: [canonicalCase({ argv: ['nap'], origin: 'recorded' })],
+      waivers: parseWaivers([w({ feature: 'base' })]),
+      args: { candidates: [], json: true, noSandbox: true },
+      probe: NO_SANDBOX,
+    });
+    const bad = JSON.parse(result.stdout).candidates[0];
+    expect(result.exitCode).toBe(1);
+    expect(bad).toMatchObject({ diverge: 1, waived: 0, waivers: [{ waiver: 1, cases: 0 }] });
+    expect(bad.score.raw).toMatchObject({ timeouts: 1, waived: 0 });
   });
 });
 
@@ -455,6 +569,29 @@ describe('runCommand', () => {
         { normalizer: 'iso-timestamps on stderr', cases: 0 },
       ]);
       expect(json.candidates.map((c: { normalizers: unknown }) => c.normalizers)).toEqual([json.normalizers, json.normalizers]);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('reads port-anything/waivers.yaml, and exits 3 when it is not valid', async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-')));
+    try {
+      mkdirSync(join(project, 'bin'));
+      writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
+      writeFileSync(join(project, 'bin', 'tool-bad'), TOOL('bad'), { mode: 0o755 });
+      writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-bad }\n');
+      mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+      writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
+      writeFileSync(join(project, 'port-anything', 'waivers.yaml'), '- match: { field: stdout, shape: other }\n  category: intentional\n  reason: upper-casing is out of scope\n');
+      const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('  1. field stdout, shape other (intentional): upper-casing is out of scope\ncandidate 1 ./bin/tool-bad: 0 of 1 cases match, 1 waived\n');
+
+      writeFileSync(join(project, 'port-anything', 'waivers.yaml'), '- match: {}\n  category: intentional\n  reason: everything\n');
+      const broken = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+      expect(broken).toMatchObject({ exitCode: 3, stdout: '' });
+      expect(broken.stderr).toMatch(/^port-anything run: port-anything\/waivers\.yaml is not valid:\n {2}0\.match: needs at least one of/);
     } finally {
       rmSync(project, { recursive: true, force: true });
     }

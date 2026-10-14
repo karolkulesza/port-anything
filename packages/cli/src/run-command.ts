@@ -6,20 +6,25 @@ import {
   BlobStore,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
+  LARGE_WAIVER_SHARE,
   PROFILE_FIELDS,
   SandboxUnavailableError,
+  WAIVERS_FILE,
   cacheDir,
   chooseSandbox,
   clusterDivergences,
   configCandidates,
   describeFeatures,
   describeSignature,
+  describeWaiver,
   featureWeights,
   loadCommittedCases,
+  matchWaivers,
   normalizerLabel,
   parseProgramCommand,
   probeSandbox,
   readConfigFile,
+  readWaiversFile,
   resolveCluster,
   resolveProgram,
   runCases,
@@ -27,13 +32,18 @@ import {
   scoreCandidate,
   shortCaseId,
   stderrMode,
+  waiverCoverage,
   type CanonicalCase,
+  type CaseRun,
   type CompareOptions,
   type Config,
   type ResolvedCluster,
   type SandboxProbe,
   type SavedCluster,
   type Score,
+  type Waiver,
+  type WaiverCoverage,
+  type WaiverMatch,
 } from '@port-anything/core';
 
 /** What a CLI command returns: the exit code and what to print. */
@@ -86,8 +96,8 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
 }
 
 /**
- * `port-anything run` in a project directory: reads `port-anything.yaml` and the committed cases
- * there, then runs them (see `executeRun`).
+ * `port-anything run` in a project directory: reads `port-anything.yaml`, the committed cases and
+ * `port-anything/waivers.yaml` there, then runs the cases (see `executeRun`).
  */
 export async function runCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   let prepared: ExecuteRunOptions;
@@ -95,7 +105,8 @@ export async function runCommand(argv: readonly string[], options: { cwd: string
     const args = parseRunArgs(argv);
     const config = await readConfigFile(options.cwd);
     const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
-    prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
+    const waivers = await readWaiversFile(options.cwd);
+    prepared = { projectDir: options.cwd, config, cases, waivers, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
     if (e instanceof ConfigError) return fail(e.message);
     throw e;
@@ -109,6 +120,8 @@ export interface ExecuteRunOptions {
   config: Config;
   /** Their stdin and fixtures must already be in the project's blob store. */
   cases: readonly CanonicalCase[];
+  /** From `port-anything/waivers.yaml`; none when absent. */
+  waivers?: readonly Waiver[];
   args: RunArgs;
   /** The sandbox probe's result; probed on this machine when absent. */
   probe?: SandboxProbe;
@@ -117,7 +130,9 @@ export interface ExecuteRunOptions {
 /**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
- * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
+ * clusters, and how many cases each normalizer changed and each waiver covers. A waiver covers
+ * diverging fields: a case whose diverging fields are all covered is waived (left out of the score
+ * and the clusters, exit code 0), and the fields it covers are left out of a case that still diverges. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
  * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
  * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
@@ -133,7 +148,7 @@ export async function executeRun(options: ExecuteRunOptions): Promise<CliResult>
 
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything run: ${message}\n` });
 
-async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOptions): Promise<CliResult> {
+async function execute({ projectDir, config, cases, waivers = [], args, probe }: ExecuteRunOptions): Promise<CliResult> {
   if (config.sandbox.mode === 'container') {
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
@@ -157,6 +172,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   const candidates = await Promise.all(commands.map(resolve));
   const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
+  const store = new BlobStore(cacheDir(projectDir));
 
   // Scratch space inside the project rather than /tmp, which may be mounted noexec.
   const workDir = join(projectDir, '.port-anything', 'tmp', `run-${randomBytes(6).toString('hex')}`);
@@ -166,7 +182,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       reference,
       candidates,
       cases,
-      store: new BlobStore(cacheDir(projectDir)),
+      store,
       sandbox,
       workDir,
       ...(config.program_name === undefined ? {} : { programName: config.program_name }),
@@ -187,13 +203,33 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       normalizer: normalizerLabel(spec),
       cases: result.cases.filter((c) => c.candidates.some((run, i) => (candidate === undefined || i === candidate) && run.normalizedBy.includes(n))).length,
     }));
-  // Each candidate's divergences in ranked clusters, numbered through the run, candidate by candidate.
+  // Per candidate and case, the waivers covering its diverging fields; undefined for a match. A
+  // candidate that timed out where the reference finished diverges, and no waiver covers that.
+  const regexes = waivers.some((w) => w.match.regex !== undefined);
+  const timedOut = (c: CaseRun, i: number) => c.candidates[i]!.observation.timeout && !c.reference.timeout;
+  const waived: (WaiverMatch | undefined)[][] = [];
+  for (const i of commands.keys()) {
+    waived.push(
+      await Promise.all(
+        result.cases.map(async (c, n) => {
+          const run = c.candidates[i]!;
+          if (run.comparison.verdict === 'match') return undefined;
+          if (timedOut(c, i)) return { fields: run.shapes.map(() => []), waived: false, remaining: run.shapes };
+          const text = async (field: 'stdout' | 'stderr') => (await store.get(run.normalized.reference[field])).toString('utf8');
+          const reference = regexes ? { stdout: await text('stdout'), stderr: await text('stderr') } : {};
+          return matchWaivers({ features: cases[n]!.features, shapes: run.shapes, reference }, waivers);
+        }),
+      ),
+    );
+  }
+  // Each candidate's divergences in ranked clusters, numbered through the run, candidate by candidate;
+  // a waived case is left out, and a case that still diverges is clustered on the fields no waiver covers.
   const weights = featureWeights(cases);
   const clusters: SavedCluster[] = [];
   for (const i of commands.keys()) {
     const divergences = result.cases.flatMap((c, n) => {
-      const run = c.candidates[i]!;
-      return run.comparison.verdict === 'diverge' ? [{ caseId: c.caseId, features: cases[n]!.features, shapes: run.shapes }] : [];
+      const m = waived[i]![n];
+      return m === undefined || m.waived ? [] : [{ caseId: c.caseId, features: cases[n]!.features, shapes: m.remaining }];
     });
     for (const cluster of clusterDivergences(divergences, weights)) {
       clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, features: cluster.features, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
@@ -206,22 +242,43 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     compare: describeCompare(compare),
     cases: result.cases.length,
     normalizers: changed(),
+    waivers,
     candidates: commands.map((command, i) => {
-      const divergences = result.cases
-        .filter((c) => c.candidates[i]!.comparison.verdict === 'diverge')
-        .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
+      const matches = waived[i]!;
+      const fieldsOf = (n: number, covered: boolean) => result.cases[n]!.candidates[i]!.shapes.filter((_, f) => (matches[n]!.fields[f]!.length > 0) === covered).map((x) => x.field);
+      const divergences = result.cases.flatMap((c, n) => {
+        const m = matches[n];
+        if (m === undefined || m.waived) return [];
+        const partly = fieldsOf(n, true);
+        return [{ case: c.caseId, fields: fieldsOf(n, false), ...(partly.length === 0 ? {} : { waived_fields: partly }) }];
+      });
+      const waivedCases = result.cases.flatMap((c, n) => {
+        const m = matches[n];
+        return m?.waived === true ? [{ case: c.caseId, waivers: [...new Set(m.fields.flat())].sort((a, b) => a - b).map((w) => w + 1) }] : [];
+      });
       const score = scoreCandidate(
         result.cases.map((c, n) => ({
           caseId: c.caseId,
           features: cases[n]!.features,
           origin: cases[n]!.origin,
           verdict: c.candidates[i]!.comparison.verdict,
+          waived: matches[n]?.waived === true,
           // A case the reference also times out on is compared like any other.
-          candidateTimeout: c.candidates[i]!.observation.timeout && !c.reference.timeout,
+          candidateTimeout: timedOut(c, i),
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, score, normalizers: changed(i), divergences };
+      return {
+        command: display(command),
+        match: result.cases.length - divergences.length - waivedCases.length,
+        diverge: divergences.length,
+        waived: waivedCases.length,
+        score,
+        normalizers: changed(i),
+        waivers: waiverCoverage(waivers, matches.filter((m) => m !== undefined), result.cases.length),
+        divergences,
+        waived_cases: waivedCases,
+      };
     }),
     clusters,
   };
@@ -241,9 +298,14 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     lines.push('normalizers (cases changed):');
     for (const n of summary.normalizers) lines.push(`  ${n.normalizer}: ${n.cases}`);
   }
+  if (summary.waivers.length > 0) {
+    lines.push(`waivers (${WAIVERS_FILE}):`);
+    for (const [n, w] of summary.waivers.entries()) lines.push(`  ${n + 1}. ${describeWaiver(w)}: ${w.reason}`);
+  }
   for (const [i, c] of summary.candidates.entries()) {
-    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
+    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}${c.waived > 0 ? `, ${c.waived} waived` : ''}`);
     lines.push(...scoreLines(c.score));
+    if (c.waivers.length > 0) lines.push(`  waivers (cases covered): ${c.waivers.map(coverageLabel).join(', ')}`);
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
@@ -283,6 +345,12 @@ function scoreLines(score: Score): string[] {
   if (score.selfDescription.length > 0) lines.push(`  self-description, not in the parity: ${list(score.selfDescription)}`);
   if (score.untested.length > 0) lines.push(`  untested: ${score.untested.join(', ')}`);
   return lines;
+}
+
+/** A waiver's coverage, such as `2: 3 (15.0%, more than 10% of the cases)`. */
+function coverageLabel(w: WaiverCoverage): string {
+  if (w.cases === 0) return `${w.waiver}: 0`;
+  return `${w.waiver}: ${w.cases} (${percent(w.share)}${w.large ? `, more than ${LARGE_WAIVER_SHARE * 100}% of the cases` : ''})`;
 }
 
 /** Rounded down, so that only a full match shows as 100.0%. */
