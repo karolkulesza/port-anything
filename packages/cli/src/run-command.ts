@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { rm, rmdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { realpath, rm, rmdir, stat } from 'node:fs/promises';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
@@ -33,6 +33,7 @@ import {
   type CompareOptions,
   type Config,
   type ResolvedCluster,
+  type ResolvedProgram,
   type SandboxProbe,
   type SavedCluster,
   type Score,
@@ -122,8 +123,8 @@ export interface ExecuteRunOptions {
  * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
  * against its candidate unless `--candidate` is given. A run of the whole corpus is also appended
- * to the parity history, with the commit checked out in the git repository holding each
- * candidate's executable. Exit code 0 when every candidate matches on every case, 1 when any case
+ * to the parity history, with the commit checked out where each candidate comes from (see
+ * `candidateSource`). Exit code 0 when every candidate matches on every case, 1 when any case
  * diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
@@ -231,7 +232,12 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   };
   const saved = await saveRun(projectDir, { subset: subset === undefined ? null : { cluster: subset.address }, ...report, candidate_commands: commands });
   if (subset === undefined) {
-    const shas = await Promise.all(candidates.map((c) => gitHead(dirname(c.realPath))));
+    const shas = await Promise.all(
+      candidates.map(async (c) => {
+        const dir = await candidateSource(c, projectDir);
+        return dir === undefined ? null : gitHead(dir);
+      }),
+    );
     await appendHistory(projectDir, {
       version: 1,
       run_id: saved.run_id,
@@ -268,6 +274,25 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     }
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+/**
+ * The directory whose git commit a candidate's history line records: the executable's, when the
+ * command gives it as a path; for a name looked up on the PATH (an interpreter such as `node` or
+ * `python3`, whose install may sit in a git repository of its own), the first argument that is an
+ * existing file, such as the script. Undefined when there is neither, so no commit is recorded.
+ */
+async function candidateSource(program: ResolvedProgram, projectDir: string): Promise<string | undefined> {
+  if (program.executable.includes('/')) return dirname(program.realPath);
+  for (const arg of program.args) {
+    try {
+      const path = await realpath(resolvePath(projectDir, arg));
+      if ((await stat(path)).isFile()) return dirname(path);
+    } catch {
+      // not a file
+    }
+  }
+  return undefined;
 }
 
 /**

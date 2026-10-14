@@ -420,6 +420,34 @@ describe('executeRun history', () => {
     expect(last).toMatchObject({ run_id: runId, candidates: [{ command: './bin/tool-copy2', sha: next, parity: 1 }] });
     expect(next).not.toBe(head);
   });
+
+  it('records the script\'s commit, not the interpreter\'s, for a candidate run by a program on the PATH', async () => {
+    // An interpreter installed inside a git repository of its own, as nvm and Homebrew do.
+    const interpreter = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-interp-')));
+    const savedPath = process.env.PATH;
+    try {
+      writeFileSync(join(interpreter, 'fake-sh'), '#!/bin/sh\nexec sh "$@"\n', { mode: 0o755 });
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: interpreter, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+      execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'interpreter'], {
+        cwd: interpreter,
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      });
+      process.env.PATH = `${interpreter}:${savedPath}`;
+      const script = join(project, 'bin', 'tool-copy');
+      const projectHead = git('rev-parse', 'HEAD').trim();
+      const { run_id: runId } = JSON.parse((await executeRun(options({ candidates: [`fake-sh ${script}`] }))).stdout);
+      const last = (await readHistory(project)).entries.at(-1)!;
+      expect(last).toMatchObject({ run_id: runId, candidates: [{ command: `fake-sh ${script}`, sha: projectHead }] });
+
+      // With no file among its arguments, nothing says where the candidate comes from.
+      writeFileSync(join(interpreter, 'fake-copy'), TOOL('good'), { mode: 0o755 });
+      await executeRun(options({ candidates: ['fake-copy'] }));
+      expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ command: 'fake-copy', sha: null }]);
+    } finally {
+      process.env.PATH = savedPath;
+      rmSync(interpreter, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('executeRun scores', () => {
