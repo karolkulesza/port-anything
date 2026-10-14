@@ -157,3 +157,14 @@ export {
   type ScopeEntry,
   type SideContext,
 } from './normalize.js';
+export {
+  HISTORY_FILE,
+  HISTORY_GITATTRIBUTES,
+  HistoryEntrySchema,
+  appendHistory,
+  gitHead,
+  historyPath,
+  readHistory,
+  type History,
+  type HistoryEntry,
+} from './history.js';
