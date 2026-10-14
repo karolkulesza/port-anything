@@ -37,3 +37,5 @@ export {
   type SandboxProbe,
   type SandboxSetup,
 } from './sandbox.js';
+export { checkLicense, findLicenseFiles, identifyLicenses, licenseCategory } from './license.js';
+export type { LicenseCategory, LicenseCheck } from './license.js';
