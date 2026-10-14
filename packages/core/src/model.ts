@@ -11,7 +11,8 @@ const text = z
 
 // zod skips a record key named `__proto__` without an error, so a case would silently lose that
 // fixture or variable and share its ID with a different invocation. Refuse the key before parsing.
-function withoutProtoKeys<T extends z.ZodType>(schema: T) {
+// Internal: not exported from the package.
+export function withoutProtoKeys<T extends z.ZodType>(schema: T) {
   return z.preprocess((input, ctx) => {
     const walk = (value: unknown, path: PropertyKey[]): void => {
       if (typeof value !== 'object' || value === null) return;
