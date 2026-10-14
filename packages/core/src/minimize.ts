@@ -208,7 +208,7 @@ export interface MinimizeClusterOptions {
 }
 
 export interface MinimizedCluster extends Minimized {
-  /** The case it was minimized from: the smallest of the cluster that still shows its signature. */
+  /** The case it was minimized from: the smallest of the cluster that still shows its signature (the smallest of all when none does). */
   source: string;
 }
 
@@ -231,15 +231,16 @@ export async function minimizeCluster(options: MinimizeClusterOptions): Promise<
   sized.sort((a, b) => a.size - b.size || a.i - b.i);
   let budget = options.maxRuns ?? DEFAULT_MINIMIZE_RUNS;
   let spent = 0;
-  let last: MinimizedCluster | undefined;
   for (const { c } of sized) {
     const result = await minimizeCase(c, test, { store, maxRuns: budget });
     spent += result.runs;
     budget -= result.runs;
-    last = { ...result, runs: spent, source: c.id, exhausted: result.exhausted || (!result.reproduced && budget === 0) };
-    if (result.reproduced || budget === 0) break;
+    if (result.reproduced) return { ...result, runs: spent, source: c.id };
+    if (budget === 0) break;
   }
-  return last!;
+  // None showed the signature: the smallest case stands for the cluster, unminimized.
+  const smallest = sized[0]!.c;
+  return { case: smallest, source: smallest.id, reproduced: false, runs: spent, exhausted: spent < sized.length };
 }
 
 /** `caseSize` of a case whose stdin and fixtures are in the store. */

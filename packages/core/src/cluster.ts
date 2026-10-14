@@ -60,7 +60,10 @@ export function clusterSignature(d: Divergence): ClusterSignature {
   return { fields: d.shapes.map((s) => s.field), shapes };
 }
 
-export function signatureKey(s: ClusterSignature): string {
+export function signatureKey(s: {
+  readonly fields: readonly ComparedField[];
+  readonly shapes: readonly { readonly field: ComparedField; readonly shape: FieldShape['shape']; readonly detail?: string | undefined }[];
+}): string {
   return JSON.stringify([s.fields, s.shapes.map((x) => [x.field, x.shape, x.detail ?? null])]);
 }
 

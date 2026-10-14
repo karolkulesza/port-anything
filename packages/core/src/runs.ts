@@ -222,7 +222,10 @@ export async function inlineCase(c: CanonicalCase, store: BlobStore): Promise<In
   return { id: c.id, argv: c.argv, stdin: c.stdin === null ? null : inlineContent(await store.get(c.stdin)), env: c.env, fixtures };
 }
 
-const reproFile = (projectDir: string, runId: string, cluster: number) => join(runsDir(projectDir), runId, 'repros', `${cluster}.json`);
+/** Where a cluster's repro is saved, `.port-anything/runs/<run-id>/repros/<n>.json`. */
+export function reproPath(projectDir: string, runId: string, cluster: number): string {
+  return join(runsDir(projectDir), runId, 'repros', `${cluster}.json`);
+}
 
 /**
  * Saves a cluster's repro next to its run, replacing an earlier one; written next to its final
@@ -232,7 +235,7 @@ export async function saveRepro(projectDir: string, repro: Omit<ReproRecord, 've
   const run = await loadRun(projectDir, repro.run_id);
   if (run.clusters[repro.cluster - 1] === undefined) throw new ConfigError(`Run ${repro.run_id} has no cluster ${repro.cluster}.`);
   const record = ReproRecordSchema.parse({ version: 1, ...repro, created: now.toISOString() });
-  const file = reproFile(projectDir, repro.run_id, repro.cluster);
+  const file = reproPath(projectDir, repro.run_id, repro.cluster);
   await mkdir(dirname(file), { recursive: true });
   const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
   await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`);
@@ -244,7 +247,7 @@ export async function saveRepro(projectDir: string, repro: Omit<ReproRecord, 've
 export async function loadRepro(projectDir: string, runId: string, cluster: number): Promise<ReproRecord | undefined> {
   let raw: string;
   try {
-    raw = await readFile(reproFile(projectDir, runId, cluster), 'utf8');
+    raw = await readFile(reproPath(projectDir, runId, cluster), 'utf8');
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw e;

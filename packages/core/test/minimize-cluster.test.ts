@@ -105,7 +105,9 @@ describe('minimizeCluster', () => {
 
     const capped = await minimizeCluster({ runner, key: k!.key, cases: [fine, diverging], store, maxRuns: 4 });
     expect(capped).toMatchObject({ source: diverging.id, reproduced: true, runs: 4, exhausted: true });
-    const spent = await minimizeCluster({ runner, key: k!.key, cases: [fine, await make(['-l'], 'no\n')], store, maxRuns: 2 });
-    expect(spent).toMatchObject({ reproduced: false, runs: 2, exhausted: true });
+    // When none diverges, the smallest stands for the cluster; out of budget when some were not tried.
+    const allFine = [await make(['-l'], 'a longer line\n'), fine, await make(['-l'], 'no\n')];
+    expect(await minimizeCluster({ runner, key: k!.key, cases: allFine, store })).toMatchObject({ source: fine.id, reproduced: false, runs: 3, exhausted: false });
+    expect(await minimizeCluster({ runner, key: k!.key, cases: allFine, store, maxRuns: 2 })).toMatchObject({ source: fine.id, reproduced: false, runs: 2, exhausted: true });
   });
 });

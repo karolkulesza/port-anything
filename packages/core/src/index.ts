@@ -130,6 +130,7 @@ export {
   loadRepro,
   loadRun,
   newRunId,
+  reproPath,
   parseClusterAddress,
   resolveCluster,
   runsDir,
