@@ -94,6 +94,23 @@ describe('report --html', () => {
     }
   });
 
+  it('exits 3 for a saved run that lacks what the report shows', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-report-old-')));
+    try {
+      const runId = '20261014-180203-a1b2';
+      mkdirSync(join(other, '.port-anything', 'runs', runId), { recursive: true });
+      const old = { version: 1, run_id: runId, created: '2026-10-14T18:02:03.000Z', subset: null, candidate_commands: ['./bin/tool-copy'], clusters: [] };
+      writeFileSync(join(other, '.port-anything', 'runs', runId, 'run.json'), JSON.stringify(old));
+      expect(await run(['report'], { cwd: other })).toEqual({
+        exitCode: 3,
+        stdout: '',
+        stderr: `port-anything report: Run ${runId} was saved by an older version of port-anything and lacks what the report shows; run port-anything run again.\n`,
+      });
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
   it('refuses options it does not have yet', async () => {
     expect(await run(['report', '--json'], { cwd: project })).toEqual({ exitCode: 3, stdout: '', stderr: 'port-anything report: --json is not available yet in this version of port-anything report.\n' });
     expect((await run(['report', '--badge'], { cwd: project })).exitCode).toBe(3);
