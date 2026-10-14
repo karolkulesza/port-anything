@@ -33,6 +33,19 @@ describe('classifyText', () => {
     expect(classifyText('-1\n', '1\n')).toEqual({ shape: 'number-value' });
   });
 
+  it('compares number values exactly, past 2^53 and past the double range', () => {
+    expect(classifyText('12345678901234567890\n', '12345678901234567891\n')).toEqual({ shape: 'number-value' });
+    expect(classifyText('9007199254740993\n', '9007199254740992\n')).toEqual({ shape: 'number-value' });
+    expect(classifyText('1e400\n', '2e400\n')).toEqual({ shape: 'number-value' });
+    expect(classifyText('12345678901234567890\n', '1.2345678901234567890e19\n')).toEqual({ shape: 'number-format' });
+    expect(classifyText('0.0\n', '-0\n')).toEqual({ shape: 'number-format' });
+    expect(classifyText('1.50e-3\n', '0.0015\n')).toEqual({ shape: 'number-format' });
+  });
+
+  it('does not take a full stop after the digits as part of the number', () => {
+    expect(classifyText('done 3.\n', 'done 3\n').shape).not.toBe('number-format');
+  });
+
   it('is not about numbers when the text around them differs too', () => {
     expect(classifyText('lines 3\n', 'words 3\n')).toEqual({ shape: 'other' });
     expect(classifyText('1 2\n', '1\n2 3\n').shape).not.toMatch(/^number-/);
@@ -51,6 +64,7 @@ describe('classifyText', () => {
   it('missing trailing newline, on either side', () => {
     expect(classifyText('3 a.txt\n', '3 a.txt')).toEqual({ shape: 'missing-trailing-newline', detail: 'candidate' });
     expect(classifyText('3 a.txt', '3 a.txt\n')).toEqual({ shape: 'missing-trailing-newline', detail: 'reference' });
+
   });
 
   it('prefix or suffix: cut short, or something extra at either end', () => {

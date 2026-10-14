@@ -50,8 +50,10 @@ export type TextShape = Omit<FieldShape, 'field'>;
 const asText = (bytes: Buffer) => bytes.toString('latin1');
 
 const WHITESPACE = /[ \t\n\r\f\v]+/g;
-// A decimal number: optional sign, digits with an optional fraction (or a bare fraction), optional exponent.
-const NUMBER = /[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?/g;
+// A decimal number: optional sign, digits with an optional fraction (or a bare fraction), optional
+// exponent. A full stop after the digits ends a sentence, not a number.
+const NUMBER = /[-+]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?/g;
+const NUMBER_PARTS = /^([-+]?)(\d*)(?:\.(\d*))?(?:[eE]([-+]?\d+))?$/;
 
 /**
  * Classifies how two different texts differ (reference first). `field` only matters for stderr,
@@ -87,7 +89,21 @@ function numberShape(a: string, b: string): 'number-format' | 'number-value' | u
   const nb = b.match(NUMBER) ?? [];
   if (na.length === 0 || na.length !== nb.length) return undefined;
   if (a.replace(NUMBER, '0') !== b.replace(NUMBER, '0')) return undefined;
-  return na.every((n, i) => Number(n) === Number(nb[i])) ? 'number-format' : 'number-value';
+  return na.every((n, i) => exactValue(n) === exactValue(nb[i]!)) ? 'number-format' : 'number-value';
+}
+
+/**
+ * A number literal's exact value as `<sign><digits>e<exponent>`, with no leading or trailing zero
+ * digit, so two literals have the same form exactly when they have the same value (no rounding,
+ * however many digits or however large the exponent).
+ */
+function exactValue(literal: string): string {
+  const [, sign, int = '', frac = '', exp = '0'] = NUMBER_PARTS.exec(literal)!;
+  const digits = `${int}${frac}`.replace(/^0+/, '');
+  if (digits === '') return '0';
+  const significant = digits.replace(/0+$/, '');
+  const exponent = BigInt(exp) - BigInt(frac.length) + BigInt(digits.length - significant.length);
+  return `${sign === '-' ? '-' : ''}${significant}e${exponent}`;
 }
 
 /** How a run ended, as written in an `exit-code` detail: the code, the signal name or `timeout`. */
