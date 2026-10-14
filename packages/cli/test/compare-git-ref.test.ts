@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SandboxProbe } from '@port-anything/core';
+import { probeSandbox, type SandboxProbe } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { compareCommand, parseCompareArgs, type CompareSummary } from '../src/compare-command.js';
 import { run } from '../src/run.js';
@@ -209,6 +209,24 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
     const { exitCode, summary } = await json(['--ref', 'git:HEAD', join(repo, 'tool/frob'), '--budget', '40']);
     expect(exitCode).toBe(1);
     expect(summary.git!.cmd).toBe(join(repo, 'tool/frob'));
+  });
+
+  // The checkout sits in the scratch directory, outside the project: the sandbox must still run it.
+  it.runIf(process.platform === 'darwin' || (process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === '1'))('runs the checked-out reference in the sandbox', async () => {
+    write('tool/frob', TOOL('v1'), 0o755);
+    commit('v1');
+    write('tool/frob', TOOL('ignores-upper'), 0o755);
+    commit('refactor');
+    const probe = await probeSandbox();
+    expect(probe.usable).toBeDefined();
+    const result = await compareCommand(['--ref', 'git:HEAD~1', './tool/frob', '--budget', '40', '--json'], { cwd: repo, probe, tmpDir: scratch, concurrency: 2 });
+    expect(result.stderr).toBe('');
+    expect(result.exitCode).toBe(1);
+    const summary = JSON.parse(result.stdout) as CompareSummary;
+    expect(summary.sandbox).toMatch(/^(bwrap|unshare|sandbox-exec)/);
+    expect(summary.candidates[0]!.per_feature.find((f) => f.feature === 'opt.upper')!.parity).toBeLessThan(1);
+    expect(summary.candidates[0]!.per_feature.find((f) => f.feature === 'base')!.parity).toBe(1);
+    expectCleanedUp();
   });
 
   it('is reachable from the command line', async () => {
