@@ -26,7 +26,7 @@ describe('generateByteMutants', () => {
           "parent": 0,
         },
         {
-          "hex": "7b2261223a48317d",
+          "hex": "7b2261223ab0317d",
           "op": "set",
           "parent": 2,
         },
@@ -36,7 +36,7 @@ describe('generateByteMutants', () => {
           "parent": 2,
         },
         {
-          "hex": "7b2261c23a20317d",
+          "hex": "7b2261403a20317d",
           "op": "set",
           "parent": 2,
         },
@@ -61,7 +61,10 @@ describe('generateByteMutants', () => {
     const data = SEEDS[0]!;
     for (let i = 0; i < 200; i++) {
       const { bytes, op } = mutateBytes(data, rng);
-      if (op === 'flip' || op === 'set') expect(bytes.length).toBe(data.length);
+      if (op === 'flip' || op === 'set') {
+        expect(bytes.length).toBe(data.length);
+        expect(bytes).not.toEqual(data);
+      }
       if (op === 'insert') expect(bytes.length).toBe(data.length + 1);
       if (op === 'delete') expect(bytes.length).toBe(data.length - 1);
       if (op === 'truncate') expect(bytes.length).toBeLessThan(data.length);

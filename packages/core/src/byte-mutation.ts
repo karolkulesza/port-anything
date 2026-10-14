@@ -11,7 +11,7 @@ export interface ByteMutant {
 }
 
 /**
- * Applies one byte-level mutation: flip a bit, set a byte to a random value, insert a random byte,
+ * Applies one byte-level mutation: flip a bit, set a byte to a different random value, insert a random byte,
  * delete a byte, truncate, or splice the tail of a donor onto a prefix. Empty input can only grow.
  */
 export function mutateBytes(data: Uint8Array, rng: Rng, donors: readonly Uint8Array[] = []): { bytes: Uint8Array; op: ByteMutationOp } {
@@ -24,7 +24,7 @@ export function mutateBytes(data: Uint8Array, rng: Rng, donors: readonly Uint8Ar
       out[at] = out[at]! ^ (1 << rng.int(8));
       return { bytes: out, op };
     case 'set':
-      out[at] = rng.int(256);
+      out[at] = (out[at]! + 1 + rng.int(255)) % 256; // always a different byte
       return { bytes: out, op };
     case 'insert':
       return { bytes: concat(data.subarray(0, at), Uint8Array.of(rng.int(256)), data.subarray(at)), op };
