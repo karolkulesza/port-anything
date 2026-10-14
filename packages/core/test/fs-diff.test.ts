@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { DEFAULT_MAX_STORED_FILE_BYTES, diffSnapshots, fsChanges, snapshotDir, symlinkBlob } from '../src/fs-diff.js';
+import { DEFAULT_MAX_STORED_FILE_BYTES, diffSnapshots, fsChanges, isSymlinkBlob, snapshotDir, symlinkBlob } from '../src/fs-diff.js';
 import { canonicalObservation } from '../src/model.js';
 import { caseEnvironment, runProcess } from '../src/process-runner.js';
 
@@ -168,5 +168,15 @@ describe('fsChanges', () => {
     const changes = await fsChanges(dir, before);
     expect(changes.modified).toEqual({ data: blobRef(symlinkBlob('payload')) });
     expect(changes.created).toEqual({ payload: blobRef('payload') });
+  });
+});
+
+describe('isSymlinkBlob', () => {
+  it("tells a link's bytes from a file's", () => {
+    expect(isSymlinkBlob(symlinkBlob('/tmp/x'))).toBe(true);
+    expect(isSymlinkBlob(symlinkBlob(''))).toBe(true);
+    expect(isSymlinkBlob(Buffer.from('/tmp/x'))).toBe(false);
+    expect(isSymlinkBlob(Buffer.from('\0symlink'))).toBe(false);
+    expect(isSymlinkBlob(new Uint8Array(0))).toBe(false);
   });
 });
