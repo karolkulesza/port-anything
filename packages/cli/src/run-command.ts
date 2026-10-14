@@ -16,6 +16,7 @@ import {
   describeSignature,
   featureWeights,
   loadCommittedCases,
+  measureSlowdown,
   normalizerLabel,
   parseProgramCommand,
   probeSandbox,
@@ -34,6 +35,7 @@ import {
   type SandboxProbe,
   type SavedCluster,
   type Score,
+  type Slowdown,
 } from '@port-anything/core';
 
 /** What a CLI command returns: the exit code and what to print. */
@@ -119,8 +121,10 @@ export interface ExecuteRunOptions {
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
  * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
  * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
- * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
- * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
+ * against its candidate unless `--candidate` is given. With `compare.max_slowdown` set, each
+ * candidate's median time ratio is checked against it. Exit code 0 when every candidate matches on
+ * every case (and is within the slowdown limit), 1 when any case diverges or a candidate is too slow,
+ * 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
   try {
@@ -221,13 +225,32 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, score, normalizers: changed(i), divergences };
+      const max = config.compare.max_slowdown;
+      const slowdown =
+        max === undefined
+          ? undefined
+          : measureSlowdown(
+              result.cases.map((c) => {
+                const { observation } = c.candidates[i]!;
+                return { reference: { wall: c.reference.time_ms.wall, timeout: c.reference.timeout }, candidate: { wall: observation.time_ms.wall, timeout: observation.timeout } };
+              }),
+              max,
+            );
+      return {
+        command: display(command),
+        match: result.cases.length - divergences.length,
+        diverge: divergences.length,
+        score,
+        ...(slowdown === undefined ? {} : { slowdown }),
+        normalizers: changed(i),
+        divergences,
+      };
     }),
     clusters,
   };
   const saved = await saveRun(projectDir, { subset: subset === undefined ? null : { cluster: subset.address }, ...report, candidate_commands: commands });
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
-  const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
+  const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
@@ -244,6 +267,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
     lines.push(...scoreLines(c.score));
+    if (c.slowdown !== undefined) lines.push(slowdownLine(c.slowdown));
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
@@ -283,6 +307,13 @@ function scoreLines(score: Score): string[] {
   if (score.selfDescription.length > 0) lines.push(`  self-description, not in the parity: ${list(score.selfDescription)}`);
   if (score.untested.length > 0) lines.push(`  untested: ${score.untested.join(', ')}`);
   return lines;
+}
+
+/** A candidate's median time ratio against `compare.max_slowdown`. */
+function slowdownLine({ ratio, cases, max, exceeded }: Slowdown): string {
+  const limit = `compare.max_slowdown ${max}x`;
+  if (ratio === null) return `  slowdown n/a: no case the reference finished in a measurable time (${limit})`;
+  return `  slowdown ${ratio.toFixed(2)}x (median of ${count(cases, 'case')}), ${exceeded ? 'above' : 'within'} ${limit}`;
 }
 
 /** Rounded down, so that only a full match shows as 100.0%. */

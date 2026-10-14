@@ -22,7 +22,7 @@ esac
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
 
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
-const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|\d+ (waived|flaky|timed)).*\n/gm, '');
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed)).*\n/gm, '');
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
@@ -400,6 +400,49 @@ describe('executeRun scores', () => {
   it('says why there is no parity when only self-description features have enough cases', async () => {
     const { text } = await run(echo(2, ['opt.help']), { corpus: { min_cases_per_feature: 2 } });
     expect(text).toContain('  parity n/a: no feature outside self-description has 2 scored cases (corpus.min_cases_per_feature)\n  self-description, not in the parity: opt.help 100.0% (2 cases)\n');
+  });
+});
+
+describe('executeRun slowdown gate', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-slow-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
+    // A deliberately slow port: right on every case, but it naps first.
+    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 0.3\n'), { mode: 0o755 });
+    const store = new BlobStore(cacheDir(project));
+    const input = await store.put('hello\n');
+    cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = async (compare: Record<string, unknown>, json = false) => {
+    const config = parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-slow' }, compare });
+    return executeRun({ projectDir: project, config, cases, args: { candidates: [], json, noSandbox: true }, probe: NO_SANDBOX });
+  };
+
+  it('fails a run whose candidate matches every case but is slower than compare.max_slowdown (done when)', async () => {
+    const result = await run({ max_slowdown: '2x' });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('candidate 1 ./bin/tool-slow: 3 of 3 cases match\n');
+    expect(result.stdout).toMatch(/^ {2}slowdown \d+\.\d\dx \(median of 3 cases\), above compare\.max_slowdown 2x$/m);
+
+    const json = JSON.parse((await run({ max_slowdown: '2x' }, true)).stdout);
+    expect(json.candidates[0]).toMatchObject({ match: 3, diverge: 0, slowdown: { cases: 3, max: 2, exceeded: true } });
+    expect(json.candidates[0].slowdown.ratio).toBeGreaterThan(2);
+  });
+
+  it('passes the same port when it is within the limit, and has no gate without one', async () => {
+    const within = await run({ max_slowdown: '1000x' });
+    expect(within.exitCode).toBe(0);
+    expect(within.stdout).toMatch(/^ {2}slowdown \d+\.\d\dx \(median of 3 cases\), within compare\.max_slowdown 1000x$/m);
+
+    const ungated = await run({});
+    expect(ungated.exitCode).toBe(0);
+    expect(ungated.stdout).not.toContain('slowdown');
+    expect(JSON.parse((await run({}, true)).stdout).candidates[0]).not.toHaveProperty('slowdown');
   });
 });
 
