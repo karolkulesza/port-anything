@@ -25,7 +25,14 @@ const READ_WHOLE_BYTES = 1024 * 1024;
  * target may be outside the case's directory.
  */
 export function symlinkBlob(target: string | Buffer): Buffer {
-  return Buffer.concat([Buffer.from('\0symlink\0'), Buffer.from(target)]);
+  return Buffer.concat([SYMLINK_PREFIX, Buffer.from(target)]);
+}
+
+const SYMLINK_PREFIX = Buffer.from('\0symlink\0');
+
+/** Whether stored bytes are a link's (see `symlinkBlob`) rather than a file's content. */
+export function isSymlinkBlob(bytes: Uint8Array): boolean {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).subarray(0, SYMLINK_PREFIX.length).equals(SYMLINK_PREFIX);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { BlobStore } from './blob-store.js';
+import { isSymlinkBlob } from './fs-diff.js';
 import type { Observation } from './model.js';
 
 /** The built-in normalizers of this version, in the order the docs list them. */
@@ -173,17 +174,19 @@ function tmpPaths(text: string, side: SideContext): string {
 const ISO_TIMESTAMP =
   /(?<!\d)\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?| \d{2}:\d{2}:\d{2}(?:[.,]\d+)?)(?:Z|[+-]\d{2}(?::?\d{2})?)?(?!\d)/g;
 
-// `pid 123`, `PID: 123`, `pid=123`, and the daemon-log form `name[123]:`.
-const PID_WORD = /\b(pids?)(\s*[=:#]?\s*)\d+(?!\d)/gi;
-const PID_BRACKET = /(\b[A-Za-z_][\w.-]*)\[\d+\](?=:)/g;
+// `pid 123`, `PID: 123`, `pid=123`, on one line. Other forms (a daemon log's `name[123]:` looks just
+// like an indexed path such as `items[3]:`) are left to `regex`.
+const PID_WORD = /\b(pids?)([ \t]*[=:#]?[ \t]*)\d+(?!\d)/gi;
 
 // CSI (colors, cursor moves), OSC (titles, links) ended by BEL or ST, and two-byte escapes.
 const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
 
-const TRAILING_WHITESPACE = /[^\S\r\n]+(?=\r?\n|$)/g;
+// ASCII only: in output that isn't UTF-8 (read as latin1) \s would also take bytes 0x85 and 0xA0.
+const TRAILING_WHITESPACE = /[ \t\f\v]+(?=\r?\n|$)/g;
 
-// A decimal number with a fraction or an exponent; integers are never treated as floats.
-const NUMBER = /(?<![\w.])[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?(?![\w.])/g;
+// A decimal number with a fraction or an exponent; integers are never treated as floats. A unit
+// (`0.3s`) or a full stop may follow, but not more digits (`1.2.3` is a version, not a number).
+const NUMBER = /(?<![\w.])[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?(?![\d_]|\.\d)/g;
 const isFloat = (token: string) => /[.eE]/.test(token);
 
 /**
@@ -227,7 +230,7 @@ function step(spec: NormalizerSpec): Step {
     case 'iso-timestamps':
       return { side: (t) => t.replace(ISO_TIMESTAMP, TIMESTAMP_PLACEHOLDER) };
     case 'pids':
-      return { side: (t) => t.replace(PID_WORD, `$1$2${PID_PLACEHOLDER}`).replace(PID_BRACKET, `$1[${PID_PLACEHOLDER}]`) };
+      return { side: (t) => t.replace(PID_WORD, `$1$2${PID_PLACEHOLDER}`) };
     case 'ansi-codes':
       return { side: (t) => t.replace(ANSI, '') };
     case 'trailing-whitespace':
@@ -293,7 +296,7 @@ const utf8 = new TextDecoder('utf-8', { fatal: true });
 
 /**
  * Text as normalizers see it: UTF-8 when the bytes are valid UTF-8, otherwise one character per
- * byte (latin1), so binary output still round-trips byte for byte.
+ * byte (latin1), so binary output still round-trips byte for byte (see `encode`).
  */
 function decode(bytes: Buffer): { text: string; encoding: 'utf8' | 'latin1' } {
   try {
@@ -301,6 +304,15 @@ function decode(bytes: Buffer): { text: string; encoding: 'utf8' | 'latin1' } {
   } catch {
     return { text: bytes.toString('latin1'), encoding: 'latin1' };
   }
+}
+
+/**
+ * Bytes of normalized text, in the encoding it was read in. Characters a normalizer inserted into
+ * latin1 text that latin1 can't hold (a `regex` replacement such as `→`) are written as UTF-8.
+ */
+function encode(text: string, encoding: 'utf8' | 'latin1'): Buffer {
+  if (encoding === 'utf8' || !/[^\x00-\xff]/.test(text)) return Buffer.from(text, encoding);
+  return Buffer.concat(text.split(/([^\x00-\xff]+)/).map((part, i) => Buffer.from(part, i % 2 === 1 ? 'utf8' : 'latin1')));
 }
 
 /** One side of a comparison: its observation and what normalizers need to know about it. */
@@ -341,7 +353,7 @@ export async function normalizePair(options: NormalizePairOptions): Promise<Norm
   const load = async (ref: string | undefined): Promise<Buffer | undefined> => {
     if (ref === undefined || !(await store.has(ref))) return undefined;
     const bytes = await store.get(ref);
-    return bytes.subarray(0, 9).toString('latin1') === '\0symlink\0' ? undefined : bytes;
+    return isSymlinkBlob(bytes) ? undefined : bytes;
   };
 
   /** Normalizes one field on both sides; either ref may be absent (a file only one side wrote). */
@@ -364,7 +376,7 @@ export async function normalizePair(options: NormalizePairOptions): Promise<Norm
       if (r !== before[0] || c !== before[1]) changed.add(index);
     }
     const save = async (text: string | undefined, original: ReturnType<typeof decode> | undefined, blob: string | undefined) =>
-      text === undefined || original === undefined || text === original.text ? blob : store.put(Buffer.from(text, original.encoding));
+      text === undefined || original === undefined || text === original.text ? blob : store.put(encode(text, original.encoding));
     return [await save(r, ref, refBlob), await save(c, cand, candBlob)];
   };
 

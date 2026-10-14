@@ -68,6 +68,7 @@ export {
   DEFAULT_MAX_STORED_FILE_BYTES,
   diffSnapshots,
   fsChanges,
+  isSymlinkBlob,
   snapshotDir,
   symlinkBlob,
   type FsChanges,

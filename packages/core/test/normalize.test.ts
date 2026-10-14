@@ -127,13 +127,13 @@ describe('iso-timestamps', () => {
 
 describe('pids', () => {
   const n = spec('pids');
-  it('replaces pid-labelled numbers and the name[pid]: form', async () => {
-    const out = await normalizeText(n, 'pid 123, PID: 9, pid=77 sort[4242]: done\n', 'pid 456, PID: 10, pid=78 sort[17]: done\n');
-    expect(out.reference).toBe('pid <PID>, PID: <PID>, pid=<PID> sort[<PID>]: done\n');
+  it('replaces pid-labelled numbers', async () => {
+    const out = await normalizeText(n, 'pid 123, PID: 9, pid=77, pids 5\n', 'pid 456, PID: 10, pid=78, pids 6\n');
+    expect(out.reference).toBe('pid <PID>, PID: <PID>, pid=<PID>, pids <PID>\n');
     expect(out.candidate).toBe(out.reference);
   });
-  it('leaves other numbers and array indexes alone', async () => {
-    const text = 'rapid 123 .a[0] x[12] 4242\n';
+  it('leaves other numbers, indexes and numbers on the next line alone', async () => {
+    const text = 'rapid 123 .a[0] x[12] 4242\nitems[3]: bad\nsort[4242]: done\npid\n42\n';
     expect((await normalizeText(n, text)).reference).toBe(text);
   });
 });
@@ -152,6 +152,14 @@ describe('trailing-whitespace', () => {
     const out = await normalizeText(spec('trailing-whitespace'), 'a  \nb\t\r\n\n  c \t');
     expect(out.reference).toBe('a\nb\r\n\n  c');
   });
+
+  it('leaves bytes 0x85 and 0xA0 of output that is not UTF-8 alone', async () => {
+    // 0xff makes it invalid UTF-8; "à" (c3 a0) and "Å" (c3 85) end in bytes that are Unicode spaces in latin1.
+    const bytes = Buffer.concat([Buffer.from([0xff]), Buffer.from('voilà\nÅ \n')]);
+    const r = await observation(bytes);
+    const result = await normalizePair({ normalizers: spec('trailing-whitespace'), features: [], reference: { observation: r, context: REF_CTX }, candidate: { observation: r, context: CAND_CTX }, store });
+    expect(await store.get(result.reference.stdout)).toEqual(Buffer.concat([Buffer.from([0xff]), Buffer.from('voilà\nÅ\n')]));
+  });
 });
 
 describe('float-tolerance', () => {
@@ -169,6 +177,12 @@ describe('float-tolerance', () => {
     expect((await normalizeText(n, '1.0 2.0\n', '1.0001\n')).candidate).toBe('1.0001\n');
   });
 
+  it('takes floats followed by a unit or a full stop, but not versions', async () => {
+    const n = spec('float-tolerance');
+    expect((await normalizeText(n, 'mean is 1.5. took 0.30000000000000004s\n', 'mean is 1.5000000000001. took 0.3s\n')).candidate).toBe('mean is 1.5. took 0.30000000000000004s\n');
+    expect((await normalizeText(n, 'v 1.2.3\n', 'v 1.2.4\n')).candidate).toBe('v 1.2.4\n');
+  });
+
   it('uses atol near zero', async () => {
     expect((await normalizeText(spec({ 'float-tolerance': { atol: 1e-6 } }), '0.0\n', '1e-9\n')).candidate).toBe('0.0\n');
     expect((await normalizeText(spec('float-tolerance'), '0.0\n', '1e-9\n')).candidate).toBe('1e-9\n');
@@ -181,6 +195,12 @@ describe('regex', () => {
     expect(out.reference).toBe('ID=<ID> id=<ID>\n');
     expect(out.candidate).toBe(out.reference);
   });
+  it('writes a replacement that latin1 cannot hold as UTF-8 into output that is not UTF-8', async () => {
+    const r = await observation(Buffer.concat([Buffer.from([0xff]), Buffer.from(' a->b\n')]));
+    const result = await normalizePair({ normalizers: spec({ regex: { pattern: '->', replacement: '→' } }), features: [], reference: { observation: r, context: REF_CTX }, candidate: { observation: r, context: CAND_CTX }, store });
+    expect(await store.get(result.reference.stdout)).toEqual(Buffer.concat([Buffer.from([0xff]), Buffer.from(' a→b\n')]));
+  });
+
   it('replaces with nothing by default', async () => {
     expect((await normalizeText(spec({ regex: { pattern: ' took \\d+ms' } }), 'done took 12ms\n')).reference).toBe('done\n');
   });
