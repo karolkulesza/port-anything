@@ -283,6 +283,8 @@ function checkPrograms(programs: readonly ResolvedProgram[], args: CompareArgs):
 interface GitReferenceCommand {
   cmd: string | readonly string[];
   build?: string;
+  /** Whether `cmd` is the config's `reference.cmd` rather than a command on the command line. */
+  fromConfig: boolean;
 }
 
 /**
@@ -294,9 +296,9 @@ async function gitReferenceCommand(args: CompareArgs, cwd: string): Promise<GitR
     () => true,
     () => false,
   );
-  if (!hasConfig) return { cmd: args.candidates[0]! };
+  if (!hasConfig) return { cmd: args.candidates[0]!, fromConfig: false };
   const { reference } = await readConfigFile(cwd);
-  return { cmd: reference.cmd, ...(reference.build === undefined ? {} : { build: reference.build }) };
+  return { cmd: reference.cmd, ...(reference.build === undefined ? {} : { build: reference.build }), fromConfig: true };
 }
 
 /**
@@ -324,7 +326,7 @@ async function resolveAtCommit(ref: GitReferenceCommand, checkout: GitCheckout):
   }
   if (!isInside(program.path, checkout.worktree) && !args.some((a) => a.rerooted !== undefined)) {
     throw new ConfigError(
-      `Nothing in the reference ${display(ref.cmd)} is in the repository (it runs ${program.path}), so it would be the same program at every commit. Give the program's path in the repository (./bin/tool), or, for a script run by an interpreter, the script's absolute path (python3 ${join(checkout.repoTop, 'tool.py')}).`,
+      `Nothing in the reference ${display(ref.cmd)}${ref.fromConfig ? ` (reference.cmd in ${CONFIG_FILE})` : ''} is in the repository (it runs ${program.path}), so it would be the same program at every commit. Give the program's path in the repository (./bin/tool), or, for a script run by an interpreter, the script's absolute path (python3 ${join(checkout.repoTop, 'tool.py')}).`,
     );
   }
   return program;

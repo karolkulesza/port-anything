@@ -200,6 +200,10 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
 
     const onPath = await compare(['--ref', 'git:HEAD', 'cat']);
     expect(onPath.exitCode).toBe(3);
+    write('sub/port-anything.yaml', 'version: 1\nreference:\n  cmd: cat\n');
+    const fromConfig = await compare(['--ref', 'git:HEAD', '../tool/frob'], join(repo, 'sub'));
+    expect(fromConfig.exitCode).toBe(3);
+    expect(fromConfig.stderr).toMatch(/Nothing in the reference cat \(reference\.cmd in port-anything\.yaml\) is in the repository/);
     expect(onPath.stderr).toMatch(/Nothing in the reference cat is in the repository \(it runs .*cat\), so it would be the same program at every commit\. Give the program's path/);
     // A relative script path is not resolved for an interpreter (cases run in their own directory).
     const relativeScript = await compare(['--ref', 'git:HEAD', 'sh ./tool/frob']);
@@ -215,6 +219,7 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
     const { exitCode, summary } = await json(['--ref', 'git:HEAD', join(repo, 'tool/frob'), '--budget', '40']);
     expect(exitCode).toBe(1);
     expect(summary.git!.cmd).toBe(join(repo, 'tool/frob'));
+    expectCleanedUp();
   });
 
   // The reference is a wrapper that runs a script next to its real path, so the sandbox must show
