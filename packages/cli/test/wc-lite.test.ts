@@ -101,7 +101,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(text.stdout).toContain(`candidate 1 ./copy/wc-copy: ${cases} of ${cases} cases match\n`);
     for (const [i, feature] of bad.entries()) {
       const { match, diverge } = candidates[i + 1]!;
-      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  c_`);
+      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  cluster `);
     }
   }, 120_000);
 });

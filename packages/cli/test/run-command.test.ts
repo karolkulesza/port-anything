@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, cacheDir, canonicalCase, parseConfig, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
@@ -16,12 +16,16 @@ case "$1" in
 esac
 `;
 
+/** Text output with the run ID, which differs on every run, replaced. */
+const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
+
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
-  it('reads repeated --candidate, --json and --no-sandbox', () => {
-    expect(parseRunArgs(['--candidate', './a', '--candidate=coreutils sort', '--json', '--no-sandbox'])).toEqual({
+  it('reads repeated --candidate, --cluster, --json and --no-sandbox', () => {
+    expect(parseRunArgs(['--candidate', './a', '--candidate=coreutils sort', '--cluster', '20261014-190203-a1b2/2', '--json', '--no-sandbox'])).toEqual({
       candidates: ['./a', 'coreutils sort'],
+      cluster: '20261014-190203-a1b2/2',
       json: true,
       noSandbox: true,
     });
@@ -61,19 +65,22 @@ describe('executeRun', () => {
     ...over,
   });
 
-  it('prints each candidate with its diverging cases, and exits 1 when any diverges', async () => {
+  it('prints each candidate with its diverging cases in clusters, and exits 1 when any diverges', async () => {
     const result = await executeRun(options());
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toBe(
+    expect(stable(result.stdout)).toBe(
       [
         'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
         'reference ./bin/tool',
         'compare standard (stderr loose, similarity 0.6)',
         'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
-        `  ${shortCaseId(cases[1]!.id)}  stdout`,
-        `  ${shortCaseId(cases[2]!.id)}  exit`,
+        '  cluster 1: 1 case · exit 1 vs 2',
+        `    ${shortCaseId(cases[2]!.id)}`,
+        '  cluster 2: 1 case · stdout other',
+        `    ${shortCaseId(cases[1]!.id)}`,
         '',
       ].join('\n'),
     );
@@ -93,7 +100,10 @@ describe('executeRun', () => {
   it('writes JSON with --json', async () => {
     const result = await executeRun(options({ args: { candidates: [], json: true, noSandbox: true } }));
     expect(result.exitCode).toBe(1);
-    expect(JSON.parse(result.stdout)).toEqual({
+    const json = JSON.parse(result.stdout);
+    expect(json).toEqual({
+      run_id: expect.stringMatching(RUN_ID_PATTERN),
+      subset: null,
       program_name: 'tool',
       sandbox: 'none (--no-sandbox)',
       reference: './bin/tool',
@@ -113,7 +123,23 @@ describe('executeRun', () => {
           ],
         },
       ],
+      clusters: [
+        {
+          cluster: 1,
+          candidate: 2,
+          signature: { fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '1 vs 2' }], features: [] },
+          size: 1,
+          weight: 1 / 3,
+          cases: [cases[2]!.id],
+        },
+        { cluster: 2, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'other' }], features: [] }, size: 1, weight: 1 / 3, cases: [cases[1]!.id] },
+      ],
     });
+    // Saved as printed, with each candidate as configured.
+    const { version, created, candidate_commands, ...saved } = await loadRun(project, json.run_id);
+    expect(saved).toEqual(json);
+    expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
+    expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it('runs the --candidate programs instead of the configured ones, and exits 0 when all match', async () => {
@@ -184,7 +210,7 @@ describe('executeRun profiles', () => {
     const standard = await run(undefined);
     expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
     expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
-    expect(standard.stdout).toMatch(/c_[0-9a-f]{8} {2}stderr\n$/);
+    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text\n {4}c_[0-9a-f]{8}\n$/);
 
     const strict = await run({ profile: 'strict' });
     expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
@@ -196,6 +222,95 @@ describe('executeRun profiles', () => {
     const json = JSON.parse((await run({ fields: { stderr: { similarity: 0.8 } } }, true)).stdout);
     expect(json.compare).toEqual({ profile: 'standard', stderr: { mode: 'loose', similarity: 0.8 } });
     expect(JSON.parse((await run({ profile: 'lenient' }, true)).stdout).compare).toEqual({ profile: 'lenient' });
+  });
+});
+
+describe('executeRun clusters', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-clusters-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    const store = new BlobStore(cacheDir(project));
+    // tool-bad gets `upper` wrong (7 of the 10 opt.u cases) and `fail`'s exit code (the only error case).
+    const upper = await Promise.all('abcdefg'.split('').map(async (w) => ({ argv: ['upper'], stdin: await store.put(`${w}\n`), features: ['opt.u'] })));
+    const echo = ['x', 'y', 'z'].map((w) => ({ argv: ['echo', w], features: ['opt.u'] }));
+    cases = [...upper, ...echo, { argv: ['fail'], features: ['error'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const exec = (args: Partial<ExecuteRunOptions['args']> = {}, over: Partial<ExecuteRunOptions> = {}) =>
+    executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: ['./bin/tool-bad'] }] }),
+      cases,
+      args: { candidates: [], json: false, noSandbox: true, ...args },
+      probe: NO_SANDBOX,
+      ...over,
+    });
+  const json = async (args: Partial<ExecuteRunOptions['args']> = {}, over: Partial<ExecuteRunOptions> = {}) => {
+    const result = await exec({ ...args, json: true }, over);
+    return { exitCode: result.exitCode, ...JSON.parse(result.stdout) };
+  };
+
+  it('ranks clusters by size × feature weight and lists at most 5 cases of each', async () => {
+    // The exit cluster is all of `error` (weight 1); the stdout cluster 7 of the 10 opt.u cases (0.7).
+    const result = await exec();
+    const ids = cases.slice(0, 5).map((c) => shortCaseId(c.id));
+    expect(result.stdout).toContain(
+      [
+        'candidate 2 ./bin/tool-bad: 3 of 11 cases match, 8 diverge',
+        '  cluster 1: 1 case · exit 1 vs 2 · features error',
+        `    ${shortCaseId(cases[10]!.id)}`,
+        '  cluster 2: 7 cases · stdout other · features opt.u',
+        `    ${ids.join('  ')}  … and 2 more`,
+        '',
+      ].join('\n'),
+    );
+    const { clusters } = await json();
+    expect(clusters.map((c: { size: number; weight: number }) => [c.size, c.weight])).toEqual([
+      [1, 1],
+      [7, expect.closeTo(0.7)],
+    ]);
+    expect(clusters[1].cases).toEqual(cases.slice(0, 7).map((c) => c.id));
+  });
+
+  it('re-runs one cluster against its candidate, or the --candidate given, without changing the latest run', async () => {
+    const full = await json();
+    const two = await json({ cluster: '2' });
+    expect(two).toMatchObject({ exitCode: 1, subset: { cluster: `${full.run_id}/2` }, cases: 7, candidates: [{ command: './bin/tool-bad', diverge: 7 }] });
+    expect(two.run_id).not.toBe(full.run_id);
+    // Weighed against the cases run: here the cluster is all of opt.u.
+    expect(two.clusters).toEqual([{ ...full.clusters[1], cluster: 1, candidate: 1, weight: expect.closeTo(1) }]);
+
+    const text = await exec({ cluster: `${full.run_id}/1` });
+    expect(text.stdout).toMatch(new RegExp(`^Ran 1 case as "tool", sandbox: none \\(--no-sandbox\\)\nrun \\S+, cluster ${full.run_id}/1 only\n`));
+
+    const fixed = await exec({ cluster: '2', candidates: ['./bin/tool-copy'] });
+    expect(fixed.exitCode).toBe(0);
+    expect(fixed.stdout).toContain('candidate 1 ./bin/tool-copy: 7 of 7 cases match\n');
+
+    // The cluster runs were saved, but the latest run of the whole corpus is still the full one.
+    expect((await json({ cluster: '1' })).subset).toEqual({ cluster: `${full.run_id}/1` });
+    expect((await loadRun(project, two.run_id)).subset).toEqual({ cluster: `${full.run_id}/2` });
+  });
+
+  it('exits 3 for a cluster it cannot find, or whose cases the corpus no longer has', async () => {
+    const empty = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-clusters-')));
+    try {
+      expect(await exec({ cluster: '1' }, { projectDir: empty })).toMatchObject({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/No saved run yet/) });
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+    const { run_id: runId } = await json();
+    expect((await exec({ cluster: '3' })).stderr).toBe(`port-anything run: Run ${runId} has clusters 1 to 2, so there is no cluster 3.\n`);
+    expect((await exec({ cluster: 'one' })).stderr).toMatch(/"one" is not a cluster/);
+    const gone = await exec({ cluster: '2' }, { cases: cases.slice(3) });
+    expect(gone.exitCode).toBe(3);
+    expect(gone.stderr).toMatch(new RegExp(`Cluster ${runId}/2 has 3 cases that the corpus no longer has \\(c_`));
   });
 });
 
@@ -211,7 +326,9 @@ describe('runCommand', () => {
       writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
-      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}c_[0-9a-f]{8} {2}stdout\n$/);
+      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other\n {4}c_[0-9a-f]{8}\n$/);
+      const runId = /^run (\S+)$/m.exec(result.stdout)![1]!;
+      expect((await loadRun(project, runId)).clusters).toHaveLength(1);
     } finally {
       rmSync(project, { recursive: true, force: true });
     }

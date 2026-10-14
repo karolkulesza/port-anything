@@ -90,7 +90,10 @@ export function clusterDivergences(divergences: readonly Divergence[], weights: 
 }
 
 /** A one-line description of a signature, such as `stdout number-value · features opt.l`. */
-export function describeSignature(s: ClusterSignature): string {
+export function describeSignature(s: {
+  readonly shapes: readonly { readonly field: ComparedField; readonly shape: FieldShape['shape']; readonly detail?: string | undefined }[];
+  readonly features: readonly string[];
+}): string {
   const shapes = s.shapes.map((x) => (x.shape === 'exit-code' ? `${x.field} ${x.detail}` : `${x.field} ${x.shape}${x.detail === undefined ? '' : ` (${x.detail})`}`));
   return [shapes.join(', '), ...(s.features.length === 0 ? [] : [`features ${s.features.join(', ')}`])].join(' · ');
 }

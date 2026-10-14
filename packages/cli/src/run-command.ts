@@ -10,20 +10,27 @@ import {
   SandboxUnavailableError,
   cacheDir,
   chooseSandbox,
+  clusterDivergences,
   configCandidates,
+  describeSignature,
+  featureWeights,
   loadCommittedCases,
   normalizerLabel,
   parseProgramCommand,
   probeSandbox,
   readConfigFile,
+  resolveCluster,
   resolveProgram,
   runCases,
+  saveRun,
   shortCaseId,
   stderrMode,
   type CanonicalCase,
   type CompareOptions,
   type Config,
+  type ResolvedCluster,
   type SandboxProbe,
+  type SavedCluster,
 } from '@port-anything/core';
 
 /** What a CLI command returns: the exit code and what to print. */
@@ -37,12 +44,16 @@ export interface CliResult {
 export interface RunArgs {
   /** `--candidate <cmd>`, repeatable; replaces the configured candidates. */
   candidates: string[];
+  /** `--cluster [<run-id>/]<n>`: re-run only that cluster's cases. */
+  cluster?: string;
   json: boolean;
   noSandbox: boolean;
 }
 
 // Documented options that later versions add.
-const NOT_YET = ['smoke', 'feature', 'cluster', 'all', 'holdout'];
+const NOT_YET = ['smoke', 'feature', 'all', 'holdout'];
+
+const USAGE = 'Usage: port-anything run [--cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -53,15 +64,21 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
       args: [...argv],
       options: {
         candidate: { type: 'string', multiple: true },
+        cluster: { type: 'string' },
         json: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
       },
       strict: true,
       allowPositionals: false,
     });
-    return { candidates: values.candidate ?? [], json: values.json ?? false, noSandbox: values['no-sandbox'] ?? false };
+    return {
+      candidates: values.candidate ?? [],
+      ...(values.cluster === undefined ? {} : { cluster: values.cluster }),
+      json: values.json ?? false,
+      noSandbox: values['no-sandbox'] ?? false,
+    };
   } catch (e) {
-    throw new ConfigError(`${(e as Error).message}\nUsage: port-anything run [--candidate <cmd>]… [--json] [--no-sandbox]`);
+    throw new ConfigError(`${(e as Error).message}\n${USAGE}`);
   }
 }
 
@@ -96,9 +113,11 @@ export interface ExecuteRunOptions {
 
 /**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
- * diverge (under the strictness profile, after the configured normalizers), and how many cases each normalizer
- * changed. Exit code 0 when every candidate matches on every case, 1 when any
- * case diverges, 3 when the run can't start (config, programs, sandbox).
+ * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
+ * clusters, and how many cases each normalizer changed. The run is saved under a new run ID, so
+ * its clusters can be addressed as `<run-id>/<n>`; with `--cluster`, only that cluster's cases run,
+ * against its candidate unless `--candidate` is given. Exit code 0 when every candidate matches on
+ * every case, 1 when any case diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
   try {
@@ -115,11 +134,14 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   if (config.sandbox.mode === 'container') {
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
-  const commands = args.candidates.length > 0 ? args.candidates : configCandidates(config).map((c) => c.cmd);
+  const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
+  const commands =
+    args.candidates.length > 0 ? args.candidates : subset !== undefined ? [subset.run.candidate_commands[subset.cluster.candidate - 1]!] : configCandidates(config).map((c) => c.cmd);
   if (commands.length === 0) {
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
+  if (subset !== undefined) cases = clusterCases(subset, cases);
 
   const resolve = async (cmd: string | readonly string[]) => {
     try {
@@ -162,7 +184,19 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       normalizer: normalizerLabel(spec),
       cases: result.cases.filter((c) => c.candidates.some((run, i) => (candidate === undefined || i === candidate) && run.normalizedBy.includes(n))).length,
     }));
-  const summary = {
+  // Each candidate's divergences in ranked clusters, numbered through the run, candidate by candidate.
+  const weights = featureWeights(cases);
+  const clusters: SavedCluster[] = [];
+  for (const i of commands.keys()) {
+    const divergences = result.cases.flatMap((c, n) => {
+      const run = c.candidates[i]!;
+      return run.comparison.verdict === 'diverge' ? [{ caseId: c.caseId, features: cases[n]!.features, shapes: run.shapes }] : [];
+    });
+    for (const cluster of clusterDivergences(divergences, weights)) {
+      clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
+    }
+  }
+  const report = {
     program_name: result.programName,
     sandbox: sandbox.label,
     reference: display(config.reference.cmd),
@@ -175,11 +209,19 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
         .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
       return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, normalizers: changed(i), divergences };
     }),
+    clusters,
   };
+  const saved = await saveRun(projectDir, { subset: subset === undefined ? null : { cluster: subset.address }, ...report, candidate_commands: commands });
+  const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
-  const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`, `compare ${compareLabel(summary.compare)}`];
+  const lines = [
+    `Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`,
+    `run ${summary.run_id}${summary.subset === null ? '' : `, cluster ${summary.subset.cluster} only`}`,
+    `reference ${summary.reference}`,
+    `compare ${compareLabel(summary.compare)}`,
+  ];
   if (summary.normalizers.length === 0) lines.push('normalizers: none');
   else {
     lines.push('normalizers (cases changed):');
@@ -187,9 +229,28 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   }
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
-    for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
+      lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)}`);
+      const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
+      lines.push(`    ${listed.join('  ')}${cluster.size > LISTED_CASES ? `  … and ${cluster.size - LISTED_CASES} more` : ''}`);
+    }
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+/** Case IDs shown per cluster in the text output; `--json` lists them all. */
+const LISTED_CASES = 5;
+
+/** The cases of a cluster, in its order; it is an error when the corpus no longer has them all. */
+function clusterCases(subset: ResolvedCluster, cases: readonly CanonicalCase[]): CanonicalCase[] {
+  const byId = new Map(cases.map((c) => [c.id, c]));
+  const missing = subset.cluster.cases.filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    throw new ConfigError(
+      `Cluster ${subset.address} has ${missing.length} case${missing.length === 1 ? '' : 's'} that the corpus no longer has (${missing.map((id) => shortCaseId(id)).join(', ')}); run the whole corpus for new clusters.`,
+    );
+  }
+  return subset.cluster.cases.map((id) => byId.get(id)!);
 }
 
 /** The profile a run compared under, with how it compared stderr (absent when the profile ignores stderr). */
