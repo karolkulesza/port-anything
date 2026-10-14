@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { DEFAULT_STDERR_SIMILARITY, PROFILES } from './compare.js';
+import { NormalizersSchema } from './normalize.js';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
 
 const text = z.string().refine((s) => !s.includes('\0'), 'must not contain a NUL byte');
@@ -46,6 +48,24 @@ const SandboxSchema = z.strictObject({
 /** Sections read by later commands; accepted here so a config written for them still loads. */
 const later = z.unknown().optional();
 
+const CompareSchema = z.strictObject({
+  /** Which observation fields count: strict (all), standard (stderr loosely), lenient (exit status and stdout). */
+  profile: z.enum(PROFILES).default('standard'),
+  fields: z
+    .strictObject({
+      /** `mode` absent: exact under strict, loose under standard. */
+      stderr: z
+        .strictObject({
+          mode: z.enum(['exact', 'loose']).optional(),
+          similarity: z.number().min(0).max(1).default(DEFAULT_STDERR_SIMILARITY),
+        })
+        .default(() => ({ similarity: DEFAULT_STDERR_SIMILARITY })),
+    })
+    .default(() => ({ stderr: { similarity: DEFAULT_STDERR_SIMILARITY } })),
+  max_slowdown: later,
+  min_parity: later,
+});
+
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
 export const ConfigSchema = z
   .strictObject({
@@ -57,8 +77,9 @@ export const ConfigSchema = z
     candidate: ProgramSchema.optional(),
     candidates: z.array(ProgramSchema).min(1).optional(),
     sandbox: SandboxSchema.default(() => SandboxSchema.parse({})),
-    compare: later,
-    normalizers: later,
+    compare: CompareSchema.default(() => CompareSchema.parse({})),
+    /** Applied in order to both sides before comparing. */
+    normalizers: NormalizersSchema.default([]),
     corpus: later,
     holdout: later,
     report: later,

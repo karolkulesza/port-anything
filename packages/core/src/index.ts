@@ -68,6 +68,7 @@ export {
   DEFAULT_MAX_STORED_FILE_BYTES,
   diffSnapshots,
   fsChanges,
+  isSymlinkBlob,
   snapshotDir,
   symlinkBlob,
   type FsChanges,
@@ -75,10 +76,77 @@ export {
   type FsSnapshot,
 } from './fs-diff.js';
 export { defaultConcurrency, mapPool } from './pool.js';
-export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } from './compare.js';
-export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
+export {
+  COMPARED_FIELDS,
+  DEFAULT_STDERR_SIMILARITY,
+  PROFILES,
+  PROFILE_FIELDS,
+  compareExact,
+  compareObservations,
+  exitClass,
+  stderrMode,
+  stderrSimilarity,
+  type CompareObservationsOptions,
+  type CompareOptions,
+  type ComparedField,
+  type Comparison,
+  type ExitClass,
+  type Profile,
+  type StderrOptions,
+} from './compare.js';
+export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
+export {
+  UNTAGGED_FEATURE,
+  caseFeatures,
+  clusterDivergences,
+  clusterSignature,
+  describeFeatures,
+  describeSignature,
+  featureWeights,
+  signatureKey,
+  type Cluster,
+  type ClusterSignature,
+  type Divergence,
+  type FeatureCount,
+} from './cluster.js';
+export {
+  DEFAULT_MINIMIZE_RUNS,
+  caseSize,
+  ddmin,
+  minimizeCase,
+  minimizeCluster,
+  type CaseTest,
+  type MinimizeClusterOptions,
+  type MinimizeOptions,
+  type Minimized,
+  type MinimizedCluster,
+} from './minimize.js';
+export {
+  RUN_FILE,
+  RUN_ID_PATTERN,
+  ReproRecordSchema,
+  RunRecordSchema,
+  inlineCase,
+  latestRun,
+  loadRepro,
+  loadRun,
+  newRunId,
+  reproPath,
+  parseClusterAddress,
+  resolveCluster,
+  runsDir,
+  saveRepro,
+  saveRun,
+  type ClusterAddress,
+  type InlineCase,
+  type ReproRecord,
+  type ResolvedCluster,
+  type RunRecord,
+  type SavedCluster,
+} from './runs.js';
+export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
+export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
-export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
 export {
   CLI_SPEC_FILE,
   CliSpecSchema,
@@ -99,3 +167,22 @@ export {
 export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag, type ParsedHelp } from './help-parser.js';
 export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type SpecProbe, type SpecProbeResult } from './spec-probe.js';
 export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
+export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';
+export {
+  NORMALIZER_NAMES,
+  NormalizerEntrySchema,
+  NormalizersSchema,
+  PID_PLACEHOLDER,
+  PROGRAM_PLACEHOLDER,
+  TIMESTAMP_PLACEHOLDER,
+  TMP_PLACEHOLDER,
+  normalizePair,
+  normalizerLabel,
+  type NormalizePairOptions,
+  type NormalizeSide,
+  type NormalizedPair,
+  type NormalizerName,
+  type NormalizerSpec,
+  type ScopeEntry,
+  type SideContext,
+} from './normalize.js';

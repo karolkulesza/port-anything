@@ -1,7 +1,8 @@
 # Linux dev container for Port Anything: the Linux-only parts (bubblewrap sandbox,
-# strace, GNU vs uutils vs busybox vs toybox, jq vs jaq vs gojq) are developed and
-# tested here, also from macOS. Use it through scripts/dev-linux.sh, which mounts
-# the repo and passes the security options bubblewrap needs.
+# strace, GNU vs uutils vs busybox vs toybox, jq vs jaq vs gojq, the C and Rust
+# example programs) are developed and tested here, also from macOS. Use it through
+# scripts/dev-linux.sh, which mounts the repo and passes the security options
+# bubblewrap needs.
 #
 # Ubuntu 25.10 ships both coreutils: uutils is the default (/usr/bin/sort) and
 # GNU is installed with a "gnu" prefix (/usr/bin/gnusort).
@@ -10,6 +11,7 @@ FROM ubuntu:25.10
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       bubblewrap strace busybox toybox jq gojq \
+      gcc libc6-dev cargo \
       ca-certificates curl xz-utils git util-linux \
  && rm -rf /var/lib/apt/lists/* \
  && gnusort --version | head -n 1 \
