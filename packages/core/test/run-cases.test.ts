@@ -6,7 +6,8 @@ import { BlobStore, blobRef } from '../src/blob-store.js';
 import { compareExact } from '../src/compare.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { parseProgramCommand, resolveProgram, type ResolvedProgram } from '../src/program.js';
-import { runCases, type RunCasesOptions } from '../src/run-cases.js';
+import { NormalizersSchema } from '../src/normalize.js';
+import { openCaseRunner, runCases, type CaseRun, type RunCasesOptions } from '../src/run-cases.js';
 
 // A small program and two ports of it, as shell scripts. Each logs its runs to $PA_TEST_LOG
 // (allow-listed below), so the tests can count how often each side ran.
@@ -20,6 +21,8 @@ case "$1" in
   pwd) pwd; echo "$HOME" ;;
   name) echo "$(basename "$0"): usage" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   env) echo "$PA_TEST_SETTING $LANG $TZ" ;;
+  self) echo "$0" ;;
+  warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
 
@@ -82,10 +85,50 @@ describe('runCases', () => {
     expect(verdicts(both, 1)).toEqual(verdicts(alone[1]!, 0));
     // And the verdicts are the expected ones, so the equality above isn't vacuous.
     expect(verdicts(both, 0).every((v) => v.verdict === 'match')).toBe(true);
+    // `name` exits 2 where the reference exits 1; its stderr is byte for byte the same, so only the exit code diverges.
     expect(verdicts(both, 1).filter((v) => v.verdict === 'diverge').map((v) => v.fields)).toEqual([['stdout'], ['exit']]);
     // The reference did the same in every run; only `pwd` prints the run's own scratch directory.
     const references = both.cases.map((c, i) => compareExact(c.reference, alone[0]!.cases[i]!.reference).fields);
     expect(references).toEqual([[], [], [], [], ['stdout'], [], []]);
+  });
+
+  it('compares the normalized observations, keeps the raw ones, and says which normalizers changed each comparison', async () => {
+    // Each side runs from its own program directory, so $0 differs until tmp-paths replaces it.
+    const own = [{ argv: ['self'] }, { argv: ['echo', 'x'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+    const raw = await runCases(options([good], { cases: own }));
+    expect(raw.cases.map((c) => c.candidates[0]!.comparison.verdict)).toEqual(['diverge', 'match']);
+    expect(raw.cases.map((c) => c.candidates[0]!.normalizedBy)).toEqual([[], []]);
+
+    const normalizers = NormalizersSchema.parse(['pids', 'tmp-paths']);
+    const result = await runCases(options([good], { cases: own, normalizers }));
+    expect(result.cases.map((c) => c.candidates[0]!.comparison.verdict)).toEqual(['match', 'match']);
+    expect(result.cases.map((c) => c.candidates[0]!.normalizedBy)).toEqual([[1], []]);
+    const self = result.cases[0]!;
+    expect((await store.get(self.reference.stdout)).toString()).toMatch(/\/programs\/side-0\/tool\n$/);
+    expect((await store.get(self.candidates[0]!.observation.stdout)).toString()).toMatch(/\/programs\/side-1\/tool\n$/);
+  });
+
+  it('classifies the shape of each diverging field, after normalizing, and none for a match', async () => {
+    const result = await runCases(options([good, bad]));
+    const shapes = (candidate: number) => result.cases.map((c) => c.candidates[candidate]!.shapes);
+    expect(shapes(0).every((s) => s.length === 0)).toBe(true);
+    expect(shapes(1).filter((s) => s.length > 0)).toEqual([[{ field: 'stdout', shape: 'other' }], [{ field: 'exit', shape: 'exit-code', detail: '1 vs 2' }]]);
+
+    // `$0` names each side's own program directory (side-0, side-1); no shape once that is normalized.
+    const self = [canonicalCase({ argv: ['self'], origin: 'recorded' })];
+    expect((await runCases(options([good], { cases: self }))).cases[0]!.candidates[0]!.shapes).toEqual([{ field: 'stdout', shape: 'number-value' }]);
+    const normalizers = NormalizersSchema.parse(['tmp-paths']);
+    expect((await runCases(options([good], { cases: self, normalizers }))).cases[0]!.candidates[0]!.shapes).toEqual([]);
+  });
+
+  it('compares under the standard profile by default, or the one given', async () => {
+    // The good port prints the same message under its own file name, with other spacing; the bad one another message.
+    const warn = [canonicalCase({ argv: ['warn'], origin: 'recorded' })];
+    const fields = (result: Awaited<ReturnType<typeof runCases>>) => result.cases[0]!.candidates.map((c) => c.comparison.fields);
+    expect(fields(await runCases(options([good, bad], { cases: warn })))).toEqual([[], ['stderr']]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'strict' } })))).toEqual([['stderr'], ['stderr']]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'lenient' } })))).toEqual([[], []]);
+    expect(fields(await runCases(options([good, bad], { cases: warn, compare: { profile: 'standard', stderr: { similarity: 0 } } })))).toEqual([[], []]);
   });
 
   it('observes the reference once per case, however many candidates there are', async () => {
@@ -132,6 +175,18 @@ describe('runCases', () => {
     const result = await runCases(options([]));
     expect(result.cases).toHaveLength(cases.length);
     expect(result.cases.every((c) => c.candidates.length === 0)).toBe(true);
+  });
+
+  it('runs cases one at a time on programs pinned once, with the verdicts of a whole run', async () => {
+    const whole = await runCases(options([good, bad]));
+    rmSync(log, { force: true });
+    const runner = await openCaseRunner(options([good, bad]));
+    expect(runner.programName).toBe('tool');
+    const one: CaseRun[] = [];
+    for (const c of cases) one.push(await runner.run(c));
+    const verdicts = (runs: CaseRun[]) => runs.map((c) => c.candidates.map((x) => ({ fields: x.comparison.fields, shapes: x.shapes })));
+    expect(verdicts(one)).toEqual(verdicts(whole.cases));
+    expect(logLines().filter((l) => l.startsWith('ref '))).toHaveLength(cases.length);
   });
 
   it('fails when a case needs a blob the store does not have', async () => {

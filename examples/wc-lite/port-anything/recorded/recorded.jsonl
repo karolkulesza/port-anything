@@ -1,0 +1,24 @@
+{"id":"sha256:01d70cb6ab909ec6158c16bc66593ba7e2093a3554d39a02888f6c0f330caf76","argv":["a.txt","b.txt"],"fixtures":{"a.txt":"alpha beta\ngamma\n","b.txt":"one two three\nfour five\nsix"},"features":["base"],"origin":"recorded"}
+{"id":"sha256:09012d7fdbcbb487f56d24828eacc359ef6f987e1bef9c78da9c9864611cf2f7","argv":["-l"],"stdin":"one\ntwo\nthree\n","features":["opt.l"],"origin":"recorded"}
+{"id":"sha256:097b8f974838015fcf475bd8934f47f9a8968257c682bae6d40a2478d021d3dd","argv":["--","-l"],"features":["error.file"],"origin":"recorded"}
+{"id":"sha256:1347022346fc5503e30e90901d0b088d99dbae66fd5415bce04dca0ae57ff5bd","argv":["-lw","crlf.txt"],"fixtures":{"crlf.txt":"first line\r\nsecond\r\n"},"features":["opt.l","opt.w"],"origin":"recorded"}
+{"id":"sha256:192e93373879f8740f661bb992a1f7136e3cdea91ee150d90625a0ef46797df0","argv":["-x"],"features":["error.usage"],"origin":"recorded"}
+{"id":"sha256:2cba4bd5c2fb33b924d0e03550fd0acdd25f492edcd56cb3562bef19292bbbb3","argv":["-L"],"stdin":"abc\ndefghijkl","features":["opt.L"],"origin":"recorded"}
+{"id":"sha256:365bad3319b08a3bd7313e59f04e4220b5ab320509f2e02bff217f0832ba5698","argv":["-l"],"stdin":"one\ntwo\nthree","features":["opt.l"],"origin":"recorded"}
+{"id":"sha256:4b4a1776143c39810db31edf1f61d52a12640466eb8560998503cbab9848a2cc","argv":["-","a.txt"],"stdin":"from stdin\n","fixtures":{"a.txt":"alpha beta\ngamma\n"},"features":["base"],"origin":"recorded"}
+{"id":"sha256:51a255a94243604b54dad42f76609b9b6084c70c6aa4771efdf0061bc37c1f0c","argv":["-w"],"stdin":"  leading and\ttabs\n\u000bvertical\fform feed\r\nend","features":["opt.w"],"origin":"recorded"}
+{"id":"sha256:5d044f435f04a911ba4ffc480fad5b3e39287863946ba578ae5ae9a157756bfa","argv":[],"stdin":"hello world\n","features":["base"],"origin":"recorded"}
+{"id":"sha256:5d7153ed32b01f47b22e0f888d68a27c9d025881e7a73e99b2b0caebb8a01d32","argv":["-lq","a.txt"],"fixtures":{"a.txt":"alpha beta\ngamma\n"},"features":["error.usage"],"origin":"recorded"}
+{"id":"sha256:72237cb1deb919ef6b37a1c2c8ff8a4ba99de42dc0ee9c476eee4de4ab078c1a","argv":["-c"],"stdin":"bytes\n","features":["opt.c"],"origin":"recorded"}
+{"id":"sha256:78855e94f5a87114705fc2c3f08229c6c10fb70eb465153c91118bc63b8ba917","argv":["-lwmcL","notes.txt"],"fixtures":{"notes.txt":"Notes\n=====\n\n- tabs\tand  spaces\n- ünïcödé\n"},"features":["opt.L","opt.c","opt.l","opt.m","opt.w"],"origin":"recorded"}
+{"id":"sha256:8e0051108d8ec18021a1f657095a7cb81b179d8e1992a243b1a4d5a076d5e1d3","argv":["-m"],"stdin":"naïve café 日本語\n","features":["opt.m"],"origin":"recorded"}
+{"id":"sha256:9c973bf1126a6f658cbba44748e6b8cb6379a37c29f228f60d3ae873fc73e7e6","argv":["-L","crlf.txt"],"fixtures":{"crlf.txt":"first line\r\nsecond\r\n"},"features":["opt.L"],"origin":"recorded"}
+{"id":"sha256:b95d624de22aa8b42247d5fc40edfa0201cc45f2e645b7ba68a92b6f64ade7dc","argv":["a.txt","-w"],"fixtures":{"a.txt":"alpha beta\ngamma\n"},"features":["opt.w"],"origin":"recorded"}
+{"id":"sha256:bd53610f01d4c97d0353228dae1f908c4cd8a54af744b8147c771fd683d20b0d","argv":["-l","a.txt","missing.txt","b.txt"],"fixtures":{"a.txt":"alpha beta\ngamma\n","b.txt":"one two three\nfour five\nsix"},"features":["error.file","opt.l"],"origin":"recorded"}
+{"id":"sha256:bd98b362b6478ce6dfb3b14f62a66163f7a9a30a7ea4178f6151518ce8986a46","argv":["missing.txt"],"features":["error.file"],"origin":"recorded"}
+{"id":"sha256:c20bd42e4c1bc2aac94e07a60c3e145c5be75c6c1a4afd39cffcc747d407d780","argv":["-mc"],"stdin":{"base64":"//4ACsOp"},"features":["opt.c","opt.m"],"origin":"recorded"}
+{"id":"sha256:c246fd253956bc859b739cfb4eacb176d06e86c83139f1025b5d0d6959e3a91b","argv":[],"stdin":"","features":["base"],"origin":"recorded"}
+{"id":"sha256:cc4bc2feb1001e3810342037f1bad6327e0cb6dad8b85842514790260f37a0b9","argv":["--help"],"features":["help"],"origin":"recorded"}
+{"id":"sha256:ea49ad5da752b1e9bcbc740314174ec6e1223f21ab631fe8312d4c19456b8d11","argv":["-L"],"stdin":"short\n\tindented line\nab\tcd\n","features":["opt.L"],"origin":"recorded"}
+{"id":"sha256:f015ff8a110130597ba1dd70fde80723a727ef1db3e3334ed260b3e9e248b368","argv":["--lines"],"features":["error.usage"],"origin":"recorded"}
+{"id":"sha256:f4b9e44d3607cc8b4792363effc47ac1f0bacf4642c9b3e44fa4c7394d656908","argv":["--version"],"features":["version"],"origin":"recorded"}
