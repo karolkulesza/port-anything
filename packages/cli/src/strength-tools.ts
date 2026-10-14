@@ -70,12 +70,12 @@ export async function chooseTool(ctx: ToolContext): Promise<Tool> {
   if (cargo !== undefined) return cargoMutants(ctx, anchor, join(cargo, 'Cargo.toml'));
   const root = sourceRoot(ctx, anchor);
   const pkg = findUp(dirname(anchor.path), (dir) => existsSync(join(dir, 'package.json')), ctx.projectDir);
-  if (pkg !== undefined && isScript(anchor.path, ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'])) {
+  if (pkg !== undefined && isScript(anchor.path, JS_FAMILY)) {
     const stryker = resolveFrom(pkg, '@stryker-mutator/core/package.json');
-    if (stryker !== undefined) return strykerTool(ctx, pkg, stryker);
+    if (stryker !== undefined) return strykerTool(ctx, anchor, pkg, stryker);
     return genericTool(ctx, anchor, root, [`Stryker is not installed for ${display(ctx, pkg)} (npm install --save-dev @stryker-mutator/core), so the generic source mutator ran.`]);
   }
-  if (!anchor.script && (await sourceFiles(ctx, root)).some((f) => C_FAMILY.includes(extname(f)))) {
+  if (!anchor.script && (await sourceFiles(ctx, root, anchor.path)).some((f) => C_FAMILY.includes(extname(f)))) {
     const mull = findMull();
     if (mull !== undefined) return mullTool(ctx, root, mull);
     return genericTool(ctx, anchor, root, ['mull and its clang are not on the PATH, so the generic source mutator ran.']);
@@ -84,6 +84,7 @@ export async function chooseTool(ctx: ToolContext): Promise<Tool> {
 }
 
 const C_FAMILY = ['.c', '.h', '.cc', '.cpp', '.cxx', '.hh', '.hpp', '.hxx'];
+const JS_FAMILY = ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx'];
 
 /** The file a program's source is found from: its script when it has one, else its executable; `script` when it runs as it is. */
 async function sourceAnchor(ctx: ToolContext, program: ProgramCommand): Promise<{ path: string; script: boolean }> {
@@ -135,14 +136,21 @@ const TEST_DIRS = new Set(['test', 'tests', '__tests__', 'spec']);
 
 /**
  * The source files under `root` the generic fallback mutates (paths relative to `root`), leaving
- * out tests and the reference: its script or executable, and its directory unless that is `root`.
+ * out tests and the reference: its script or executable, and its source tree. That is the top
+ * directory of the project holding the reference (`ref/` for `ref/bin/tool`), or else the
+ * reference's own directory, whichever doesn't also hold the candidate (`candidate`, its script or
+ * executable).
  */
-async function sourceFiles(ctx: ToolContext, root: string): Promise<string[]> {
+async function sourceFiles(ctx: ToolContext, root: string, candidate: string): Promise<string[]> {
   const reference = await sourceAnchor(ctx, ctx.reference).then(
     (a) => a.path,
     () => undefined,
   );
-  const referenceDir = reference === undefined ? undefined : dirname(reference);
+  let referenceDir: string | undefined;
+  if (reference !== undefined) {
+    const top = isInside(ctx.projectDir, reference) ? join(ctx.projectDir, relative(ctx.projectDir, reference).split(sep)[0]!) : undefined;
+    referenceDir = [top, dirname(reference)].find((dir) => dir !== undefined && dir !== reference && !isInside(dir, candidate));
+  }
   const files: string[] = [];
   const walk = async (dir: string): Promise<void> => {
     for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => (a.name < b.name ? -1 : 1))) {
@@ -313,13 +321,13 @@ const shellQuote = (word: string) => `'${word.replace(/'/g, `'\\''`)}'`;
  * in Stryker's sandbox (a copy of the package) with the mutant switched on by environment. Stryker
  * builds once for all mutants, so every mutant is tested; `--mutants` doesn't apply.
  */
-async function strykerTool(ctx: ToolContext, pkg: string, strykerPackage: string): Promise<Tool> {
+async function strykerTool(ctx: ToolContext, anchor: { path: string }, pkg: string, strykerPackage: string): Promise<Tool> {
   return {
     notes: [],
     async run() {
       const meta = JSON.parse(await readFile(strykerPackage, 'utf8')) as { version: string; bin: Record<string, string> };
       const bin = join(dirname(strykerPackage), meta.bin.stryker!);
-      const mutate = (await sourceFiles(ctx, pkg)).filter((f) => isScript(f, ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx']));
+      const mutate = (await sourceFiles(ctx, pkg, anchor.path)).filter((f) => isScript(f, JS_FAMILY));
       if (mutate.length === 0) return { tool: `Stryker ${meta.version}`, generated: 0, results: [], notes: [], why: `no JS/TS source in ${display(ctx, pkg)}` };
       const specPath = await writeSpec(ctx, { ...ctx.spec, root: pkg, passNewEnv: true });
       const report = join(ctx.workDir, 'stryker', 'mutation.json');
@@ -457,7 +465,7 @@ async function genericTool(ctx: ToolContext, anchor: { path: string; script: boo
   return {
     notes,
     async run() {
-      const files = await sourceFiles(ctx, root);
+      const files = await sourceFiles(ctx, root, anchor.path);
       const all: SourceMutant[] = [];
       const texts = new Map<string, string>();
       for (const file of files) {

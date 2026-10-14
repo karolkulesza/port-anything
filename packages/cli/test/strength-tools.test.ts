@@ -98,6 +98,18 @@ describe('strength picks its mutation tool', { timeout: 120_000 }, () => {
     expect([...json.caught_mutants, ...json.survivors].every((name: string) => name.startsWith('tool.js:'))).toBe(true);
   });
 
+  it("never mutates the reference's source tree, even when the source root holds both", async () => {
+    // A package.json at the top makes the whole project the candidate's source root.
+    const cwd = makeProject(
+      { 'package.json': '{"name": "both", "private": true}', 'ref/bin/tool.js': JS_TOOL, 'ref/src/helper.js': 'module.exports = (a, b) => a + b;\n', 'port/tool.js': JS_TOOL },
+      '{ cmd: ./port/tool.js }',
+    );
+    writeFileSync(join(cwd, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./ref/bin/tool.js }\ncandidate: { cmd: ./port/tool.js }\n');
+    const json = JSON.parse((await strength(cwd, ['--json'])).stdout);
+    expect(json).toMatchObject({ tool: 'port-anything generic source mutator', generated: 6 });
+    expect([...json.caught_mutants, ...json.survivors].every((name: string) => name.startsWith('port/tool.js:'))).toBe(true);
+  });
+
   it('refuses a candidate whose source is outside the project, since it mutates a copy of the project', async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-strength-outside-')));
     try {
