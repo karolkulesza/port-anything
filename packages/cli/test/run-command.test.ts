@@ -14,6 +14,18 @@ case "$1" in
 esac
 `;
 
+// A racy port: every other run of a command gets upper wrong. Its run counts live in $PA_TEST_STATE.<command>.
+const RACY = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ $((n % 2)) = 0 ]; then cat; else tr 'a-z' 'A-Z'; fi ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
@@ -44,6 +56,7 @@ describe('executeRun', () => {
     for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
+    writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -95,7 +108,7 @@ describe('executeRun', () => {
       reference: './bin/tool',
       cases: 3,
       candidates: [
-        { command: './bin/tool-copy', match: 3, diverge: 0, divergences: [] },
+        { command: './bin/tool-copy', match: 3, diverge: 0, divergences: [], flaky_candidate: [] },
         {
           command: './bin/tool-bad',
           match: 1,
@@ -104,9 +117,49 @@ describe('executeRun', () => {
             { case: cases[1]!.id, fields: ['stdout'] },
             { case: cases[2]!.id, fields: ['exit'] },
           ],
+          flaky_candidate: [],
         },
       ],
     });
+  });
+
+  it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
+    let state = 0;
+    const racy = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidates: [{ cmd: './bin/tool-copy' }, { cmd: './bin/tool-racy' }],
+            sandbox: { env: { PA_TEST_STATE: join(project, `racy-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await racy(false);
+    expect(text.exitCode).toBe(1);
+    expect(text.stdout).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'reference ./bin/tool',
+        'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
+        'candidate 2 ./bin/tool-racy: 2 of 3 cases match, 1 diverge (1 flaky-candidate)',
+        '  flaky-candidate, a re-run gave a different result:',
+        `    ${shortCaseId(cases[1]!.id)}  stdout`,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await racy(true)).stdout);
+    expect(json.candidates[1]).toEqual({
+      command: './bin/tool-racy',
+      match: 2,
+      diverge: 1,
+      divergences: [],
+      flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+    });
+    // Scores lower than the faithful port, not 2 of 2 as it would if flaky cases were dropped.
+    expect(json.candidates[1].match / json.cases).toBeLessThan(json.candidates[0].match / json.cases);
   });
 
   it('runs the --candidate programs instead of the configured ones, and exits 0 when all match', async () => {

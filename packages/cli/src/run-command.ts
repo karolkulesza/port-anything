@@ -91,7 +91,8 @@ export interface ExecuteRunOptions {
 
 /**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
- * diverge (exact comparison). Exit code 0 when every candidate matches on every case, 1 when any
+ * diverge (exact comparison), listing apart the flaky-candidate ones (a re-run gave a different
+ * result), which still count as diverging. Exit code 0 when every candidate matches on every case, 1 when any
  * case diverges, 3 when the run can't start (config, programs, sandbox).
  */
 export async function executeRun(options: ExecuteRunOptions): Promise<CliResult> {
@@ -153,10 +154,17 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
     reference: display(config.reference.cmd),
     cases: result.cases.length,
     candidates: commands.map((command, i) => {
-      const divergences = result.cases
-        .filter((c) => c.candidates[i]!.comparison.verdict === 'diverge')
-        .map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
-      return { command: display(command), match: result.cases.length - divergences.length, diverge: divergences.length, divergences };
+      const diverging = result.cases.filter((c) => c.candidates[i]!.comparison.verdict === 'diverge');
+      const list = (flaky: boolean) =>
+        diverging.filter((c) => c.candidates[i]!.flaky === flaky).map((c) => ({ case: c.caseId, fields: c.candidates[i]!.comparison.fields }));
+      // Flaky-candidate cases count as diverging but are listed apart from the steady divergences.
+      return {
+        command: display(command),
+        match: result.cases.length - diverging.length,
+        diverge: diverging.length,
+        divergences: list(false),
+        flaky_candidate: list(true),
+      };
     }),
   };
   const exitCode = summary.candidates.some((c) => c.diverge > 0) ? 1 : 0;
@@ -164,8 +172,11 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
 
   const lines = [`Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`, `reference ${summary.reference}`];
   for (const [i, c] of summary.candidates.entries()) {
-    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
+    const flaky = c.flaky_candidate.length > 0 ? ` (${c.flaky_candidate.length} flaky-candidate)` : '';
+    lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge${flaky}` : ''}`);
     for (const d of c.divergences) lines.push(`  ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
+    for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
