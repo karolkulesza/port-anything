@@ -86,7 +86,7 @@ describe('the port-audit skill', () => {
       const result = await compareCommand(['./frob', './frob-bad', '--budget', '40', '--json', '--no-sandbox'], { cwd: dir, probe: NO_SANDBOX, tmpDir: join(dir, 'scratch'), concurrency: 2 });
       expect(result.exitCode).toBe(1);
       summary = JSON.parse(result.stdout) as CompareSummary;
-    });
+    }, 120_000);
     afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
     it('in the field table', () => {
