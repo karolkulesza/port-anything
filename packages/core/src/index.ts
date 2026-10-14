@@ -176,3 +176,16 @@ export {
   type ScopeEntry,
   type SideContext,
 } from './normalize.js';
+export {
+  DEFAULT_STRENGTH_MUTANTS,
+  applyMutant,
+  isMutableSource,
+  parseElementsReport,
+  sampleMutants,
+  scoreMutants,
+  sourceMutants,
+  type MutantResult,
+  type MutantStatus,
+  type SourceMutant,
+  type StrengthScore,
+} from './strength.js';
