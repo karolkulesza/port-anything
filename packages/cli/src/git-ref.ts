@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
-import { isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { ConfigError } from '@port-anything/core';
 
@@ -100,4 +100,28 @@ export async function runBuild(build: string, dir: string): Promise<void> {
 export function isInside(path: string, dir: string): boolean {
   const rel = relative(dir, path);
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/**
+ * An absolute path into the repository, as the same path in the checkout; undefined for a relative
+ * path or one outside the repository. Links are followed as far as the path exists, so a path
+ * through a linked prefix (macOS's /var is /private/var) still counts as inside.
+ */
+export async function rerootPath(path: string, checkout: Pick<GitCheckout, 'worktree' | 'repoTop'>): Promise<string | undefined> {
+  if (!isAbsolute(path)) return undefined;
+  let existing = path;
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      existing = await realpath(existing);
+      break;
+    } catch {
+      const parent = dirname(existing);
+      if (parent === existing) return undefined;
+      rest.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+  const real = join(existing, ...rest);
+  return isInside(real, checkout.repoTop) ? join(checkout.worktree, relative(checkout.repoTop, real)) : undefined;
 }

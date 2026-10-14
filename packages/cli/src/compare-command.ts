@@ -1,6 +1,6 @@
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
@@ -35,7 +35,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, resolveCommand, type CliResult } from './common.js';
-import { checkoutRev, isInside, parseGitRef, removeCheckout, runBuild, type GitCheckout } from './git-ref.js';
+import { checkoutRev, isInside, parseGitRef, removeCheckout, rerootPath, runBuild, type GitCheckout } from './git-ref.js';
 
 /** Generated cases `compare` runs unless `--budget` says otherwise. */
 export const DEFAULT_COMPARE_BUDGET = 500;
@@ -300,9 +300,10 @@ async function gitReferenceCommand(args: CompareArgs, cwd: string): Promise<GitR
 }
 
 /**
- * Finds the reference in the checkout: relative paths start at the checkout's copy of the project
- * directory, and an absolute path into the repository points into the checkout instead. A program
- * outside the checkout would be the same at every commit, so it's refused.
+ * Finds the reference in the checkout: a relative executable starts at the checkout's copy of the
+ * project directory, and an absolute path into the repository (the executable, or an argument such
+ * as the script of `python3 /repo/tool.py`) points into the checkout instead. A command with
+ * nothing in the checkout would be the same at every commit, so it's refused.
  */
 async function resolveAtCommit(ref: GitReferenceCommand, checkout: GitCheckout): Promise<ResolvedProgram> {
   let command: ProgramCommand;
@@ -311,9 +312,9 @@ async function resolveAtCommit(ref: GitReferenceCommand, checkout: GitCheckout):
   } catch (e) {
     throw new ConfigError((e as Error).message);
   }
-  if (isAbsolute(command.executable) && isInside(command.executable, checkout.repoTop)) {
-    command = { ...command, executable: join(checkout.worktree, relative(checkout.repoTop, command.executable)) };
-  }
+  const executable = (await rerootPath(command.executable, checkout)) ?? command.executable;
+  const args = await Promise.all(command.args.map(async (arg) => ({ arg, rerooted: await rerootPath(arg, checkout) })));
+  command = { ...command, executable, args: args.map((a) => a.rerooted ?? a.arg) };
   const at = `in the checkout of git:${checkout.rev}${ref.build === undefined ? ` (no reference.build in ${CONFIG_FILE} ran there)` : ' after reference.build'}`;
   let program: ResolvedProgram;
   try {
@@ -321,9 +322,9 @@ async function resolveAtCommit(ref: GitReferenceCommand, checkout: GitCheckout):
   } catch (e) {
     throw new ConfigError(`${(e as Error).message.replace(/\.$/, '')} ${at}.`);
   }
-  if (!isInside(program.path, checkout.worktree)) {
+  if (!isInside(program.path, checkout.worktree) && !args.some((a) => a.rerooted !== undefined)) {
     throw new ConfigError(
-      `The reference ${display(ref.cmd)} is ${program.path}, outside the repository, so it is the same program at every commit; give its path in the repository, such as ./target/release/${basename(program.path)}.`,
+      `Nothing in the reference ${display(ref.cmd)} is in the repository (it runs ${program.path}), so it would be the same program at every commit. Give the program's path in the repository (./bin/tool), or, for a script run by an interpreter, the script's absolute path (python3 ${join(checkout.repoTop, 'tool.py')}).`,
     );
   }
   return program;

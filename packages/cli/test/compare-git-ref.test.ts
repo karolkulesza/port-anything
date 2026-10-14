@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { probeSandbox, type SandboxProbe } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { compareCommand, parseCompareArgs, type CompareSummary } from '../src/compare-command.js';
@@ -200,7 +200,11 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
 
     const onPath = await compare(['--ref', 'git:HEAD', 'cat']);
     expect(onPath.exitCode).toBe(3);
-    expect(onPath.stderr).toMatch(/The reference cat is .*cat, outside the repository, so it is the same program at every commit/);
+    expect(onPath.stderr).toMatch(/Nothing in the reference cat is in the repository \(it runs .*cat\), so it would be the same program at every commit\. Give the program's path/);
+    // A relative script path is not resolved for an interpreter (cases run in their own directory).
+    const relativeScript = await compare(['--ref', 'git:HEAD', 'sh ./tool/frob']);
+    expect(relativeScript.exitCode).toBe(3);
+    expect(relativeScript.stderr).toMatch(/Nothing in the reference sh \.\/tool\/frob is in the repository[\s\S]*the script's absolute path \(python3 .*\/tool\.py\)/);
     expectCleanedUp();
   });
 
@@ -231,6 +235,37 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
     expect(summary.candidates[0]!.per_feature.find((f) => f.feature === 'opt.upper')!.parity).toBeLessThan(1);
     expect(summary.candidates[0]!.per_feature.find((f) => f.feature === 'base')!.parity).toBe(1);
     expectCleanedUp();
+  });
+
+  it('runs a script the reference passes to an interpreter from the checkout, by its absolute path', async () => {
+    write('tool/frob', TOOL('v1'));
+    commit('v1');
+    write('tool/frob', TOOL('ignores-upper'));
+    commit('refactor');
+    const command = `sh ${join(repo, 'tool/frob')}`;
+    const changed = await json(['--ref', 'git:HEAD~1', command, '--budget', '40']);
+    expect(changed.exitCode).toBe(1);
+    expect(changed.summary.git!.cmd).toBe(command);
+    expect(changed.summary.program_name).toBe('sh');
+    expect(changed.summary.candidates[0]!.per_feature.find((f) => f.feature === 'opt.upper')!.parity).toBeLessThan(1);
+    expect((await json(['--ref', 'git:HEAD', command, '--budget', '40'])).exitCode).toBe(0);
+    expectCleanedUp();
+  });
+
+  it('follows links in an absolute path, so a path through a linked directory still points into the checkout', async () => {
+    write('tool/frob', TOOL('v1'), 0o755);
+    commit('v1');
+    write('tool/frob', TOOL('ignores-upper'), 0o755);
+    symlinkSync(repo, join(scratch, '..', `${basename(scratch)}-link`));
+    const link = join(scratch, '..', `${basename(scratch)}-link`);
+    try {
+      const { exitCode, summary } = await json(['--ref', 'git:HEAD', join(link, 'tool/frob'), '--budget', '40']);
+      expect(exitCode).toBe(1);
+      expect(summary.candidates[0]!.per_feature.find((f) => f.feature === 'opt.upper')!.parity).toBeLessThan(1);
+      expectCleanedUp();
+    } finally {
+      rmSync(link);
+    }
   });
 
   it('is reachable from the command line', async () => {
