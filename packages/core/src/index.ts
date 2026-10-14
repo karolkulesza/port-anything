@@ -32,8 +32,21 @@ export {
   type SandboxAttempt,
   type SandboxChoice,
   type SandboxCommand,
+  type SandboxCommandOptions,
   type SandboxHost,
   type SandboxKind,
   type SandboxProbe,
   type SandboxSetup,
 } from './sandbox.js';
+export {
+  BASE_ENV_ALLOWLIST,
+  DEFAULT_CASE_ENV,
+  DEFAULT_KILL_GRACE_MS,
+  DEFAULT_OUTPUT_CAP_BYTES,
+  DEFAULT_TIMEOUT_MS,
+  caseEnvironment,
+  runProcess,
+  type CaseEnvironmentOptions,
+  type ProcessResult,
+  type ProcessSpec,
+} from './process-runner.js';
