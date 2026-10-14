@@ -15,8 +15,9 @@ import { tmpdir } from 'node:os';
  *
  * None is a strong security boundary: they keep a trusted program from touching the network or
  * (except unshare) files outside its workdir by accident. Under bwrap, a Unix socket the user keeps
- * somewhere in their own files (not under /tmp or /run) stays reachable; under sandbox-exec, Mach
- * services (the macOS system daemons) do.
+ * somewhere in their own files (not under /tmp or /run) stays reachable. Under sandbox-exec, the
+ * macOS system services (other than the preferences daemon) do: the pasteboard (pbcopy),
+ * notifications, and LaunchServices (`open` can start apps outside the sandbox).
  */
 export type SandboxKind = 'bwrap' | 'unshare' | 'sandbox-exec' | 'none';
 
@@ -51,6 +52,9 @@ export const SEATBELT_PROFILE = [
   '(deny network*)',
   '(deny file-write*)',
   '(allow file-write* (subpath (param "WORKDIR")))',
+  // The preferences daemon writes ~/Library/Preferences on the caller's behalf (`defaults write`,
+  // NSUserDefaults), which would get around the rule above and carry state from case to case.
+  '(deny mach-lookup (global-name "com.apple.cfprefsd.daemon") (global-name "com.apple.cfprefsd.agent"))',
   // Pipes and the standard devices. Not /dev/tty: a case has no terminal.
   '(allow file-write-data (literal "/dev/null") (literal "/dev/zero") (literal "/dev/stdout") (literal "/dev/stderr") (regex #"^/dev/fd/[0-9]+$"))',
   // A case could otherwise signal any of the user's processes (kill -9 -1).

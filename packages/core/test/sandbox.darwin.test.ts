@@ -118,6 +118,18 @@ describe.runIf(process.platform === 'darwin')('local sandbox (macOS)', () => {
     expect(readFileSync(victim, 'utf8')).toBe('original\n');
   });
 
+  it("a case can't write the user's preferences through cfprefsd", async () => {
+    // The preferences daemon writes ~/Library/Preferences for the caller, outside any sandbox.
+    const domain = `dev.port-anything.test-${process.pid}`;
+    const plist = join(homedir(), 'Library', 'Preferences', `${domain}.plist`);
+    try {
+      await runCase(SEATBELT, ['defaults', 'write', domain, 'key', 'value']);
+      expect(existsSync(plist)).toBe(false);
+    } finally {
+      rmSync(plist, { force: true });
+    }
+  });
+
   it("a case can't signal the user's other processes, but can signal its own", async () => {
     const victim = spawn('sleep', ['30'], { stdio: 'ignore' });
     try {

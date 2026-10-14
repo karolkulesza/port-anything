@@ -100,6 +100,7 @@ describe('sandboxCommand', () => {
       expect(rules).toContain('(deny network*)');
       expect(rules).toContain('(deny file-write*)');
       expect(rules).toContain('(allow file-write* (subpath (param "WORKDIR")))');
+      expect(rules).toContain('(deny mach-lookup (global-name "com.apple.cfprefsd.daemon") (global-name "com.apple.cfprefsd.agent"))');
       expect(rules).toContain('(deny signal)');
       expect(rules).toContain('(allow signal (target same-sandbox))');
       // Later rules win: the workdir exception must follow the blanket write denial.
