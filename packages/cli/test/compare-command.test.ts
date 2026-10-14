@@ -65,8 +65,8 @@ describe('scoreParity', () => {
     ...Array.from({ length: diverge }, () => ({ features: feature, match: false })),
   ];
 
-  it('averages per-feature parity, counting a case in each of its features and untagged cases in base', () => {
-    const score = scoreParity([...cases(['opt.a'], 2, 2), ...cases([], 4, 0), ...cases(['opt.a', 'opt.b'], 1, 0)], self, 2);
+  it('averages per-feature parity, counting a case in each of its features and untagged cases only in the totals', () => {
+    const score = scoreParity([...cases(['opt.a'], 2, 2), ...cases(['base'], 4, 0), ...cases(['opt.a', 'opt.b'], 1, 0), ...cases([], 0, 3)], self, 2);
     expect(score.per_feature.map((f) => [f.feature, f.match, f.cases])).toEqual([
       ['base', 4, 4],
       ['opt.a', 3, 5],
@@ -75,7 +75,7 @@ describe('scoreParity', () => {
     // opt.b has one case, under the minimum of 2: shown, left out of the headline.
     expect(score.per_feature.find((f) => f.feature === 'opt.b')!.underSampled).toBe(true);
     expect(score.parity).toBeCloseTo((1 + 3 / 5) / 2);
-    expect(score).toMatchObject({ features: 2, match: 7, cases: 9 });
+    expect(score).toMatchObject({ features: 2, match: 7, cases: 12 });
   });
 
   it('leaves self-description features out of the headline, and has no headline without a qualifying feature', () => {

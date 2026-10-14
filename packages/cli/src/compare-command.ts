@@ -38,8 +38,6 @@ export const DEFAULT_COMPARE_BUDGET = 500;
 export const COMPARE_SEED = 42;
 /** Reference runs per case that look for output varying between runs. */
 export const COMPARE_REPEATS = 2;
-/** The implicit feature of cases without flags (positional arguments and stdin only). */
-export const BASE_FEATURE = 'base';
 
 /** The arguments of `port-anything compare`. */
 export interface CompareArgs {
@@ -279,14 +277,15 @@ export interface Parity {
 
 /**
  * Per-feature parity and the headline: the mean over features, so each feature weighs the same
- * however many cases it has. A case counts once in each of its features, and in `base` when it has
- * none. Self-description features and features with fewer than `minCases` cases are reported but
- * left out of the headline.
+ * however many cases it has. A case counts once in each of its features. The generator tags cases
+ * without flags `base`; the cases it leaves untagged (unknown flags) count only in the case totals.
+ * Self-description features and features with fewer than `minCases` cases are reported but left
+ * out of the headline.
  */
 export function scoreParity(cases: readonly ParityCase[], selfDescription: ReadonlySet<string>, minCases = DEFAULT_MIN_CASES_PER_FEATURE): Parity {
   const counts = new Map<string, { match: number; cases: number }>();
   for (const c of cases) {
-    for (const feature of c.features.length > 0 ? c.features : [BASE_FEATURE]) {
+    for (const feature of new Set(c.features)) {
       const n = counts.get(feature) ?? { match: 0, cases: 0 };
       n.cases++;
       if (c.match) n.match++;
