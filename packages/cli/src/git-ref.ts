@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { ConfigError } from '@port-anything/core';
@@ -41,11 +41,14 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
 }
 
 /**
- * Checks out `rev` of the repository holding `cwd` in a new worktree at `worktree` (detached, so
- * no branch is created or moved). The working copy of `cwd` is left alone, uncommitted changes
- * included. Remove it with `removeCheckout`.
+ * Checks out `rev` of the repository holding `cwd` in a new worktree (detached, so no branch is
+ * created or moved). The working copy of `cwd` is left alone, uncommitted changes included. The
+ * worktree goes in the repository's git directory rather than the system's temporary directory:
+ * that is visible inside the sandbox wherever the working copy is (bwrap hides /tmp), so files the
+ * reference loads from next to itself are there too, and it is never mounted noexec. Remove it
+ * with `removeCheckout`.
  */
-export async function checkoutRev(cwd: string, rev: string, worktree: string): Promise<GitCheckout> {
+export async function checkoutRev(cwd: string, rev: string): Promise<GitCheckout> {
   let repoTop: string;
   try {
     repoTop = await realpath(await git(cwd, ['rev-parse', '--show-toplevel']));
@@ -58,7 +61,14 @@ export async function checkoutRev(cwd: string, rev: string, worktree: string): P
   } catch {
     throw new ConfigError(`--ref git:${rev}: "${rev}" names no commit in ${repoTop}.`);
   }
-  await git(repoTop, ['worktree', 'add', '--detach', '--quiet', worktree, commit]);
+  const gitDir = await git(repoTop, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const worktree = await realpath(await mkdtemp(join(gitDir, 'port-anything-ref-')));
+  try {
+    await git(repoTop, ['worktree', 'add', '--detach', '--quiet', worktree, commit]);
+  } catch (e) {
+    await rm(worktree, { recursive: true, force: true });
+    throw e;
+  }
   const projectDir = join(worktree, relative(repoTop, await realpath(cwd)));
   return { rev, commit, worktree, projectDir, repoTop };
 }

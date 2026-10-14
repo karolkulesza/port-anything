@@ -163,7 +163,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
   try {
     let git: CompareSummary['git'];
     if (gitReference !== undefined) {
-      checkout = await checkoutRev(options.cwd, args.gitRev!, join(scratch, 'ref'));
+      checkout = await checkoutRev(options.cwd, args.gitRev!);
       const where = `git:${checkout.rev} (${checkout.commit.slice(0, 7)})`;
       if (gitReference.build === undefined) progress(`checking out ${where} in a temporary worktree …`);
       else {

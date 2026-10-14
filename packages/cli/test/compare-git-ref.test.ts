@@ -72,7 +72,8 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
   };
 
   beforeEach(() => {
-    repo = realpathSync(mkdtempSync(join(tmpdir(), 'pa-git-ref-')));
+    // Not in /tmp on Linux: bwrap hides it, and the sandboxed test needs the repository visible.
+    repo = realpathSync(mkdtempSync(join(process.platform === 'linux' ? '/var/tmp' : tmpdir(), 'pa-git-ref-')));
     scratch = realpathSync(mkdtempSync(join(tmpdir(), 'pa-git-ref-scratch-')));
     git(repo, 'init', '-q');
   });
@@ -91,6 +92,7 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
   /** Only the main working tree is left, and no scratch files. */
   const expectCleanedUp = () => {
     expect(git(repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
+    expect(readdirSync(join(repo, '.git')).filter((f) => f.startsWith('port-anything'))).toEqual([]);
     expect(readdirSync(scratch)).toEqual([]);
   };
 
@@ -211,11 +213,13 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
     expect(summary.git!.cmd).toBe(join(repo, 'tool/frob'));
   });
 
-  // The checkout sits in the scratch directory, outside the project: the sandbox must still run it.
-  it.runIf(process.platform === 'darwin' || (process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === '1'))('runs the checked-out reference in the sandbox', async () => {
-    write('tool/frob', TOOL('v1'), 0o755);
+  // The reference is a wrapper that runs a script next to its real path, so the sandbox must show
+  // the whole checkout, not only the program file, on both sides.
+  it.runIf(process.platform === 'darwin' || (process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === '1'))('runs the checked-out reference in the sandbox, with the files next to it', async () => {
+    write('tool/frob', '#!/bin/sh\nexec sh "$(dirname "$(readlink -f "$0")")/frob-impl.sh" "$@"\n', 0o755);
+    write('tool/frob-impl.sh', TOOL('v1'));
     commit('v1');
-    write('tool/frob', TOOL('ignores-upper'), 0o755);
+    write('tool/frob-impl.sh', TOOL('ignores-upper'));
     commit('refactor');
     const probe = await probeSandbox();
     expect(probe.usable).toBeDefined();
