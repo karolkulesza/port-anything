@@ -13,6 +13,13 @@ description = "Rust port of the wc-lite reference, used to test Port Anything"
 bad-off-by-one = []
 bad-crlf = []
 bad-exit-code = []
+bad-missing-flag = []
+bad-rounding = []
+bad-ordering = []
+bad-racy = []
+bad-program-name = []
+bad-double-dash = []
+bad-words = []
 
 [profile.release]
 debug = false

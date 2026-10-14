@@ -10,7 +10,9 @@ finds real bugs and reports no false ones.
 - `port/`: the Rust port, which must behave exactly like the reference.
 - `port-anything.yaml` and `port-anything/recorded/recorded.jsonl`: the config and the cases.
   The corpus is small, so the config scores features with as few as 3 cases (the default
-  minimum is 20); `help` and `version` are reported on their own, outside the parity.
+  minimum is 20); `help` and `version` are reported on their own, outside the parity. stderr is
+  compared byte for byte (`compare.fields.stderr.mode: exact`), since the port copies every message;
+  the default, loose, would let a wrong program name in an error through.
 
 ## Bad ports
 
@@ -21,6 +23,17 @@ Each cargo feature of the port compiles in one deliberate bug:
 | `bad-off-by-one` | counts a last line without a newline as a line | stdout |
 | `bad-crlf` | leaves the CR of a CRLF line ending out of `-L` | stdout |
 | `bad-exit-code` | exits 1 instead of 2 on a usage error | exit code |
+| `bad-missing-flag` | has no `-m`: it is an invalid option | stdout, stderr, exit code |
+| `bad-rounding` | rounds a tab up to a tab stop, so a tab already at one doesn't move | stdout |
+| `bad-ordering` | reads several files last to first | stdout (line order) |
+| `bad-racy` | adds a different amount to `-L` on every run (stands in for a race) | stdout, flaky-candidate |
+| `bad-program-name` | starts its errors with `wc` instead of the name it runs as | stderr |
+| `bad-double-dash` | reads an option after `--` as an option, not a file | stdout, stderr, exit code |
+| `bad-words` | ends a word only at a space, not at a tab or a newline | stdout |
+
+The racy one diverges differently on each run, so its cases are listed as flaky-candidate (they
+count as divergences) instead of forming a cluster. The test suite runs every bad port and checks
+that each one is caught, lands in its expected cluster and minimizes to its expected repro.
 
 ## Running it
 
