@@ -229,7 +229,7 @@ const percent = (p: number) => `${(Math.floor(p * 1000 + 1e-9) / 10).toFixed(1)}
 /**
  * `strength --check <spec> [--executable <path>]`: runs the spec's cases on the candidate (with
  * `--executable` in place of its executable: the mutant the tool built) and stops at the first
- * divergence. Exit code 0 when every case still matches (the mutant survives), 1 when one diverges
+ * divergence that a re-run of the case confirms. Exit code 0 when every case still matches (the mutant survives), 1 when one diverges
  * (caught), 3 when the check can't run; then it also appends why to the spec's error log.
  */
 async function checkCommand(argv: readonly string[]): Promise<CliResult> {
@@ -239,7 +239,8 @@ async function checkCommand(argv: readonly string[]): Promise<CliResult> {
     if (positionals.length !== 1) throw new ConfigError('Usage: port-anything strength --check <spec.json> [--executable <path>]');
     spec = JSON.parse(await readFile(positionals[0]!, 'utf8')) as CheckSpec;
     const verdict = await runCheck(spec, values.executable === undefined ? {} : { executable: values.executable });
-    return verdict.diverged === undefined ? { exitCode: 0, stdout: 'every case matches\n', stderr: '' } : { exitCode: 1, stdout: `case ${verdict.diverged} diverges\n`, stderr: '' };
+    if (verdict.diverged === undefined) return { exitCode: 0, stdout: 'every case matches\n', stderr: '' };
+    return { exitCode: 1, stdout: `case ${verdict.diverged.case} diverges: ${verdict.diverged.fields.join(', ')}\n`, stderr: '' };
   } catch (e) {
     const message = e instanceof ConfigError || e instanceof SandboxUnavailableError ? e.message : e instanceof Error ? (e.stack ?? e.message) : String(e);
     if (spec?.errors !== undefined) await appendFile(spec.errors, `${message.trimEnd()}\n`).catch(() => {});
@@ -255,8 +256,8 @@ export interface CheckOverrides {
   probe?: SandboxProbe;
 }
 
-/** Runs the spec's cases on the (mutated) candidate until one diverges. */
-export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}): Promise<{ diverged?: string }> {
+/** Runs the spec's cases on the (mutated) candidate until one diverges twice in a row. */
+export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}): Promise<{ diverged?: { case: string; fields: string[] } }> {
   const projectDir = overrides.project ?? spec.project;
   const config = await readConfigFile(projectDir);
   const wanted = new Set(spec.cases);
@@ -275,14 +276,20 @@ export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}):
   });
   const workDir = scratchDir(projectDir);
   const STOP = Symbol('diverged');
-  let diverged: string | undefined;
+  let diverged: { case: string; fields: string[] } | undefined;
   try {
     const runner = await openCaseRunner({ ...sides.runner, workDir, rerun: false });
     await mapPool(cases, spec.concurrency, async (c, _index, slot) => {
-      const result = await runner.run(c, slot);
-      if (result.candidates[0]!.comparison.verdict === 'diverge') {
-        diverged ??= c.id;
-        throw STOP; // no new case starts
+      // A divergence counts once a re-run confirms it: a case that times out under the load of
+      // parallel builds must not make a mutant look caught.
+      for (let run = 0; run < 2; run++) {
+        const result = await runner.run(c, slot);
+        const comparison = result.candidates[0]!.comparison;
+        if (comparison.verdict === 'match') return;
+        if (run === 1) {
+          diverged ??= { case: c.id, fields: comparison.fields };
+          throw STOP; // no new case starts
+        }
       }
     }).catch((e: unknown) => {
       if (e !== STOP) throw e;

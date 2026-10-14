@@ -39,7 +39,7 @@ export interface ToolContext {
   jobs: number;
   caseTimeoutMs: number;
   /** Checks a mutant in this process (the generic fallback). */
-  check: (spec: CheckSpec, overrides: CheckOverrides) => Promise<{ diverged?: string }>;
+  check: (spec: CheckSpec, overrides: CheckOverrides) => Promise<{ diverged?: { case: string; fields: string[] } }>;
 }
 
 export interface ToolRun {

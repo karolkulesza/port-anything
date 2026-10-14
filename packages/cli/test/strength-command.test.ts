@@ -173,7 +173,19 @@ describe('strength --check', () => {
     expect(await runCheck(spec(cwd, await ids(cwd)), { probe: NO_SANDBOX })).toEqual({});
     writeFileSync(join(cwd, 'port', 'tool.js'), TOOL.replace('+ Number(b)', '- Number(b)'));
     const [add] = await ids(cwd);
-    expect(await runCheck(spec(cwd, await ids(cwd)), { probe: NO_SANDBOX })).toEqual({ diverged: add });
+    expect(await runCheck(spec(cwd, await ids(cwd)), { probe: NO_SANDBOX })).toEqual({ diverged: { case: add, fields: ['stdout'] } });
+  });
+
+  it('counts a divergence only when a re-run of the case confirms it', async () => {
+    const cwd = makeProject();
+    // Wrong on every other run, as a case that times out under load would be: never twice in a row.
+    const counter = join(cwd, 'runs');
+    writeFileSync(
+      join(cwd, 'port', 'tool.js'),
+      TOOL.replace("const [cmd, a, b]", `const fs = require('fs');\nconst n = fs.existsSync(${JSON.stringify(counter)}) ? Number(fs.readFileSync(${JSON.stringify(counter)}, 'utf8')) : 0;\nfs.writeFileSync(${JSON.stringify(counter)}, String(n + 1));\nif (n % 2 === 0) { console.log('?'); process.exit(0); }\nconst [cmd, a, b]`),
+    );
+    expect(await runCheck({ ...spec(cwd, await ids(cwd)), concurrency: 1 }, { probe: NO_SANDBOX })).toEqual({});
+    expect(readFileSync(counter, 'utf8')).toBe('6');
   });
 
   it('runs a given executable in place of the candidate, and takes paths under root from the working directory', async () => {
