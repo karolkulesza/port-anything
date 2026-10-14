@@ -18,6 +18,23 @@ describe('run', () => {
     expect(await run(['compare', 'a', 'b'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"compare" is not available yet/) });
   });
 
+  it('exits 3, not 1, when the run fails unexpectedly', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'pa-cli-crash-'));
+    try {
+      writeFileSync(join(project, 'tool'), '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+      writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./tool }\ncandidate: { cmd: ./tool }\n');
+      mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+      writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["hi"],"origin":"recorded"}\n');
+      mkdirSync(join(project, '.port-anything'));
+      writeFileSync(join(project, '.port-anything', 'tmp'), ''); // the scratch directory can't be created
+      const result = await run(['run', '--no-sandbox'], { cwd: project });
+      expect(result).toMatchObject({ exitCode: 3, stdout: '' });
+      expect(result.stderr).toMatch(/^port-anything: internal error, the run did not finish:\n.*ENOTDIR/);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
   it('dispatches run in the given project directory', async () => {
     const project = mkdtempSync(join(tmpdir(), 'pa-cli-dispatch-'));
     try {
