@@ -24,6 +24,7 @@ export { BlobError, BlobStore, blobRef, cacheDir } from './blob-store.js';
 export type { BlobErrorCode } from './blob-store.js';
 export {
   BWRAP_STATUS_FD,
+  SEATBELT_PROFILE,
   SandboxUnavailableError,
   caseCommandOptions,
   chooseSandbox,
