@@ -216,7 +216,8 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
           features: cases[n]!.features,
           origin: cases[n]!.origin,
           verdict: c.candidates[i]!.comparison.verdict,
-          candidateTimeout: c.candidates[i]!.observation.timeout,
+          // A case the reference also times out on is compared like any other.
+          candidateTimeout: c.candidates[i]!.observation.timeout && !c.reference.timeout,
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
@@ -260,7 +261,7 @@ function scoreLines(score: Score): string[] {
   const features = score.headlineFeatures.length;
   const lines = [
     score.headline === null
-      ? `  parity n/a: no feature has ${score.minCasesPerFeature} scored case${score.minCasesPerFeature === 1 ? '' : 's'} (corpus.min_cases_per_feature)`
+      ? `  parity n/a: no feature outside self-description has ${score.minCasesPerFeature} scored case${score.minCasesPerFeature === 1 ? '' : 's'} (corpus.min_cases_per_feature)`
       : `  parity ${percent(score.headline)}, mean of ${features} feature${features === 1 ? '' : 's'} (${score.raw.match} of ${score.raw.scored} scored cases match)`,
   ];
   const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);

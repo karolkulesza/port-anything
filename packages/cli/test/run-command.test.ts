@@ -13,6 +13,7 @@ case "$1" in
   fail) echo "$(basename "$0"): no" >&2; exit ${variant === 'bad' ? 2 : 1} ;;
   self) echo "$0" ;;
   nap) ${variant === 'bad' ? 'sleep 5' : 'true'} ;;
+  hang) sleep 5 ;;
   warn) echo "${variant === 'ref' ? 'tool: x: cannot open' : variant === 'good' ? 'tool-copy:  x: cannot open ' : 'error: no such thing'}" >&2; exit 1 ;;
 esac
 `;
@@ -80,10 +81,10 @@ describe('executeRun', () => {
         'compare standard (stderr loose, similarity 0.6)',
         'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
-        '  parity n/a: no feature has 20 scored cases (corpus.min_cases_per_feature)',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
         '  under-sampled, not in the parity: base 100.0% (3 cases)',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
-        '  parity n/a: no feature has 20 scored cases (corpus.min_cases_per_feature)',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
         '  under-sampled, not in the parity: base 33.3% (3 cases)',
         '  cluster 1: 1 case · exit 1 vs 2 · features base (1)',
         `    ${shortCaseId(cases[2]!.id)}`,
@@ -379,11 +380,26 @@ describe('executeRun scores', () => {
     expect(score.raw.parity).toBeCloseTo(31 / 35);
   });
 
-  it('counts a candidate timeout as a divergence and says so', async () => {
+  it('counts a candidate timeout as a divergence and says so, unless the reference timed out too', async () => {
     const nap = canonicalCase({ argv: ['nap'], origin: 'recorded' });
-    const { text, score } = await run([nap, ...echo(1, [])], { corpus: { min_cases_per_feature: 1 }, sandbox: { timeout: '500ms' } });
-    expect(text).toContain('  parity 50.0%, mean of 1 feature (1 of 2 scored cases match)\n  1 timed out (diverge)\n');
-    expect(score.raw).toMatchObject({ diverge: 1, timeouts: 1 });
+    const hang = canonicalCase({ argv: ['hang'], origin: 'recorded' });
+    const { text, score } = await run([nap, hang, ...echo(1, [])], { corpus: { min_cases_per_feature: 1 }, sandbox: { timeout: '500ms' } });
+    expect(text).toContain('  parity 66.6%, mean of 1 feature (2 of 3 scored cases match)\n  1 timed out (diverge)\n');
+    expect(score.raw).toMatchObject({ match: 2, diverge: 1, timeouts: 1 });
+  });
+
+  it('rounds the parity down, so only a full match shows 100.0%', async () => {
+    const store = new BlobStore(cacheDir(project));
+    const upper = canonicalCase({ argv: ['upper'], stdin: await store.put('a\n'), features: ['opt.a'], origin: 'recorded' });
+
+    // 2 of 3 is 66.67%: rounding to the nearest would show 66.7%.
+    const { text } = await run([...echo(2, ['opt.a']), upper], { corpus: { min_cases_per_feature: 1 } });
+    expect(text).toContain('  parity 66.6%, mean of 1 feature (2 of 3 scored cases match)\n');
+  });
+
+  it('says why there is no parity when only self-description features have enough cases', async () => {
+    const { text } = await run(echo(2, ['opt.help']), { corpus: { min_cases_per_feature: 2 } });
+    expect(text).toContain('  parity n/a: no feature outside self-description has 2 scored cases (corpus.min_cases_per_feature)\n  self-description, not in the parity: opt.help 100.0% (2 cases)\n');
   });
 });
 
