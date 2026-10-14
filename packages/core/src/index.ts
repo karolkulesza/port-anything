@@ -168,3 +168,4 @@ export {
   type History,
   type HistoryEntry,
 } from './history.js';
+export { GITIGNORED, initProject, type InitOptions, type InitStep } from './init.js';
