@@ -157,3 +157,21 @@ export {
   type ScopeEntry,
   type SideContext,
 } from './normalize.js';
+export {
+  LARGE_WAIVER_SHARE,
+  WAIVERS_FILE,
+  WAIVER_CATEGORIES,
+  WaiverSchema,
+  describeWaiver,
+  matchWaivers,
+  parseWaivers,
+  readWaiversFile,
+  suggestWaivers,
+  suggestedPredicates,
+  waiverCoverage,
+  type WaivableDivergence,
+  type Waiver,
+  type WaiverCoverage,
+  type WaiverMatch,
+  type WaiverPredicate,
+} from './waivers.js';
