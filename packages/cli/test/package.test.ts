@@ -53,6 +53,11 @@ describe('published package (run `pnpm build` first)', () => {
     }
   });
 
+  it("declares the bundled engine's runtime dependencies at the engine's versions", () => {
+    const core = JSON.parse(readFileSync(new URL('../../core/package.json', import.meta.url), 'utf8')) as { dependencies?: Record<string, string> };
+    for (const [name, range] of Object.entries(core.dependencies ?? {})) expect(pkg.dependencies?.[name], name).toBe(range);
+  });
+
   it('packs the built CLI, a README with the compare quickstart and the license, and no sources', async () => {
     const { stdout } = await promisify(execFile)('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: pkgDir });
     const [result] = JSON.parse(stdout) as [{ version: string; files: { path: string }[] }];
