@@ -64,3 +64,13 @@ export {
   type ResolveProgramOptions,
   type ResolvedProgram,
 } from './program.js';
+export {
+  DEFAULT_MAX_STORED_FILE_BYTES,
+  diffSnapshots,
+  fsChanges,
+  snapshotDir,
+  symlinkBlob,
+  type FsChanges,
+  type FsChangesOptions,
+  type FsSnapshot,
+} from './fs-diff.js';
