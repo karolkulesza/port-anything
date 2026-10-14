@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BlobStore, cacheDir, describeFeatures, describeSignature, loadCommittedCases, readConfigFile, type SavedCluster } from '@port-anything/core';
+import { BlobStore, cacheDir, describeFeatures, describeSignature, loadCommittedCases, readConfigFile, type SavedCluster, type Score } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // The wc-lite example end to end: a C reference, its Rust port, and bad ports that are the same
@@ -34,6 +34,13 @@ const REPROS = {
 } as const;
 type BadPort = keyof typeof BAD_PORTS;
 
+/**
+ * Each bad port's parity: the mean over 8 features of their parity. off-by-one: opt.l 3/5, base 3/4,
+ * error.file 2/3, five at 1 (87.70…%); crlf: opt.L 3/4 (96.875%, shown rounded down); exit code:
+ * error.usage 0/3 (87.5%).
+ */
+const PARITY: Record<BadPort, string> = { 'bad-off-by-one': '87.7%', 'bad-crlf': '96.8%', 'bad-exit-code': '87.5%' };
+
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
 const toolchain = (await has('cc')) && (await has('cargo'));
 // On a developer machine without the toolchain the test is skipped; in CI it must run.
@@ -42,7 +49,7 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; score: Score; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
   clusters: SavedCluster[];
 }
 
@@ -98,7 +105,13 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     const { code, stdout } = await port('--json');
     const summary = JSON.parse(stdout) as RunSummary;
     expect(summary.cases).toBeGreaterThanOrEqual(20);
-    expect(summary.candidates).toEqual([{ command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, normalizers: [], divergences: [] }]);
+    expect(summary.candidates).toEqual([
+      { command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, score: expect.any(Object), normalizers: [], divergences: [] },
+    ]);
+    // The good port scores 100%, over every feature but the self-description ones.
+    const { score } = summary.candidates[0]!;
+    expect(score).toMatchObject({ headline: 1, selfDescription: ['help', 'version'], underSampled: [], minCasesPerFeature: 3 });
+    expect(score.headlineFeatures).toEqual(['base', 'error.file', 'error.usage', 'opt.L', 'opt.c', 'opt.l', 'opt.m', 'opt.w']);
     expect(code).toBe(0);
   }, 120_000);
 
@@ -112,6 +125,13 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     const got = clusters.map((c) => ({ candidate: c.candidate, size: c.size, signature: describeSignature(c.signature), features: describeFeatures(c.features) }));
     expect(got).toEqual(bad.map((feature, i) => ({ candidate: i + 2, ...BAD_PORTS[feature] })));
     for (const [i, c] of clusters.entries()) expect(c.cases).toEqual(candidates[i + 1]!.divergences.map((d) => d.case));
+    // Each bad port loses parity in exactly the features of its cluster.
+    for (const [i, feature] of bad.entries()) {
+      const { score } = candidates[i + 1]!;
+      expect(score.headline).toBeLessThan(1);
+      const hit = score.features.filter((f) => f.parity !== 1).map((f) => `${f.feature} (${f.diverge})`);
+      expect(hit.sort()).toEqual(BAD_PORTS[feature].features.split(', ').sort());
+    }
 
     const text = await port(...args);
     expect(text.code).toBe(1);
@@ -119,8 +139,8 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     for (const [i, feature] of bad.entries()) {
       const { match, diverge } = candidates[i + 1]!;
       const { size, signature, features } = BAD_PORTS[feature];
-      const head = `candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n`;
-      expect(text.stdout).toContain(`${head}  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
+      expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  parity ${PARITY[feature]}, mean of 8 features`);
+      expect(text.stdout).toContain(`  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
     }
   }, 120_000);
 

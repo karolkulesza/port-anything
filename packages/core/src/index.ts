@@ -121,6 +121,18 @@ export {
   type MinimizedCluster,
 } from './minimize.js';
 export {
+  DEFAULT_MIN_CASES_PER_FEATURE,
+  isSelfDescriptionFeature,
+  scoreCandidate,
+  type CaseCounts,
+  type FeatureScore,
+  type KnownFeature,
+  type OriginScore,
+  type Score,
+  type ScoreOptions,
+  type ScoredCase,
+} from './score.js';
+export {
   RUN_FILE,
   RUN_ID_PATTERN,
   ReproRecordSchema,

@@ -9,6 +9,8 @@ finds real bugs and reports no false ones.
   success, 1 when a file can't be read, 2 on a usage error. Errors start with the name it runs as.
 - `port/`: the Rust port, which must behave exactly like the reference.
 - `port-anything.yaml` and `port-anything/recorded/recorded.jsonl`: the config and the cases.
+  The corpus is small, so the config scores features with as few as 3 cases (the default
+  minimum is 20); `help` and `version` are reported on their own, outside the parity.
 
 ## Bad ports
 
