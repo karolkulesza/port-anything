@@ -40,6 +40,41 @@ export {
   type SandboxProbe,
   type SandboxSetup,
 } from './sandbox.js';
+export { checkLicense, findLicenseFiles, identifyLicenses, licenseCategory } from './license.js';
+export type { LicenseCategory, LicenseCheck } from './license.js';
+export { IMPORT_KINDS, ImportCollector, runImporter } from './import.js';
+export type {
+  ImportExpectation,
+  ImportKind,
+  ImportLocation,
+  ImportOptionsBase,
+  ImportResult,
+  ImportSkip,
+  ImportedCase,
+  Importer,
+  RawImportCase,
+} from './import.js';
+export { DEFAULT_MAX_FIXTURE_BYTES, FIXTURE_PLACEHOLDER, fixturesImporter } from './import-fixtures.js';
+export type { FixturesImportOptions } from './import-fixtures.js';
+export { jqTestImporter, parseJqTest } from './import-jq-test.js';
+export type { JqTest, JqTestImportOptions, JqTestParse } from './import-jq-test.js';
+export { importCases } from './importers.js';
+export type { ImportOptions } from './importers.js';
+export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
+export {
+  EDGE,
+  TOKEN_KINDS,
+  buildTokenDictionary,
+  pairKey,
+  tokenShape,
+  tokenize,
+  type DictionarySources,
+  type Token,
+  type TokenDictionary,
+  type TokenKind,
+} from './token-dictionary.js';
+export { TOKEN_MUTATION_OPS, generateTokenMutants, mutateTokens, type TokenMutant, type TokenMutationOp } from './token-mutation.js';
+export { BYTE_MUTATION_OPS, generateByteMutants, mutateBytes, type ByteMutant, type ByteMutationOp } from './byte-mutation.js';
 export {
   BASE_ENV_ALLOWLIST,
   DEFAULT_CASE_ENV,
@@ -94,9 +129,13 @@ export {
   type Profile,
   type StderrOptions,
 } from './compare.js';
+export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
+export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, parseConfigSource, readConfigFile, type Config } from './config.js';
+export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';
 export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
 export {
   UNTAGGED_FEATURE,
+  caseFeatures,
   clusterDivergences,
   clusterSignature,
   describeFeatures,
@@ -121,24 +160,85 @@ export {
   type ScoredCase,
 } from './score.js';
 export {
+  DEFAULT_MINIMIZE_RUNS,
+  caseSize,
+  ddmin,
+  minimizeCase,
+  minimizeCluster,
+  type CaseTest,
+  type MinimizeClusterOptions,
+  type MinimizeOptions,
+  type Minimized,
+  type MinimizedCluster,
+} from './minimize.js';
+export {
   RUN_FILE,
   RUN_ID_PATTERN,
+  ReproRecordSchema,
   RunRecordSchema,
+  inlineCase,
   latestRun,
+  loadRepro,
   loadRun,
   newRunId,
+  reproPath,
   parseClusterAddress,
   resolveCluster,
   runsDir,
+  saveRepro,
   saveRun,
   type ClusterAddress,
+  type InlineCase,
+  type ReproRecord,
   type ResolvedCluster,
   type RunRecord,
   type SavedCluster,
 } from './runs.js';
-export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
-export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
-export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
+export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
+export {
+  CLI_SPEC_FILE,
+  CliSpecSchema,
+  POSITIONAL_ARITIES,
+  VALUE_TYPES,
+  cliSpecYaml,
+  parseCliSpec,
+  readCliSpecFile,
+  specFeatures,
+  type CliFlag,
+  type CliForm,
+  type CliPositional,
+  type CliSpec,
+  type CliSubcommand,
+  type CliValue,
+  type SpecFeature,
+} from './cli-spec.js';
+export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag, type ParsedHelp } from './help-parser.js';
+export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type SpecProbe, type SpecProbeResult } from './spec-probe.js';
+export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
+export {
+  CONTAINER_TOOLS,
+  CONTAINER_VERBS,
+  DESTRUCTIVE_SUBCOMMANDS,
+  DESTRUCTIVE_TOOLS,
+  DestructiveToolError,
+  assertNotDestructive,
+  destructiveCommand,
+  destructiveSubcommand,
+} from './destructive.js';
+export { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArgvOptions, type GeneratedArgv, type GeneratedCase } from './argv-generator.js';
+export {
+  DEDUP_SAMPLE,
+  DEFAULT_BUDGET,
+  DEFAULT_ERROR_PATH_CAP,
+  generateCorpus,
+  isErrorObservation,
+  type CorpusCase,
+  type CorpusStats,
+  type CorpusStrategy,
+  type GenerateCorpusOptions,
+  type GeneratedCorpus,
+  type ObserveReference,
+} from './corpus-generator.js';
 export {
   NORMALIZER_NAMES,
   NormalizerEntrySchema,
@@ -157,3 +257,16 @@ export {
   type ScopeEntry,
   type SideContext,
 } from './normalize.js';
+export {
+  DEFAULT_REPEATS,
+  PROPOSABLE_NORMALIZERS,
+  baselineCases,
+  type BaselineField,
+  type BaselineOptions,
+  type BaselineResult,
+  type CaseBaseline,
+  type NormalizerProposal,
+  type ProposableNormalizer,
+} from './baseline.js';
+export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';

@@ -26,12 +26,13 @@ describe('parseConfig', () => {
       sandbox: { mode: 'container', image: 'debian:12-slim', timeout: '10s', env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } },
       compare: { profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 },
       normalizers: ['tmp-paths'],
-      corpus: { repeats: 3 },
+      corpus: { repeats: 5, generator: 'v1', budget: 10000 },
       holdout: { fresh_cases: 1000 },
       report: { title: 'tool → Rust' },
     });
     expect(config.program_name).toBe('tool');
     expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 });
+    expect(config.corpus?.repeats).toBe(5);
     expect(config.sandbox).toEqual({ mode: 'container', image: 'debian:12-slim', timeout: 10_000, env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } });
     expect(configCandidates(config)).toEqual([{ cmd: ['./port/target/release/tool'], build: 'cargo build --release' }]);
   });
@@ -91,6 +92,11 @@ describe('parseConfig', () => {
     expect(message).toMatch(/reference: /);
     expect(message).toMatch(/refrence/);
     expect(message).toMatch(/sandbox\.env\.A=B: /);
+  });
+
+  it('takes at least 2 corpus repeats', () => {
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 1 } })).toThrow(/corpus\.repeats/);
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 2.5 } })).toThrow(/corpus\.repeats/);
   });
 
   it('takes only a plain file name as program_name', () => {
