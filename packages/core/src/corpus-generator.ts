@@ -109,7 +109,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
   const argv = generateArgvCases(spec, options);
   const blobs = argv.blobs;
   const selector = new Selector(budget, cap);
-  const stats = { observed: 0 };
+  let observed = 0;
   let stop: CorpusStats['stop'] = 'exhausted';
 
   const observe = async (batch: { case: CanonicalCase; strategy: CorpusStrategy }[]): Promise<CorpusCase[]> => {
@@ -118,7 +118,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
       blobs,
     );
     if (observations.length !== batch.length) throw new Error(`observe returned ${observations.length} observations for ${batch.length} cases`);
-    stats.observed += batch.length;
+    observed += batch.length;
     return batch.map((b, i) => ({ case: b.case, strategy: b.strategy, observation: observations[i]! }));
   };
   const checkStop = (): boolean => {
@@ -183,11 +183,16 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
   }
 
   const underSampled = targets.map((feature) => ({ feature, cases: selector.count(feature) })).filter((f) => f.cases < minCases);
+  // Rejected mutants' inputs were stored too; keep only what the kept cases use.
+  const used = new Map<string, Uint8Array>();
+  for (const { case: c } of selector.accepted) {
+    for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) used.set(ref, blobs.get(ref)!);
+  }
   return {
     cases: selector.accepted,
-    blobs,
+    blobs: used,
     skipped: argv.skipped,
-    stats: { observed: stats.observed, dropped: selector.dropped(), stop, underSampled },
+    stats: { observed, dropped: selector.dropped(), stop, underSampled },
   };
 }
 

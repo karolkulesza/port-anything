@@ -107,6 +107,15 @@ describe('generateCorpus: byte mutation', { timeout: SLOW }, () => {
     }
   });
 
+  it('returns only the blobs the kept cases reference', async () => {
+    // Output depends on the flags only, so most mutants are duplicates and dropped.
+    const observe: ObserveReference = async (cases) => cases.map((c) => observation(0, c.features.join(',')));
+    const corpus = await generateCorpus(frob, options({ observe }));
+    const used = new Set(corpus.cases.flatMap((c) => [c.case.stdin, ...Object.values(c.case.fixtures)]).filter((ref) => ref !== null));
+    expect(corpus.stats.dropped.duplicate).toBeGreaterThan(0);
+    expect([...corpus.blobs.keys()].sort()).toEqual([...used].sort());
+  });
+
   it('mutates the seed fixtures in place of a case input', async () => {
     const seed = 'SEED-FIXTURE-0123456789-abcdefghijklmnopqrstuvwxyz-0123456789\n';
     const corpus = await generateCorpus(frob, options({ seeds: [new TextEncoder().encode(seed)] }));
