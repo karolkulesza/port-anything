@@ -30,6 +30,8 @@ import {
   type CompareOptions,
   type Config,
   type ResolvedCluster,
+  type RunCasesOptions,
+  type SandboxChoice,
   type SandboxProbe,
   type SavedCluster,
 } from '@port-anything/core';
@@ -144,39 +146,13 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
   if (subset !== undefined) cases = clusterCases(subset, cases);
 
-  const resolve = async (cmd: string | readonly string[]) => {
-    try {
-      return await resolveProgram(parseProgramCommand(cmd), { cwd: projectDir });
-    } catch (e) {
-      throw new ConfigError((e as Error).message);
-    }
-  };
-  const reference = await resolve(config.reference.cmd);
-  const candidates = await Promise.all(commands.map(resolve));
-  const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
-  const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
-
-  // Scratch space inside the project rather than /tmp, which may be mounted noexec.
-  const workDir = join(projectDir, '.port-anything', 'tmp', `run-${randomBytes(6).toString('hex')}`);
+  const { runner: runnerOptions, sandbox, compare } = await prepareSides(projectDir, config, commands, { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) });
+  const workDir = scratchDir(projectDir);
   let result;
   try {
-    result = await runCases({
-      reference,
-      candidates,
-      cases,
-      store: new BlobStore(cacheDir(projectDir)),
-      sandbox,
-      workDir,
-      ...(config.program_name === undefined ? {} : { programName: config.program_name }),
-      timeoutMs: config.sandbox.timeout,
-      envAllowlist: config.sandbox.env_allowlist,
-      env: config.sandbox.env,
-      normalizers: config.normalizers,
-      compare,
-    });
+    result = await runCases({ ...runnerOptions, cases, workDir });
   } finally {
-    await rm(workDir, { recursive: true, force: true });
-    await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another run uses it
+    await removeScratch(projectDir, workDir);
   }
 
   // Per normalizer, the cases where it changed either side of a comparison (of any candidate, or of one).
@@ -239,11 +215,54 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
 
+/** What running cases needs besides the cases and a scratch directory, from the config. */
+export async function prepareSides(
+  projectDir: string,
+  config: Config,
+  commands: readonly (string | readonly string[])[],
+  options: { noSandbox: boolean; probe?: SandboxProbe },
+): Promise<{ runner: Omit<RunCasesOptions, 'cases' | 'workDir'>; sandbox: SandboxChoice; compare: CompareOptions }> {
+  const resolve = async (cmd: string | readonly string[]) => {
+    try {
+      return await resolveProgram(parseProgramCommand(cmd), { cwd: projectDir });
+    } catch (e) {
+      throw new ConfigError((e as Error).message);
+    }
+  };
+  const reference = await resolve(config.reference.cmd);
+  const candidates = await Promise.all(commands.map(resolve));
+  const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
+  const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
+  const runner = {
+    reference,
+    candidates,
+    store: new BlobStore(cacheDir(projectDir)),
+    sandbox,
+    ...(config.program_name === undefined ? {} : { programName: config.program_name }),
+    timeoutMs: config.sandbox.timeout,
+    envAllowlist: config.sandbox.env_allowlist,
+    env: config.sandbox.env,
+    normalizers: config.normalizers,
+    compare,
+  };
+  return { runner, sandbox, compare };
+}
+
+/** A new scratch directory for a run, inside the project rather than /tmp, which may be mounted noexec. */
+export function scratchDir(projectDir: string): string {
+  return join(projectDir, '.port-anything', 'tmp', `run-${randomBytes(6).toString('hex')}`);
+}
+
+export async function removeScratch(projectDir: string, workDir: string): Promise<void> {
+  await rm(workDir, { recursive: true, force: true });
+  await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another run uses it
+}
+
 /** Case IDs shown per cluster in the text output; `--json` lists them all. */
 const LISTED_CASES = 5;
 
 /** The cases of a cluster, in its order; it is an error when the corpus no longer has them all. */
-function clusterCases(subset: ResolvedCluster, cases: readonly CanonicalCase[]): CanonicalCase[] {
+export function clusterCases(subset: ResolvedCluster, cases: readonly CanonicalCase[]): CanonicalCase[] {
   const byId = new Map(cases.map((c) => [c.id, c]));
   const missing = subset.cluster.cases.filter((id) => !byId.has(id));
   if (missing.length > 0) {
@@ -255,18 +274,18 @@ function clusterCases(subset: ResolvedCluster, cases: readonly CanonicalCase[]):
 }
 
 /** The profile a run compared under, with how it compared stderr (absent when the profile ignores stderr). */
-function describeCompare(options: CompareOptions): { profile: string; stderr?: { mode: string; similarity?: number } } {
+export function describeCompare(options: CompareOptions): { profile: string; stderr?: { mode: string; similarity?: number } } {
   if (!PROFILE_FIELDS[options.profile].includes('stderr')) return { profile: options.profile };
   const mode = stderrMode(options);
   return { profile: options.profile, stderr: mode === 'loose' ? { mode, similarity: options.stderr?.similarity ?? DEFAULT_STDERR_SIMILARITY } : { mode } };
 }
 
-function compareLabel(c: ReturnType<typeof describeCompare>): string {
+export function compareLabel(c: ReturnType<typeof describeCompare>): string {
   if (c.stderr === undefined) return `${c.profile} (stderr ignored)`;
   return `${c.profile} (stderr ${c.stderr.mode}${c.stderr.similarity === undefined ? '' : `, similarity ${c.stderr.similarity}`})`;
 }
 
 /** A command as the user wrote it; an argv list is shown with quotes around words with spaces. */
-function display(cmd: string | readonly string[]): string {
+export function display(cmd: string | readonly string[]): string {
   return typeof cmd === 'string' ? cmd : cmd.map((w) => (/[\s'"]/.test(w) || w === '' ? `'${w}'` : w)).join(' ');
 }
