@@ -1,0 +1,11 @@
+version: 1
+program_name: wc-lite
+reference:
+  cmd: ./ref/wc-lite
+  build: cc -O2 -o ref/wc-lite ref/wc-lite.c
+candidate:
+  cmd: ./port/target/release/wc-lite
+  build: cargo build --release --manifest-path port/Cargo.toml
+sandbox:
+  mode: local
+  timeout: 10s
