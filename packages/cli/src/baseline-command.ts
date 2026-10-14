@@ -152,6 +152,9 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     lines.push(`proposed normalizers, added to ${CONFIG_FILE} (cases that need them):`);
     for (const p of result.proposals) lines.push(`  ${normalizerLabel(p.spec)}: ${p.cases}`);
   }
+  for (const w of result.withheld) {
+    lines.push(`not proposed: ${w.name}, needed in ${w.cases} case${w.cases === 1 ? '' : 's'} without features; scoped to every case it would hide real differences in line order (tag those cases with features, or add it by hand)`);
+  }
   const flaky = result.cases.filter((c) => c.status === 'flaky-reference');
   if (flaky.length > 0) {
     lines.push('flaky-reference, left out of run (fields that still vary):');

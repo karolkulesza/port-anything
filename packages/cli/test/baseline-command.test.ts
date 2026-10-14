@@ -15,7 +15,7 @@ counter="$PA_TEST_COUNTERS/$1"
 n=$(cat "$counter" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$counter"
 case "$1" in
   stable) echo same ;;
-  log) echo "[2026-10-1\${n}T08:0\${n}:00Z] worker pid $$ started in $(pwd)" >&2; echo done ;;
+  log) echo "[2026-10-14T08:00:$(printf %02d "$n")Z] worker pid $$ started in $(pwd)" >&2; echo done ;;
   list) case $((n % 3)) in 0) printf 'apple\\nfig\\npear\\n' ;; 1) printf 'fig\\npear\\napple\\n' ;; *) printf 'pear\\napple\\nfig\\n' ;; esac ;;
   random) echo "token \${n}" ;;
 esac
@@ -60,7 +60,7 @@ describe('baselineCommand', () => {
     mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
     writeFileSync(
       join(project, 'port-anything', 'recorded', 'cases.jsonl'),
-      ['stable', 'log', 'list', 'random'].map((name) => `{"argv":["${name}"],"origin":"recorded"}\n`).join(''),
+      ['stable', 'log', 'list', 'random'].map((name) => `{"argv":["${name}"],"features":["cmd.${name}"],"origin":"recorded"}\n`).join(''),
     );
   });
   afterAll(() => {
@@ -85,7 +85,7 @@ describe('baselineCommand', () => {
         '  tmp-paths on stderr: 1',
         '  iso-timestamps on stderr: 1',
         '  pids on stderr: 1',
-        '  sort-lines on stdout: 1',
+        '  sort-lines on stdout for cmd.list: 1',
         'flaky-reference, left out of run (fields that still vary):',
         `  ${shortCaseId(random)}  stdout`,
         '',
@@ -97,7 +97,7 @@ describe('baselineCommand', () => {
           '  - { tmp-paths: null, scope: stderr } # added by port-anything baseline: needed in 1 case',
           '  - { iso-timestamps: null, scope: stderr } # added by port-anything baseline: needed in 1 case',
           '  - { pids: null, scope: stderr } # added by port-anything baseline: needed in 1 case',
-          '  - { sort-lines: null, scope: stdout } # added by port-anything baseline: needed in 1 case',
+          '  - { sort-lines: null, scope: stdout, features: [ cmd.list ] } # added by port-anything baseline: needed in 1 case',
           '',
         ].join('\n'),
     );
@@ -124,6 +124,23 @@ describe('baselineCommand', () => {
 
     const text = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
     expect(text.stdout).toContain(`flaky-reference, left out (the reference varied in port-anything baseline): 1\n  ${shortCaseId(ids.random!)}  stdout\n`);
+  });
+
+  it('does not write sort-lines for cases without features, and says why', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-baseline-nofeat-')));
+    try {
+      mkdirSync(join(other, 'bin'));
+      writeFileSync(join(other, 'bin', 'tool'), NONDETERMINISTIC, { mode: 0o755 });
+      writeFileSync(join(other, 'port-anything.yaml'), CONFIG);
+      mkdirSync(join(other, 'port-anything', 'recorded'), { recursive: true });
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), '{"argv":["list","x"],"origin":"recorded"}\n');
+      const result = await baselineCommand(['--no-sandbox'], { cwd: other, probe: NO_SANDBOX });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('stable: 0, stable after normalizers: 0, flaky-reference: 1\nproposed normalizers: none\nnot proposed: sort-lines, needed in 1 case without features;');
+      expect(readFileSync(join(other, 'port-anything.yaml'), 'utf8')).toBe(CONFIG);
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 
   it('exits 3 for a broken record, a config it cannot use, or no sandbox', async () => {

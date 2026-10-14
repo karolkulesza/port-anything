@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { baselineCases, type BaselineOptions } from '../src/baseline.js';
 import { BlobStore } from '../src/blob-store.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
-import { NormalizersSchema } from '../src/normalize.js';
+import { NormalizersSchema, normalizePair } from '../src/normalize.js';
 import { parseProgramCommand, resolveProgram, type ResolvedProgram } from '../src/program.js';
 
 // A reference whose output varies between runs. Each case keeps a run counter in its own file
@@ -67,8 +67,9 @@ describe('baselineCases', () => {
       { spec: { name: 'tmp-paths', options: {}, scope: ['stderr'] }, cases: 1 },
       { spec: { name: 'iso-timestamps', options: {}, scope: ['stderr', 'files:report.txt'] }, cases: 2 },
       { spec: { name: 'pids', options: {}, scope: ['stderr'] }, cases: 1 },
-      { spec: { name: 'sort-lines', options: {}, scope: ['stdout'] }, cases: 1 },
+      { spec: { name: 'sort-lines', options: {}, scope: ['stdout'], features: ['cmd.list'] }, cases: 1 },
     ]);
+    expect(result.withheld).toEqual([]);
 
     const c = byCase(result);
     expect(result.cases.map((r) => r.caseId)).toEqual(Object.values(cases).map((k) => k.id));
@@ -101,6 +102,28 @@ describe('baselineCases', () => {
     expect(partly.proposals.map((p) => p.spec.name)).toEqual(['pids', 'sort-lines']);
     expect(byCase(partly).report!.status).toBe('stable');
     expect(byCase(partly).log).toMatchObject({ status: 'normalized', fixes: [{ field: 'stderr', normalizers: ['pids'] }] });
+  });
+
+  it('confines sort-lines to the features that need it, so other cases keep their line order checked', async () => {
+    const result = await baselineCases(options());
+    const sortLines = result.proposals.find((p) => p.spec.name === 'sort-lines')!.spec;
+    const unordered = await store.put('b\na\n');
+    const observation = { ...result.cases[0]!.observations[0]!, stdout: unordered };
+    const context = { tempRoots: [], programNames: [] };
+    const normalize = (features: string[]) =>
+      normalizePair({ normalizers: [sortLines], features, reference: { observation, context }, candidate: { observation, context }, store: store });
+    expect((await normalize(['cmd.other'])).changedBy).toEqual([]);
+    expect((await normalize(['cmd.list'])).changedBy).toEqual([0]);
+  });
+
+  it('withholds sort-lines when a case that needs it has no features, leaving it flaky-reference', async () => {
+    const featureless = canonicalCase({ argv: ['list', 'again'], origin: 'generated' });
+    // One at a time: both cases are `list` and share its run counter.
+    const result = await baselineCases(options({ cases: [cases.list!, featureless], concurrency: 1 }));
+    expect(result.proposals).toEqual([]);
+    expect(result.withheld).toEqual([{ name: 'sort-lines', cases: 2 }]);
+    expect(result.cases.map((c) => c.status)).toEqual(['flaky-reference', 'flaky-reference']);
+    expect(result.cases[1]).toMatchObject({ fixes: [{ field: 'stdout', normalizers: ['sort-lines'] }], unstable: ['stdout'] });
   });
 
   it('needs at least 2 runs', async () => {

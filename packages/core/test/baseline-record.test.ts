@@ -12,6 +12,7 @@ const result = (cases: Partial<CaseBaseline>[]): BaselineResult => ({
   programName: 'tool',
   repeats: 3,
   proposals: [],
+  withheld: [],
   cases: cases.map((c) => ({ caseId: id('0'), observations: [], varied: [], fixes: [], unstable: [], status: 'stable', ...c })),
 });
 

@@ -61,6 +61,12 @@ export interface BaselineResult {
   cases: CaseBaseline[];
   /** In `PROPOSABLE_NORMALIZERS` order; meant to be appended to the configured normalizers. */
   proposals: NormalizerProposal[];
+  /**
+   * Normalizers that would make cases stable but are not proposed, because they can't be confined
+   * to those cases: `sort-lines` needed by a case without features would sort that field in every
+   * case, hiding real ordering bugs. Those cases stay `flaky-reference`.
+   */
+  withheld: { name: ProposableNormalizer; cases: number }[];
 }
 
 /**
@@ -95,10 +101,10 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
       const normalizers = await smallestFix(runs, field, configured, options);
       if (normalizers !== undefined) fixes.push({ field, normalizers });
     }
-    return { caseId: c.id, runs, varied, fixes };
+    return { caseId: c.id, features: c.features, runs, varied, fixes };
   });
 
-  const proposals = propose(runs, configured);
+  const { proposals, withheld } = propose(runs, configured);
   const pipeline = [...configured, ...proposals.map((p) => p.spec)];
   const cases: CaseBaseline[] = [];
   for (const { caseId, runs: r, varied, fixes } of runs) {
@@ -106,7 +112,7 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
     const status = varied.length === 0 ? 'stable' : unstable.length === 0 ? 'normalized' : 'flaky-reference';
     cases.push({ caseId, observations: r.observations, varied, fixes, unstable, status });
   }
-  return { programName: name, repeats, cases, proposals };
+  return { programName: name, repeats, cases, proposals, withheld };
 }
 
 /** A case's runs and what normalizers need to know about each. */
@@ -193,22 +199,39 @@ async function smallestFix(
 
 const DEFAULT_PROPOSAL_SCOPE = ['stdout', 'stderr', 'files'];
 
-/** One proposal per normalizer some case needs, scoped to the union of the fields it was needed for. */
-function propose(runs: readonly { caseId: string; fixes: CaseBaseline['fixes'] }[], configured: readonly NormalizerSpec[]): NormalizerProposal[] {
+/**
+ * One proposal per normalizer some case needs, scoped to the union of the fields it was needed for.
+ * `sort-lines` hides every line-order difference in its scope, so it is also scoped to the features
+ * of the cases that need it, and withheld when one of them has no features.
+ */
+function propose(
+  runs: readonly { caseId: string; features: readonly string[]; fixes: CaseBaseline['fixes'] }[],
+  configured: readonly NormalizerSpec[],
+): Pick<BaselineResult, 'proposals' | 'withheld'> {
   const skip = alreadyEverywhere(configured);
   const proposals: NormalizerProposal[] = [];
+  const withheld: BaselineResult['withheld'] = [];
   for (const name of PROPOSABLE_NORMALIZERS) {
     if (skip.has(name)) continue;
     const scopes = new Set<ScopeEntry>();
     const cases = new Set<string>();
-    for (const { caseId, fixes } of runs) {
+    const features = new Set<string>();
+    let featureless = false;
+    for (const { caseId, features: caseFeatures, fixes } of runs) {
       for (const fix of fixes) {
         if (!fix.normalizers.includes(name)) continue;
         scopes.add(fieldScope(fix.field));
         cases.add(caseId);
+        for (const f of caseFeatures) features.add(f);
+        if (caseFeatures.length === 0) featureless = true;
       }
     }
     if (cases.size === 0) continue;
+    const byFeature = name === 'sort-lines';
+    if (byFeature && featureless) {
+      withheld.push({ name, cases: cases.size });
+      continue;
+    }
     // `files` covers each `files:<path>`.
     const scope = [...scopes].filter((s) => !(scopes.has('files') && s.startsWith('files:'))).sort((a, b) => {
       const [x, y] = [DEFAULT_PROPOSAL_SCOPE.indexOf(a), DEFAULT_PROPOSAL_SCOPE.indexOf(b)];
@@ -216,7 +239,10 @@ function propose(runs: readonly { caseId: string; fixes: CaseBaseline['fixes'] }
       return a < b ? -1 : a > b ? 1 : 0;
     });
     const everywhere = DEFAULT_PROPOSAL_SCOPE.every((s) => scope.includes(s as ScopeEntry));
-    proposals.push({ spec: { name, options: {}, ...(everywhere ? {} : { scope }) }, cases: cases.size });
+    proposals.push({
+      spec: { name, options: {}, ...(everywhere ? {} : { scope }), ...(byFeature ? { features: [...features].sort() } : {}) },
+      cases: cases.size,
+    });
   }
-  return proposals;
+  return { proposals, withheld };
 }
