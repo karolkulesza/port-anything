@@ -362,7 +362,7 @@ export function formatCompare(s: CompareSummary): string {
   const cell = (f: FeatureParity | undefined) => (f === undefined ? '-' : `${percent(f.parity)} ${f.match}/${f.cases}`);
   const rows = features.map((feature) => {
     const cells = s.candidates.map((c) => c.per_feature.find((f) => f.feature === feature));
-    return { name: `${feature}${mark(cells[0])}`, cells: cells.map(cell) };
+    return { name: `${feature}${mark(cells.find((c) => c !== undefined))}`, cells: cells.map(cell) };
   });
   const header = { name: 'feature', cells: s.candidates.map((_, i) => (s.candidates.length === 1 ? 'parity' : `cand ${i + 1}`)) };
   const width = Math.max(...[header, ...rows].map((r) => r.name.length));

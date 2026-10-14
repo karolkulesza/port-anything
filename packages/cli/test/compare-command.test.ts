@@ -151,7 +151,7 @@ describe('formatCompare', () => {
         '  base                         100.0% 20/20  100.0% 20/20',
         '  opt.help (self-description)  100.0% 1/1    0.0% 0/1',
         '  opt.n                        100.0% 39/39  82.5% 33/40',
-        '  opt.r                        -             66.6% 2/3',
+        '  opt.r (under-sampled)        -             66.6% 2/3',
         'under-sampled: fewer than 20 cases, left out of the parity',
         'untested (no generated case): opt.z',
         '',
