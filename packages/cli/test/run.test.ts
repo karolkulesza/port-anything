@@ -15,7 +15,7 @@ describe('run', () => {
   });
 
   it('exits 3 for a command this version does not have', async () => {
-    expect(await run(['compare', 'a', 'b'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"compare" is not available yet/) });
+    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "compare", "run", "baseline" and "spec infer" are/) });
   });
 
   it('routes spec to the spec command', async () => {
