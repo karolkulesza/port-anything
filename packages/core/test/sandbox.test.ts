@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SandboxUnavailableError,
   chooseSandbox,
+  caseCommandOptions,
   probeSandbox,
   sandboxCommand,
   type SandboxHost,
@@ -92,7 +93,9 @@ describe('probeSandbox', () => {
     expect(probe.usable).toEqual(BWRAP);
     expect(probe.attempts).toEqual([{ kind: 'bwrap', ok: true }]);
     expect(probe.fix).toBeUndefined();
-    expect(host.calls).toEqual([['bwrap', ...sandboxCommand(BWRAP, ['true'], '/tmp').args]]);
+    expect(host.calls).toEqual([['bwrap', ...sandboxCommand(BWRAP, ['true'], '/tmp', caseCommandOptions(BWRAP)).args]]);
+    // The status descriptor the runner relies on is part of the probe, so a bwrap without it fails here.
+    expect(host.calls[0]).toContain('--json-status-fd');
   });
 
   it('drops the PID namespace when bwrap cannot mount a fresh /proc (Docker)', async () => {
@@ -104,6 +107,16 @@ describe('probeSandbox', () => {
     expect(probe.usable).toEqual({ kind: 'bwrap', isolatePids: false });
     expect(host.calls).toHaveLength(2);
     expect(chooseSandbox(probe).label).toBe('bwrap, no network (processes not isolated)');
+  });
+
+  it('rejects a bwrap too old for the status descriptor the runner uses', async () => {
+    const probe = await probeSandbox(
+      fakeHost({
+        bwrap: (args) => (args.includes('--json-status-fd') ? { ok: false, message: 'bwrap: Unknown option --json-status-fd' } : { ok: true }),
+      }),
+    );
+    expect(probe.usable).toEqual({ kind: 'unshare', mapCurrentUser: true });
+    expect(probe.attempts[0]).toEqual({ kind: 'bwrap', ok: false, error: 'bwrap: Unknown option --json-status-fd' });
   });
 
   it('runs unshare without --map-current-user on util-linux before 2.38', async () => {

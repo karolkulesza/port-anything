@@ -23,7 +23,9 @@ export type { CaseIdErrorCode } from './case-id.js';
 export { BlobError, BlobStore, blobRef, cacheDir } from './blob-store.js';
 export type { BlobErrorCode } from './blob-store.js';
 export {
+  BWRAP_STATUS_FD,
   SandboxUnavailableError,
+  caseCommandOptions,
   chooseSandbox,
   localHost,
   probeSandbox,
