@@ -101,6 +101,8 @@ export interface CompareOptions {
   progress?: (line: string) => void;
   /** Where the scratch directory goes; defaults to the system's temporary directory. */
   tmpDir?: string;
+  /** Cases running at once; defaults to the number of CPU cores. */
+  concurrency?: number;
 }
 
 /**
@@ -137,7 +139,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
   const scratch = await mkdtemp(join(options.tmpDir ?? tmpdir(), 'port-anything-compare-'));
   try {
     const store = new BlobStore(cacheDir(scratch));
-    const common = { reference, store, sandbox, programName };
+    const common = { reference, store, sandbox, programName, ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }) };
 
     progress(`reading ${programName} --help …`);
     const { spec, helpArgv } = await inferCliSpec({ ...common, workDir: join(scratch, 'spec') });
@@ -221,7 +223,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
 
     const exitCode = summary.candidates.some((c) => c.divergences.length > 0) ? 1 : 0;
     if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
-    return { exitCode, stdout: text(summary), stderr: '' };
+    return { exitCode, stdout: formatCompare(summary), stderr: '' };
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -338,7 +340,8 @@ export interface CompareSummary {
   duration_ms: number;
 }
 
-function text(s: CompareSummary): string {
+/** The summary as `compare` prints it without `--json`. */
+export function formatCompare(s: CompareSummary): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const lines = [
     `read "${s.program_name} ${s.spec.help}": ${plural(s.spec.flags, 'flag')}, ${plural(s.spec.forms, 'positional form')}${s.spec.subcommands > 0 ? `, ${plural(s.spec.subcommands, 'subcommand')}` : ''}`,

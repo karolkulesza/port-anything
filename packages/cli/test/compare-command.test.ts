@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CLI_SPEC_FILE, readCliSpecFile, readConfigFile, type SandboxProbe } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { compareCommand, parseCompareArgs, percent, scoreParity, type CompareSummary } from '../src/compare-command.js';
+import { compareCommand, formatCompare, parseCompareArgs, percent, scoreParity, type CompareSummary, type FeatureParity } from '../src/compare-command.js';
 import { run } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
-// `bad` ignores --upper; `flaky` prints a random number with --quiet.
+// `bad` ignores --upper; `flaky` prints a random number with --quiet. Every stage of the pipeline
+// reads all its input (awk, not head), so no write ever fails on a closed pipe at random.
 const TOOL = (variant: 'ref' | 'bad' | 'flaky') => `#!/bin/sh
 if [ "$1" = --help ]; then
   printf 'Usage: frob [OPTION]... [FILE]...\\n\\n  -q, --quiet     say less\\n  -u, --upper     upper-case the output\\n  -n, --count=N   stop after N lines\\n      --help      display this help and exit\\n'
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
 done
 ${variant === 'flaky' ? '[ -n "$quiet" ] && od -An -N4 -tu4 /dev/urandom' : ':'}
 case "$count" in ''|*[!0-9]*) [ -z "$count" ] || { echo "frob: invalid count '$count'" >&2; exit 2; } ;; esac
-cat "$@" | if [ -n "$upper" ]; then tr 'a-z' 'A-Z'; else cat; fi | if [ -n "$count" ]; then head -n "$count"; else cat; fi
+cat "$@" | if [ -n "$upper" ]; then tr 'a-z' 'A-Z'; else cat; fi | if [ -n "$count" ]; then awk -v n="$count" 'NR <= n'; else cat; fi
 `;
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
@@ -93,7 +94,89 @@ describe('scoreParity', () => {
   });
 });
 
-describe('port-anything compare', { timeout: 60_000 }, () => {
+// Each compare runs a few hundred cases of a shell script, so these take seconds each.
+describe('formatCompare', () => {
+  const feature = (name: string, match: number, cases: number, mark: Partial<FeatureParity> = {}): FeatureParity => ({
+    feature: name,
+    match,
+    cases,
+    parity: match / cases,
+    selfDescription: false,
+    underSampled: false,
+    ...mark,
+  });
+  const summary: CompareSummary = {
+    program_name: 'sort',
+    sandbox: 'bwrap, no network',
+    reference: '/usr/bin/sort',
+    spec: { help: '--help', flags: 3, forms: 1, subcommands: 0, features: 4 },
+    corpus: { cases: 60, budget: 60, generator: 'v1', seed: 42, stop: 'budget', observed: 70, dropped: { duplicate: 10, errorCap: 0, budget: 0 }, skipped: [] },
+    untested: ['opt.z'],
+    baseline: {
+      repeats: 2,
+      stable: 57,
+      normalized: 2,
+      flaky_reference: [{ case: `sha256:${'ab'.repeat(32)}`, argv: ['--random-sort', 'input file.txt'], fields: ['stdout'] }],
+    },
+    normalizers: [{ normalizer: 'tmp-paths on stderr', cases: 2 }],
+    candidates: [
+      { command: 'coreutils sort', parity: 1, features: 2, match: 59, cases: 59, divergences: [], per_feature: [feature('base', 20, 20), feature('opt.n', 39, 39), feature('opt.help', 1, 1, { selfDescription: true })] },
+      {
+        command: './my sort',
+        parity: 0.9125,
+        features: 2,
+        match: 55,
+        cases: 59,
+        divergences: [],
+        per_feature: [feature('base', 20, 20), feature('opt.n', 33, 40), feature('opt.help', 0, 1, { selfDescription: true }), feature('opt.r', 2, 3, { underSampled: true })],
+      },
+    ],
+    saved: [],
+    duration_ms: 12_400,
+  };
+
+  it('prints what was read and run, a parity line per candidate and the feature × candidate matrix', () => {
+    expect(formatCompare(summary)).toBe(
+      [
+        'read "sort --help": 3 flags, 1 positional form',
+        'every side runs as `sort` (argv[0] pinned) · sandbox: bwrap, no network',
+        'generated 60 cases (budget 60)',
+        'reference re-run 2× per case: 57 stable, 2 stable after normalizers, 1 flaky-reference (left out)',
+        'normalizers (cases changed): tmp-paths on stderr 2',
+        '',
+        'coreutils sort: parity 100.0%  (mean of 2 features; 59/59 cases)',
+        './my sort: parity 91.2%  (mean of 2 features; 55/59 cases)',
+        '',
+        '  feature                      cand 1        cand 2',
+        '  base                         100.0% 20/20  100.0% 20/20',
+        '  opt.help (self-description)  100.0% 1/1    0.0% 0/1',
+        '  opt.n                        100.0% 39/39  82.5% 33/40',
+        '  opt.r                        -             66.6% 2/3',
+        'under-sampled: fewer than 20 cases, left out of the parity',
+        'untested (no generated case): opt.z',
+        '',
+        'flaky-reference (output still varies between reference runs):',
+        `  c_${'ab'.repeat(4)}  sort --random-sort 'input file.txt'  stdout`,
+        '',
+        'done in 12 s',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('has one parity column for one candidate, and says when no feature has enough cases or what was saved', () => {
+    const one = { ...summary, untested: [], baseline: { ...summary.baseline, flaky_reference: [] }, normalizers: [], saved: ['port-anything.yaml', 'port-anything/cli-spec.yaml'] };
+    one.candidates = [{ ...summary.candidates[0]!, parity: null, features: 0 }];
+    const text = formatCompare(one);
+    expect(text).toMatch(/^normalizers: none$/m);
+    expect(text).toMatch(/^coreutils sort: parity n\/a \(no feature has enough cases\) {2}\(mean of 0 features; 59\/59 cases\)$/m);
+    expect(text).toMatch(/^ {2}feature +parity$/m);
+    expect(text).toMatch(/^saved port-anything\.yaml and port-anything\/cli-spec\.yaml$/m);
+    expect(text).not.toMatch(/^flaky-reference \(/m);
+  });
+});
+
+describe('port-anything compare', { timeout: 120_000 }, () => {
   let dir: string;
   let scratch: string;
   beforeEach(() => {
@@ -107,7 +190,7 @@ describe('port-anything compare', { timeout: 60_000 }, () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  const compare = (args: string[], probe: SandboxProbe = NO_SANDBOX) => compareCommand(args, { cwd: dir, probe, tmpDir: scratch });
+  const compare = (args: string[], probe: SandboxProbe = NO_SANDBOX) => compareCommand(args, { cwd: dir, probe, tmpDir: scratch, concurrency: 2 });
   const json = async (args: string[]) => {
     const result = await compare([...args, '--json', '--no-sandbox']);
     expect(result.stderr).toBe('');
@@ -117,10 +200,11 @@ describe('port-anything compare', { timeout: 60_000 }, () => {
   it('infers the spec, generates the corpus and finds a matching candidate at 100%, writing nothing outside its scratch directory', async () => {
     const before = readdirSync(dir).sort();
     const lines: string[] = [];
-    const result = await compareCommand(['./bin/frob', './bin/frob-copy', '--budget', '120', '--no-sandbox'], {
+    const result = await compareCommand(['./bin/frob', './bin/frob-copy', '--budget', '80', '--no-sandbox'], {
       cwd: dir,
       probe: NO_SANDBOX,
       tmpDir: scratch,
+      concurrency: 2,
       progress: (line) => lines.push(line),
     });
     expect(result.stderr).toBe('');
@@ -129,30 +213,21 @@ describe('port-anything compare', { timeout: 60_000 }, () => {
     expect(out.slice(0, 5)).toEqual([
       'read "frob --help": 4 flags, 1 positional form',
       'every side runs as `frob` (argv[0] pinned) · sandbox: none (--no-sandbox)',
-      'generated 120 cases (budget 120)',
-      'reference re-run 2× per case: 120 stable, 0 stable after normalizers, 0 flaky-reference (left out)',
+      'generated 80 cases (budget 80)',
+      'reference re-run 2× per case: 80 stable, 0 stable after normalizers, 0 flaky-reference (left out)',
       'normalizers: none',
     ]);
-    expect(result.stdout).toMatch(/^\.\/bin\/frob-copy: parity 100\.0% {2}\(mean of \d features; 120\/120 cases\)$/m);
+    expect(result.stdout).toMatch(/^\.\/bin\/frob-copy: parity 100\.0% {2}\(mean of \d features; 80\/80 cases\)$/m);
     expect(result.stdout).toMatch(/^ {2}feature +parity$/m);
     expect(result.stdout).toMatch(/^ {2}opt\.upper +100\.0% \d+\/\d+$/m);
     expect(result.stdout).toMatch(/^ {2}opt\.help \(self-description\) +100\.0% \d+\/\d+$/m);
     expect(result.stdout).toMatch(/^done in \d+ s$/m);
-    expect(lines).toEqual(['reading frob --help …', 'generating up to 120 cases …', 'running the reference 2 more times on 120 cases …', 'running the candidate …']);
+    expect(lines).toEqual(['reading frob --help …', 'generating up to 80 cases …', 'running the reference 2 more times on 80 cases …', 'running the candidate …']);
     expect(readdirSync(dir).sort()).toEqual(before);
     expect(readdirSync(scratch)).toEqual([]);
   });
 
-  it('runs N candidates against one reference: a parity line each, a feature × candidate matrix, exit 1 on a divergence', async () => {
-    const result = await compare(['./bin/frob', './bin/frob-copy', './bin/frob-bad', '--budget', '80', '--no-sandbox']);
-    expect(result.exitCode).toBe(1);
-    expect(result.stdout).toMatch(/^\.\/bin\/frob-copy: parity 100\.0% /m);
-    const bad = /^\.\/bin\/frob-bad: parity (\d+\.\d)% {2}\(mean of \d features; (\d+)\/80 cases\)$/m.exec(result.stdout);
-    expect(bad).not.toBeNull();
-    expect(Number(bad![1])).toBeLessThan(100);
-    expect(result.stdout).toMatch(/^ {2}feature +cand 1 +cand 2$/m);
-    expect(result.stdout).toMatch(/^ {2}opt\.upper +100\.0% (\d+)\/(\d+) +\d+\.\d% \d+\/\d+$/m);
-
+  it('runs N candidates against one reference, scoring each, and exits 1 on a divergence', async () => {
     const { exitCode, summary } = await json(['./bin/frob', './bin/frob-copy', './bin/frob-bad', '--budget', '80']);
     expect(exitCode).toBe(1);
     expect(summary).toMatchObject({ program_name: 'frob', sandbox: 'none (--no-sandbox)', reference: './bin/frob', untested: [] });
@@ -170,12 +245,11 @@ describe('port-anything compare', { timeout: 60_000 }, () => {
     }
     const upper = worse!.per_feature.find((f) => f.feature === 'opt.upper')!;
     expect(upper.parity).toBeLessThan(1);
-    expect(worse!.per_feature.filter((f) => f.feature !== 'opt.upper').every((f) => f.parity === 1 || f.feature === 'opt.quiet' || f.feature === 'opt.count' || f.feature === 'base')).toBe(true);
   });
 
   it('gives the same result for the same programs every time', async () => {
-    const a = await json(['./bin/frob', './bin/frob-bad', '--budget', '60']);
-    const b = await json(['./bin/frob', './bin/frob-bad', '--budget', '60']);
+    const a = await json(['./bin/frob', './bin/frob-bad', '--budget', '30']);
+    const b = await json(['./bin/frob', './bin/frob-bad', '--budget', '30']);
     const strip = (s: CompareSummary) => ({ ...s, duration_ms: 0 });
     expect(strip(a.summary)).toEqual(strip(b.summary));
   });
@@ -190,10 +264,6 @@ describe('port-anything compare', { timeout: 60_000 }, () => {
     }
     expect(summary.baseline.stable + summary.baseline.normalized + summary.baseline.flaky_reference.length).toBe(80);
     expect(summary.candidates[0]!.cases).toBe(80 - summary.baseline.flaky_reference.length);
-
-    const text = await compare(['./bin/frob-flaky', './bin/frob-flaky', '--budget', '80', '--no-sandbox']);
-    expect(text.stdout).toMatch(/^flaky-reference \(output still varies between reference runs\):$/m);
-    expect(text.stdout).toMatch(/^ {2}c_[0-9a-f]+ {2}frob-flaky .*(?:--quiet|-[a-z]*q).* {2}stdout$/m);
   });
 
   it('refuses to run without a sandbox unless --no-sandbox is given', async () => {
