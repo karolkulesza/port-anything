@@ -14,12 +14,19 @@ const ProgramSchema = z.strictObject({
   build: text.optional(),
 });
 
+const MAX_DURATION_MS = 2 ** 31 - 1;
+
 /** `10s`, `500ms`, `2m`, or a number of seconds; milliseconds once parsed. */
 const DurationSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
   const match = typeof value === 'string' ? /^(\d+(?:\.\d+)?)(ms|s|m)$/.exec(value) : null;
   const ms = typeof value === 'number' ? value * 1000 : match ? Number(match[1]) * { ms: 1, s: 1000, m: 60_000 }[match[2] as 'ms' | 's' | 'm'] : NaN;
   if (!(ms > 0) || !Number.isFinite(ms)) {
     ctx.addIssue({ code: 'custom', message: 'must be a positive duration such as 10s, 500ms or 2m' });
+    return z.NEVER;
+  }
+  // Node's timers fire after 1 ms for anything longer, so every side would time out at once.
+  if (ms > MAX_DURATION_MS) {
+    ctx.addIssue({ code: 'custom', message: 'must be at most 35791m (the longest timer Node supports)' });
     return z.NEVER;
   }
   return ms;
@@ -43,7 +50,9 @@ const later = z.unknown().optional();
 export const ConfigSchema = z
   .strictObject({
     version: z.literal(1),
-    program_name: text.min(1).optional(),
+    program_name: text
+      .refine((name) => name !== '' && name !== '.' && name !== '..' && !name.includes('/'), 'must be a plain file name (no "/", not "." or "..")')
+      .optional(),
     reference: ProgramSchema,
     candidate: ProgramSchema.optional(),
     candidates: z.array(ProgramSchema).min(1).optional(),

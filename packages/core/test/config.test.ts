@@ -49,6 +49,9 @@ describe('parseConfig', () => {
     expect(timeout(3)).toBe(3000);
     expect(() => timeout('10 seconds')).toThrow(/sandbox.timeout: must be a positive duration/);
     expect(() => timeout(0)).toThrow(ConfigError);
+    expect(timeout('35791m')).toBe(35_791 * 60_000);
+    expect(() => timeout('100000m')).toThrow(/sandbox\.timeout: must be at most/);
+    expect(() => timeout(2 ** 31)).toThrow(/sandbox\.timeout: must be at most/);
   });
 
   it('lists every problem by key, typos included', () => {
@@ -65,6 +68,13 @@ describe('parseConfig', () => {
     expect(message).toMatch(/reference: /);
     expect(message).toMatch(/refrence/);
     expect(message).toMatch(/sandbox\.env\.A=B: /);
+  });
+
+  it('takes only a plain file name as program_name', () => {
+    expect(parseConfig({ version: 1, program_name: 'sort', reference: { cmd: 'a' } }).program_name).toBe('sort');
+    for (const name of ['', '.', '..', 'a/b', '../../x', 'a\0b']) {
+      expect(() => parseConfig({ version: 1, program_name: name, reference: { cmd: 'a' } })).toThrow(/program_name: /);
+    }
   });
 
   it('refuses an empty command', () => {
