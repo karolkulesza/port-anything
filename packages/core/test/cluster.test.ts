@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clusterDivergences, clusterSignature, describeSignature, featureWeights, signatureKey, type Divergence } from '../src/cluster.js';
+import { clusterDivergences, clusterSignature, describeFeatures, describeSignature, featureWeights, signatureKey, type Divergence } from '../src/cluster.js';
 import type { FieldShape } from '../src/diff-shape.js';
 
 const stdout = (shape: FieldShape['shape'], detail?: string): FieldShape => ({ field: 'stdout', shape, ...(detail === undefined ? {} : { detail }) });
@@ -7,23 +7,22 @@ const exit = (detail: string): FieldShape => ({ field: 'exit', shape: 'exit-code
 const d = (caseId: string, features: string[], ...shapes: FieldShape[]): Divergence => ({ caseId, features, shapes });
 
 describe('clusterSignature', () => {
-  it('is the diverging fields, their shapes and the sorted, de-duplicated features', () => {
-    expect(clusterSignature(d('c1', ['opt.w', 'opt.l', 'opt.w'], exit('0 vs 1'), stdout('empty', 'candidate empty')))).toEqual({
+  it('is the diverging fields and their shapes, without the features', () => {
+    expect(clusterSignature(d('c1', ['opt.w', 'opt.l'], exit('0 vs 1'), stdout('empty', 'candidate empty')))).toEqual({
       fields: ['exit', 'stdout'],
       shapes: [exit('0 vs 1'), stdout('empty', 'candidate empty')],
-      features: ['opt.l', 'opt.w'],
     });
   });
 
   it('keeps one exit-code entry when exit and signal both diverge', () => {
     const crash = d('c1', [], { field: 'exit', shape: 'exit-code', detail: '0 vs SIGSEGV' }, { field: 'signal', shape: 'exit-code', detail: '0 vs SIGSEGV' });
-    expect(clusterSignature(crash)).toEqual({ fields: ['exit', 'signal'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs SIGSEGV' }], features: [] });
+    expect(clusterSignature(crash)).toEqual({ fields: ['exit', 'signal'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs SIGSEGV' }] });
   });
 
   it('gives equal keys exactly for equal signatures', () => {
     const key = (x: Divergence) => signatureKey(clusterSignature(x));
-    expect(key(d('a', ['x', 'y'], stdout('line-order')))).toBe(key(d('b', ['y', 'x'], stdout('line-order'))));
-    expect(key(d('a', ['x'], stdout('line-order')))).not.toBe(key(d('a', ['y'], stdout('line-order'))));
+    expect(key(d('a', ['x', 'y'], stdout('line-order')))).toBe(key(d('b', ['z'], stdout('line-order'))));
+    expect(key(d('a', ['x'], stdout('line-order')))).not.toBe(key(d('a', ['x'], exit('2 vs 1'), stdout('line-order'))));
     expect(key(d('a', ['x'], stdout('line-order')))).not.toBe(key(d('a', ['x'], stdout('number-value'))));
     expect(key(d('a', [], stdout('empty', 'candidate empty')))).not.toBe(key(d('a', [], stdout('empty', 'reference empty'))));
     expect(key(d('a', [], exit('2 vs 1')))).not.toBe(key(d('a', [], exit('2 vs 0'))));
@@ -49,6 +48,27 @@ describe('clusterDivergences', () => {
     ]);
   });
 
+  it('groups the same shape under different features into one cluster, counting cases per feature', () => {
+    const clusters = clusterDivergences(
+      [d('c1', [], stdout('number-value')), d('c2', ['opt.l'], stdout('number-value')), d('c3', ['error.file', 'opt.l'], stdout('number-value'))],
+      new Map([
+        ['base', 0.5],
+        ['opt.l', 0.25],
+        ['error.file', 1],
+      ]),
+    );
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toMatchObject({
+      cases: ['c1', 'c2', 'c3'],
+      features: [
+        { feature: 'opt.l', cases: 2 },
+        { feature: 'base', cases: 1 },
+        { feature: 'error.file', cases: 1 },
+      ],
+      weight: 2,
+    });
+  });
+
   it('ranks by size × feature weight: a small cluster in a thin feature can come first', () => {
     // 100 cases tag `error`, 2 tag `opt.x`: 10 error cases weigh 0.1, 1 opt.x case weighs 0.5.
     const weights = new Map([
@@ -70,7 +90,7 @@ describe('clusterDivergences', () => {
       ['w', 0.15],
     ]);
     // 0.1 + 0.2 and 0.3 tie although their floating-point sums differ; so do 0.15 + 0.15.
-    const input = [d('a1', ['a'], stdout('other')), d('xy1', ['x', 'y'], stdout('other')), d('w1', ['w'], stdout('line-order')), d('w2', ['w'], stdout('line-order'))];
+    const input = [d('a1', ['a'], stdout('number-value')), d('xy1', ['x', 'y'], stdout('other')), d('w1', ['w'], stdout('line-order')), d('w2', ['w'], stdout('line-order'))];
     const order = (xs: Divergence[]) => clusterDivergences(xs, weights).map((c) => c.cases.join());
     expect(order(input)).toEqual(['w1,w2', 'a1', 'xy1']);
     expect(order([...input].reverse())).toEqual(['w2,w1', 'a1', 'xy1']);
@@ -86,10 +106,14 @@ describe('clusterDivergences', () => {
 });
 
 describe('describeSignature', () => {
-  it('names each field with its shape, an exit status by its codes, then the features', () => {
-    expect(describeSignature(clusterSignature(d('c', ['opt.l', 'opt.c'], exit('2 vs 1'), stdout('prefix-suffix', 'candidate stops early'))))).toBe(
-      'exit 2 vs 1, stdout prefix-suffix (candidate stops early) · features opt.c, opt.l',
+  it('names each field with its shape, and an exit status by its codes', () => {
+    expect(describeSignature(clusterSignature(d('c', ['opt.l'], exit('2 vs 1'), stdout('prefix-suffix', 'candidate stops early'))))).toBe(
+      'exit 2 vs 1, stdout prefix-suffix (candidate stops early)',
     );
     expect(describeSignature(clusterSignature(d('c', [], stdout('line-order'))))).toBe('stdout line-order');
+  });
+
+  it('lists features with their case counts', () => {
+    expect(describeFeatures(clusterDivergences([d('a', ['opt.l'], stdout('other')), d('b', ['opt.l', 'opt.c'], stdout('other'))], new Map())[0]!.features)).toBe('opt.l (2), opt.c (1)');
   });
 });

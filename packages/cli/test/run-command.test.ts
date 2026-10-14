@@ -77,9 +77,9 @@ describe('executeRun', () => {
         'normalizers: none',
         'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
         'candidate 2 ./bin/tool-bad: 1 of 3 cases match, 2 diverge',
-        '  cluster 1: 1 case · exit 1 vs 2',
+        '  cluster 1: 1 case · exit 1 vs 2 · features base (1)',
         `    ${shortCaseId(cases[2]!.id)}`,
-        '  cluster 2: 1 case · stdout other',
+        '  cluster 2: 1 case · stdout other · features base (1)',
         `    ${shortCaseId(cases[1]!.id)}`,
         '',
       ].join('\n'),
@@ -127,12 +127,21 @@ describe('executeRun', () => {
         {
           cluster: 1,
           candidate: 2,
-          signature: { fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '1 vs 2' }], features: [] },
+          signature: { fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '1 vs 2' }] },
+          features: [{ feature: 'base', cases: 1 }],
           size: 1,
           weight: 1 / 3,
           cases: [cases[2]!.id],
         },
-        { cluster: 2, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'other' }], features: [] }, size: 1, weight: 1 / 3, cases: [cases[1]!.id] },
+        {
+          cluster: 2,
+          candidate: 2,
+          signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'other' }] },
+          features: [{ feature: 'base', cases: 1 }],
+          size: 1,
+          weight: 1 / 3,
+          cases: [cases[1]!.id],
+        },
       ],
     });
     // Saved as printed, with each candidate as configured.
@@ -210,7 +219,7 @@ describe('executeRun profiles', () => {
     const standard = await run(undefined);
     expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
     expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
-    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text\n {4}c_[0-9a-f]{8}\n$/);
+    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
 
     const strict = await run({ profile: 'strict' });
     expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
@@ -263,9 +272,9 @@ describe('executeRun clusters', () => {
     expect(result.stdout).toContain(
       [
         'candidate 2 ./bin/tool-bad: 3 of 11 cases match, 8 diverge',
-        '  cluster 1: 1 case · exit 1 vs 2 · features error',
+        '  cluster 1: 1 case · exit 1 vs 2 · features error (1)',
         `    ${shortCaseId(cases[10]!.id)}`,
-        '  cluster 2: 7 cases · stdout other · features opt.u',
+        '  cluster 2: 7 cases · stdout other · features opt.u (7)',
         `    ${ids.join('  ')}  … and 2 more`,
         '',
       ].join('\n'),
@@ -326,7 +335,7 @@ describe('runCommand', () => {
       writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
-      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other\n {4}c_[0-9a-f]{8}\n$/);
+      expect(result.stdout).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
       const runId = /^run (\S+)$/m.exec(result.stdout)![1]!;
       expect((await loadRun(project, runId)).clusters).toHaveLength(1);
     } finally {

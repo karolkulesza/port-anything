@@ -11,7 +11,8 @@ const ID_B = `sha256:${'b'.repeat(64)}`;
 const cluster = (n: number, candidate: number, cases: string[]) => ({
   cluster: n,
   candidate,
-  signature: { fields: ['stdout' as const], shapes: [{ field: 'stdout' as const, shape: 'number-value' as const }], features: ['opt.l'] },
+  signature: { fields: ['stdout' as const], shapes: [{ field: 'stdout' as const, shape: 'number-value' as const }] },
+  features: [{ feature: 'opt.l', cases: cases.length }],
   size: cases.length,
   weight: 0.5,
   cases,

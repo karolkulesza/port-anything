@@ -99,12 +99,14 @@ export {
   UNTAGGED_FEATURE,
   clusterDivergences,
   clusterSignature,
+  describeFeatures,
   describeSignature,
   featureWeights,
   signatureKey,
   type Cluster,
   type ClusterSignature,
   type Divergence,
+  type FeatureCount,
 } from './cluster.js';
 export {
   RUN_FILE,

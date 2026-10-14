@@ -12,6 +12,7 @@ import {
   chooseSandbox,
   clusterDivergences,
   configCandidates,
+  describeFeatures,
   describeSignature,
   featureWeights,
   loadCommittedCases,
@@ -193,7 +194,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
       return run.comparison.verdict === 'diverge' ? [{ caseId: c.caseId, features: cases[n]!.features, shapes: run.shapes }] : [];
     });
     for (const cluster of clusterDivergences(divergences, weights)) {
-      clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
+      clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, features: cluster.features, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
     }
   }
   const report = {
@@ -230,7 +231,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteRunOpt
   for (const [i, c] of summary.candidates.entries()) {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge` : ''}`);
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
-      lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)}`);
+      lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
       lines.push(`    ${listed.join('  ')}${cluster.size > LISTED_CASES ? `  … and ${cluster.size - LISTED_CASES} more` : ''}`);
     }

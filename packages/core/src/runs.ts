@@ -33,8 +33,9 @@ const SavedClusterSchema = z.object({
   signature: z.object({
     fields: z.array(z.enum(COMPARED_FIELDS)).min(1),
     shapes: z.array(z.object({ field: z.enum(COMPARED_FIELDS), shape: z.enum(DIFF_SHAPES), detail: z.string().optional() })).min(1),
-    features: z.array(z.string()),
   }),
+  /** Its cases' features with how many cases carry each (not part of the signature). */
+  features: z.array(z.object({ feature: z.string().min(1), cases: z.number().int().positive() })),
   size: z.number().int().positive(),
   weight: z.number().nonnegative(),
   cases: z.array(CaseIdSchema).min(1),
