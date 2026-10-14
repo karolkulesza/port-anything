@@ -10,8 +10,9 @@ export const FIXTURE_PLACEHOLDER = '{}';
 
 export interface FixturesImportOptions extends ImportOptionsBase {
   /**
-   * Arguments for each case. With `input: 'file'`, every `{}` becomes the fixture's path, and the
-   * path is appended when there is no `{}`. Default: none.
+   * Arguments for each case. With `input: 'file'`, every `{}` becomes the fixture's path (with
+   * `./` in front if it starts with `-`), and the path is appended when there is no `{}`.
+   * Default: none.
    */
   argv?: string[];
   /**
@@ -55,9 +56,11 @@ export const fixturesImporter: Importer<FixturesImportOptions> = {
       if (input === 'stdin') {
         await collector.add({ argv, stdin: bytes, at });
       } else {
+        // A path like `-n.json` would be read as an option; `./-n.json` names the same file.
+        const arg = path.startsWith('-') ? `./${path}` : path;
         const args = argv.some((a) => a.includes(FIXTURE_PLACEHOLDER))
-          ? argv.map((a) => a.replaceAll(FIXTURE_PLACEHOLDER, path))
-          : [...argv, path];
+          ? argv.map((a) => a.replaceAll(FIXTURE_PLACEHOLDER, arg))
+          : [...argv, arg];
         await collector.add({ argv: args, stdin: null, fixtures: { [path]: bytes }, at });
       }
     }

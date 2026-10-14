@@ -78,6 +78,15 @@ describe('importCases: fixtures', () => {
     expect(result.cases[0]!.case.argv).toEqual(['--in=a.csv', '-o', 'out']);
   });
 
+  it("doesn't let a fixture path pass for an option", async () => {
+    await writeFile(join(dir, '-n.json'), '{}');
+    const result = await importCases({ kind: 'fixtures', path: join(dir, '-n.json'), argv: ['--in={}'] }, store);
+    expect(result.cases[0]!.case.argv).toEqual(['--in=./-n.json']);
+    expect(result.cases[0]!.case.fixtures).toEqual({ '-n.json': blobRef('{}') });
+    const appended = await importCases({ kind: 'fixtures', path: join(dir, '-n.json') }, store);
+    expect(appended.cases[0]!.case.argv).toEqual(['./-n.json']);
+  });
+
   it('can feed fixtures on stdin instead', async () => {
     const result = await importCases({ kind: 'fixtures', path: join(src, 'fixtures'), argv: ['-s'], input: 'stdin' }, store);
     expect(result.cases.map((c) => c.case.stdin)).toEqual([blobRef('a,1\n'), blobRef('b,2\n'), blobRef('c,3\n')]);
