@@ -143,6 +143,9 @@ describe('classifyDiff', () => {
       { field: 'fs', shape: 'file-set' },
     ]);
     expect(await classify(a, observation({ fs: created({ 'out.txt': await store.put('a\nb\n') }) }))).toEqual([{ field: 'fs', shape: 'line-order' }]);
+    expect(await classify(a, observation({ fs: created({ 'out.txt': await store.put('b\na') }) }))).toEqual([
+      { field: 'fs', shape: 'missing-trailing-newline', detail: 'candidate' },
+    ]);
   });
 
   it('classifies only the fields it is given', async () => {

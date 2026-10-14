@@ -117,8 +117,8 @@ function status(o: Observation): string {
  * Classifies each diverging field of a case (as listed by the comparison, both observations already
  * normalized). Exit, signal and timeout all get `exit-code` with both statuses; stdout and stderr
  * are classified as text; fs is `file-set` when the changed paths differ, else the shape of the
- * first file (by path) whose content differs. The path is left out, so cases writing different
- * files can share a signature.
+ * first file (by path) whose content differs, with its detail. The path is left out, so cases
+ * writing different files can share a signature.
  */
 export async function classifyDiff(reference: Observation, candidate: Observation, fields: readonly ComparedField[], store: BlobStore): Promise<FieldShape[]> {
   const read = async (ref: string) => asText(await store.get(ref));
@@ -147,5 +147,5 @@ async function fsShape(a: Observation['fs'], b: Observation['fs'], read: (ref: s
     .find((p) => ca[p] !== cb[p]);
   if (path === undefined) return { shape: 'other' };
   const [ta, tb] = [await read(ca[path]!), await read(cb[path]!)];
-  return { shape: classifyText(ta, tb).shape };
+  return classifyText(ta, tb);
 }
