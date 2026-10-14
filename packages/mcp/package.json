@@ -1,6 +1,6 @@
 {
   "name": "@port-anything/mcp",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Port Anything MCP server over the core engine.",
   "license": "Apache-2.0",
   "repository": {

@@ -63,4 +63,9 @@ describe('published package (run `pnpm build` first)', () => {
     expect(readFileSync(new URL('../README.md', import.meta.url), 'utf8')).toContain('npx port-anything compare');
     expect(readFileSync(new URL('../LICENSE', import.meta.url), 'utf8')).toBe(readFileSync(new URL('../../../LICENSE', import.meta.url), 'utf8'));
   });
+
+  it('carries a released version (changesets bumps it from the 0.0.0 placeholder)', () => {
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(pkg.version).not.toBe('0.0.0');
+  });
 });
