@@ -62,6 +62,8 @@ export interface CandidateRun {
   shapes: FieldShape[];
   /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
   normalizedBy: number[];
+  /** Both observations as compared, after the normalizers (for waivers' regexes and diffs). */
+  normalized: { reference: Observation; candidate: Observation };
   /** The re-run's observation; only a diverging case is re-run. */
   rerun?: Observation;
   /**
@@ -89,11 +91,10 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's under the strictness profile, once both have been
- * normalized. A candidate that diverges on a case runs it once more, to tell a racy port (`flaky`)
- * from a steady divergence. Cases run in a worker pool; within a case the sides run one after
- * another, in the same working directory path (also HOME), so a program that prints its directory
- * doesn't diverge for that alone.
+ * candidate's observation with the reference's under the strictness profile, once both have been normalized. A candidate
+ * that diverges on a case runs it once more, to tell a racy port (`flaky`) from a steady divergence. Cases run in a worker pool;
+ * within a case the sides run one after another, in the same working directory path (also HOME),
+ * so a program that prints its directory doesn't diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const runner = await openCaseRunner(options);
@@ -126,14 +127,7 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
   const programs = [options.reference, ...options.candidates];
   const pinOptions = options.programName === undefined ? {} : { name: options.programName };
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), programs, pinOptions);
-  // Paths a side may print that differ between sides or runs, as given and with links resolved.
-  const realWorkDir = await realpath(workDir);
-  const spellings = (path: string) => [path, join(realWorkDir, relative(workDir, path))];
-  const programNames = programs.map((p) => [name, basename(p.path), basename(p.realPath), ...(p.tool === undefined ? [] : [p.tool])]);
-  const context = (side: number, caseDir: string): SideContext => ({
-    tempRoots: [caseDir, sides[side]!.binDir, workDir].flatMap(spellings),
-    programNames: programNames[side]!,
-  });
+  const context = await sideContexts(workDir, programs, name, sides);
 
   const run = async (c: CanonicalCase, slot = 0): Promise<CaseRun> => {
     const caseDir = join(workDir, `slot-${slot}`, 'case');
@@ -154,33 +148,54 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
         const comparison = await compareObservations(normalized.reference, normalized.candidate, {
           ...(options.compare ?? { profile: 'standard' }),
           store: options.store,
-          programNames: { reference: programNames[left.side]!, candidate: programNames[i]! },
+          programNames: { reference: context(left.side, caseDir).programNames, candidate: context(i, caseDir).programNames },
         });
         return { normalized, comparison };
       };
       const { normalized, comparison } = await compare({ observation: reference, side: 0 }, observation);
+      const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
       if (comparison.verdict === 'match' || options.rerun === false) {
-        const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
-        candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy, flaky: false });
+        candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate }, flaky: false });
         continue;
       }
-      const shapes = await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
       const rerun = await observe(side);
       const flaky = (await compare({ observation, side: i }, rerun)).comparison.verdict === 'diverge';
-      candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, shapes, normalizedBy: normalized.changedBy, rerun, flaky });
+      candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate }, rerun, flaky });
     }
     return { caseId: c.id, reference, candidates };
   };
   return { programName: name, run };
 }
 
+/**
+ * What normalizers need to know about each side of a run, given its case directory: paths a side
+ * may print that differ between sides or runs (as given and with links resolved), and its names.
+ */
+export async function sideContexts(
+  workDir: string,
+  programs: readonly ResolvedProgram[],
+  name: string,
+  sides: readonly PinnedProgram[],
+): Promise<(side: number, caseDir: string) => SideContext> {
+  const realWorkDir = await realpath(workDir);
+  const spellings = (path: string) => [path, join(realWorkDir, relative(workDir, path))];
+  const programNames = programs.map((p) => [name, basename(p.path), basename(p.realPath), ...(p.tool === undefined ? [] : [p.tool])]);
+  return (side, caseDir) => ({
+    tempRoots: [caseDir, sides[side]!.binDir, workDir].flatMap(spellings),
+    programNames: programNames[side]!,
+  });
+}
+
+/** The options `observeCase` reads. */
+export type ObserveOptions = Pick<RunCasesOptions, 'store' | 'sandbox' | 'timeoutMs' | 'outputCapBytes' | 'envAllowlist' | 'env' | 'hostEnv'>;
+
 /** Runs one side on one case in a fresh copy of the case's directory and builds its observation. */
-async function observeCase(
+export async function observeCase(
   c: CanonicalCase,
   caseDir: string,
   name: string,
   side: PinnedProgram,
-  options: Omit<RunCasesOptions, 'cases' | 'concurrency' | 'onCase'>,
+  options: ObserveOptions,
 ): Promise<Observation> {
   const { store } = options;
   await rm(caseDir, { recursive: true, force: true });

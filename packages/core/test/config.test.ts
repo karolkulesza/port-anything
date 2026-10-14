@@ -26,12 +26,13 @@ describe('parseConfig', () => {
       sandbox: { mode: 'container', image: 'debian:12-slim', timeout: '10s', env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } },
       compare: { profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 },
       normalizers: ['tmp-paths'],
-      corpus: { repeats: 3 },
+      corpus: { repeats: 5, generator: 'v1', budget: 10000 },
       holdout: { fresh_cases: 1000 },
       report: { title: 'tool → Rust' },
     });
     expect(config.program_name).toBe('tool');
-    expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: '2x', min_parity: 0.95 });
+    expect(config.compare).toEqual({ profile: 'standard', fields: { stderr: { mode: 'loose', similarity: 0.6 } }, max_slowdown: 2, min_parity: 0.95 });
+    expect(config.corpus?.repeats).toBe(5);
     expect(config.sandbox).toEqual({ mode: 'container', image: 'debian:12-slim', timeout: 10_000, env_allowlist: ['COLUMNS', 'NO_COLOR'], env: { TZ: 'UTC', LANG: 'C.UTF-8' } });
     expect(configCandidates(config)).toEqual([{ cmd: ['./port/target/release/tool'], build: 'cargo build --release' }]);
   });
@@ -64,6 +65,19 @@ describe('parseConfig', () => {
     );
   });
 
+  it('reads compare.max_slowdown as a factor, written 2x or as a plain number', () => {
+    const max = (value: unknown) => parseConfig({ version: 1, reference: { cmd: 'a' }, compare: { max_slowdown: value } }).compare.max_slowdown;
+    expect(max('2x')).toBe(2);
+    expect(max('1.5x')).toBe(1.5);
+    expect(max(3)).toBe(3);
+    expect(max('1x')).toBe(1);
+    expect(parseConfig({ version: 1, reference: { cmd: 'a' } }).compare.max_slowdown).toBeUndefined();
+    for (const bad of ['2', '2 x', 'x', '0.5x', 0, -1, '200%']) {
+      expect(() => max(bad)).toThrow(/compare\.max_slowdown: must be a factor of at least 1/);
+    }
+    expect(() => max(Infinity)).toThrow(/compare\.max_slowdown: /);
+  });
+
   it('reads timeouts in ms, s, m or plain seconds', () => {
     const timeout = (value: unknown) => parseConfig({ version: 1, reference: { cmd: 'a' }, sandbox: { timeout: value } }).sandbox.timeout;
     expect(timeout('500ms')).toBe(500);
@@ -91,6 +105,11 @@ describe('parseConfig', () => {
     expect(message).toMatch(/reference: /);
     expect(message).toMatch(/refrence/);
     expect(message).toMatch(/sandbox\.env\.A=B: /);
+  });
+
+  it('takes at least 2 corpus repeats', () => {
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 1 } })).toThrow(/corpus\.repeats/);
+    expect(() => parseConfig({ version: 1, reference: { cmd: 'a' }, corpus: { repeats: 2.5 } })).toThrow(/corpus\.repeats/);
   });
 
   it('takes only a plain file name as program_name', () => {

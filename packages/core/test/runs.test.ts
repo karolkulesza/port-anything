@@ -89,10 +89,13 @@ describe('saved runs', () => {
       expect(await latestRun(project)).toBeUndefined();
     });
 
-    it('is the latest run of the whole corpus, skipping subset runs and runs still being written', async () => {
+    it('is the latest run of the whole corpus, skipping cluster and smoke runs and runs still being written', async () => {
       const first = await saveRun(project, run(), new Date('2026-10-14T19:00:00Z'));
       const second = await saveRun(project, run(), new Date('2026-10-14T19:05:00Z'));
       await saveRun(project, run({ subset: { cluster: `${second.run_id}/1` } }), new Date('2026-10-14T19:06:00Z'));
+      const smoke = { smoke: { from: second.run_id, corpus: 40, clusters: 2, per_feature: 10, passing: 5 } };
+      const third = await saveRun(project, run({ subset: smoke }), new Date('2026-10-14T19:06:30Z'));
+      expect((await loadRun(project, third.run_id)).subset).toEqual(smoke);
       mkdirSync(join(runsDir(project), '20261014-190700-ffff'));
       expect((await latestRun(project))?.run_id).toBe(second.run_id);
       expect(first.run_id < second.run_id).toBe(true);

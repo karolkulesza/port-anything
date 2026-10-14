@@ -97,7 +97,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteMinimi
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
   const target = await resolveCluster(projectDir, args.cluster);
-  const clusterOf = clusterCases(target, cases);
+  const clusterOf = await clusterCases(projectDir, target, cases);
   const command = target.run.candidate_commands[target.cluster.candidate - 1]!;
   const { runner: runnerOptions } = await prepareSides(projectDir, config, [command], { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) });
   const store = runnerOptions.store;
