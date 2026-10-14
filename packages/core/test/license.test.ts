@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -90,6 +90,12 @@ describe('findLicenseFiles', () => {
     expect(await findLicenseFiles(join(dir, 'repo', 'tests'))).toEqual([]);
   });
 
+  it('ignores a dangling symlink named like a license file', async () => {
+    await symlink(join(dir, 'missing'), join(dir, 'LICENSE'));
+    await writeFile(join(dir, 'COPYING'), MIT);
+    expect(await findLicenseFiles(dir)).toEqual([join(dir, 'COPYING')]);
+  });
+
   it('ignores directories named like license files', async () => {
     await mkdir(join(dir, 'license'));
     await writeFile(join(dir, 'LICENSE.txt'), MIT);
@@ -139,5 +145,6 @@ describe('checkLicense', () => {
     expect(await checkLicense(dir, '(MIT OR Apache-2.0)')).toMatchObject({ licenses: ['Apache-2.0', 'MIT'], category: 'permissive' });
     expect(await checkLicense(dir, 'MIT AND GPL-2.0-only')).toMatchObject({ category: 'copyleft' });
     expect(await checkLicense(dir, 'LicenseRef-mine')).toMatchObject({ category: 'unknown' });
+    expect(await checkLicense(dir, 'MIT and GPL-3.0')).toMatchObject({ licenses: ['GPL-3.0', 'MIT'], category: 'copyleft' });
   });
 });

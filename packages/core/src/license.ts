@@ -105,7 +105,11 @@ export async function findLicenseFiles(path: string): Promise<string[]> {
     }
     const files: string[] = [];
     for (const name of names.filter((n) => LICENSE_FILE.test(n)).sort()) {
-      if ((await stat(join(dir, name))).isFile()) files.push(join(dir, name));
+      try {
+        if ((await stat(join(dir, name))).isFile()) files.push(join(dir, name));
+      } catch (e) {
+        if (!isMissing(e)) throw e; // a dangling symlink
+      }
     }
     if (files.length > 0 || names.includes('.git')) return files;
     const parent = dirname(dir);
@@ -121,7 +125,7 @@ export async function findLicenseFiles(path: string): Promise<string[]> {
  */
 export async function checkLicense(path: string, declared?: string): Promise<LicenseCheck> {
   if (declared !== undefined && declared.trim() !== '') {
-    const licenses = [...new Set(declared.split(/\s+(?:AND|OR|WITH)\s+|[()]/).map((s) => s.trim()).filter(Boolean))].sort();
+    const licenses = [...new Set(declared.split(/\s+(?:AND|OR|WITH)\s+|[()]/i).map((s) => s.trim()).filter(Boolean))].sort();
     const category = combined(licenses);
     return withWarning({ licenses, category, method: 'declared', files: [] });
   }
