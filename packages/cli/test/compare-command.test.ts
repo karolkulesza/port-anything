@@ -7,9 +7,10 @@ import { compareCommand, formatCompare, parseCompareArgs, percent, scoreParity, 
 import { run } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
-// `bad` ignores --upper; `flaky` prints a random number with --quiet. Every stage of the pipeline
+// `bad` ignores --upper; `flaky` prints a random number with --quiet; `pwd` prints its working
+// directory with --quiet, which differs between runs and is what the tmp-paths normalizer covers. Every stage of the pipeline
 // reads all its input (awk, not head), so no write ever fails on a closed pipe at random.
-const TOOL = (variant: 'ref' | 'bad' | 'flaky') => `#!/bin/sh
+const TOOL = (variant: 'ref' | 'bad' | 'flaky' | 'pwd') => `#!/bin/sh
 if [ "$1" = --help ]; then
   printf 'Usage: frob [OPTION]... [FILE]...\\n\\n  -q, --quiet     say less\\n  -u, --upper     upper-case the output\\n  -n, --count=N   stop after N lines\\n      --help      display this help and exit\\n'
   exit 0
@@ -28,7 +29,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-${variant === 'flaky' ? '[ -n "$quiet" ] && od -An -N4 -tu4 /dev/urandom' : ':'}
+${variant === 'flaky' ? '[ -n "$quiet" ] && od -An -N4 -tu4 /dev/urandom' : variant === 'pwd' ? '[ -n "$quiet" ] && pwd' : ':'}
 case "$count" in ''|*[!0-9]*) [ -z "$count" ] || { echo "frob: invalid count '$count'" >&2; exit 2; } ;; esac
 cat "$@" | if [ -n "$upper" ]; then tr 'a-z' 'A-Z'; else cat; fi | if [ -n "$count" ]; then awk -v n="$count" 'NR <= n'; else cat; fi
 `;
@@ -184,7 +185,7 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     scratch = join(dir, 'scratch');
     mkdirSync(scratch);
     mkdirSync(join(dir, 'bin'));
-    for (const [file, variant] of [['frob', 'ref'], ['frob-copy', 'ref'], ['frob-bad', 'bad'], ['frob-flaky', 'flaky']] as const) {
+    for (const [file, variant] of [['frob', 'ref'], ['frob-copy', 'ref'], ['frob-bad', 'bad'], ['frob-flaky', 'flaky'], ['frob-pwd', 'pwd'], ['frob-pwd-copy', 'pwd']] as const) {
       writeFileSync(join(dir, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
   });
@@ -264,6 +265,17 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     }
     expect(summary.baseline.stable + summary.baseline.normalized + summary.baseline.flaky_reference.length).toBe(80);
     expect(summary.candidates[0]!.cases).toBe(80 - summary.baseline.flaky_reference.length);
+  });
+
+  it('applies the normalizers the reference runs call for, and counts the cases they change', async () => {
+    const { exitCode, summary } = await json(['./bin/frob-pwd', './bin/frob-pwd-copy', '--budget', '60', '--save']);
+    expect(exitCode).toBe(0);
+    expect(summary.baseline.normalized).toBeGreaterThan(0);
+    expect(summary.baseline.flaky_reference).toEqual([]);
+    expect(summary.normalizers.map((n) => n.normalizer)).toEqual(['tmp-paths on stdout']);
+    expect(summary.normalizers[0]!.cases).toBe(summary.baseline.normalized);
+    expect(summary.candidates[0]).toMatchObject({ parity: 1, match: 60, cases: 60, divergences: [] });
+    expect((await readConfigFile(dir)).normalizers).toEqual([{ name: 'tmp-paths', options: {}, scope: ['stdout'] }]);
   });
 
   it('refuses to run without a sandbox unless --no-sandbox is given', async () => {
