@@ -42,6 +42,11 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
 
+      # The published CLI must pack and publish from a clean checkout (its prepack step builds it).
+      - name: npm publish --dry-run
+        working-directory: packages/cli
+        run: npm publish --dry-run
+
       # Informational only: records whether unprivileged bubblewrap works on this runner image.
       - name: Probe unprivileged bwrap
         if: runner.os == 'Linux'

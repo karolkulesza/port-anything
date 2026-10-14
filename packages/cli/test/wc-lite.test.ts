@@ -22,6 +22,16 @@ const BAD_PORTS = {
   'bad-crlf': { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
   'bad-exit-code': { size: 3, signature: 'exit 2 vs 1', features: 'error.usage (3)' },
 } as const;
+
+/** The minimal case each bad port's cluster minimizes to. */
+const REPROS = {
+  // From `-l` on "one\ntwo\nthree": any input whose last line has no newline, with no option at all.
+  'bad-off-by-one': { argv: [], stdin: 't', env: {}, fixtures: {} },
+  // From `-L crlf.txt`: -L and the file stay, and the file is one CRLF line ending.
+  'bad-crlf': { argv: ['-L', 'crlf.txt'], stdin: null, env: {}, fixtures: { 'crlf.txt': '\r\n' } },
+  // From the smallest usage error, `-x`, which has nothing to drop.
+  'bad-exit-code': { argv: ['-x'], stdin: null, env: {}, fixtures: {} },
+} as const;
 type BadPort = keyof typeof BAD_PORTS;
 
 /**
@@ -39,7 +49,7 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; score: Score; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; waived: number; score: Score; normalizers: unknown[]; waivers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[] }[];
   clusters: SavedCluster[];
 }
 
@@ -48,6 +58,12 @@ describe.runIf(enabled)('examples/wc-lite', () => {
   const badPath = (feature: BadPort) => `./port/target/${feature}/release/wc-lite`;
   const port = (...args: string[]) =>
     exec(process.execPath, [binPath, 'run', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+      (r) => ({ ...r, code: 0 }),
+      (e: { code: number; stdout: string; stderr: string }) => e,
+    );
+
+  const minimize = (...args: string[]) =>
+    exec(process.execPath, [binPath, 'minimize', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
@@ -90,7 +106,18 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     const summary = JSON.parse(stdout) as RunSummary;
     expect(summary.cases).toBeGreaterThanOrEqual(20);
     expect(summary.candidates).toEqual([
-      { command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, score: expect.any(Object), normalizers: [], divergences: [] },
+      {
+        command: './port/target/release/wc-lite',
+        match: summary.cases,
+        diverge: 0,
+        waived: 0,
+        score: expect.any(Object),
+        normalizers: [],
+        waivers: [],
+        divergences: [],
+        flaky_candidate: [],
+        waived_cases: [],
+      },
     ]);
     // The good port scores 100%, over every feature but the self-description ones.
     const { score } = summary.candidates[0]!;
@@ -126,5 +153,57 @@ describe.runIf(enabled)('examples/wc-lite', () => {
       expect(text.stdout).toContain(`candidate ${i + 2} ${badPath(feature)}: ${match} of ${cases} cases match, ${diverge} diverge\n  parity ${PARITY[feature]}, mean of 8 features`);
       expect(text.stdout).toContain(`  cluster ${i + 1}: ${size} case${size === 1 ? '' : 's'} · ${signature} · features ${features}\n`);
     }
+  }, 120_000);
+
+  it('minimizes the cluster of each bad port to its expected repro and saves it with the run (done when)', async () => {
+    const bad = Object.keys(BAD_PORTS) as BadPort[];
+    const run = await port('--json', ...bad.flatMap((c) => ['--candidate', badPath(c)]));
+    const { run_id: runId, clusters } = JSON.parse(run.stdout) as RunSummary & { run_id: string };
+    expect(clusters.map((c) => c.candidate)).toEqual([1, 2, 3]);
+    for (const [i, feature] of bad.entries()) {
+      const minimized = await minimize('--json', `${runId}/${i + 1}`);
+      expect(minimized.code).toBe(1);
+      const repro = JSON.parse(minimized.stdout) as { reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } };
+      const { id: _id, ...invocation } = repro.case;
+      expect({ feature, ...invocation }).toEqual({ feature, ...REPROS[feature] });
+      expect(repro).toMatchObject({ reproduced: true, exhausted: false });
+      expect(repro.runs).toBeLessThanOrEqual(200);
+    }
+    // The text output shows the repro as a command line; the latest run is the default.
+    const text = await minimize('2');
+    expect(text.code).toBe(1);
+    expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
+  }, 120_000);
+
+  it('catches every bad port with run --smoke in under 15 s, with or without its cluster open (done when)', async () => {
+    const bad = Object.keys(BAD_PORTS) as BadPort[];
+    const smoke = async (...args: string[]) => {
+      const start = performance.now();
+      const result = await port('--smoke', '--json', ...args);
+      const ms = performance.now() - start;
+      expect(ms).toBeLessThan(15_000);
+      return { code: result.code, ms, summary: JSON.parse(result.stdout) as RunSummary & { subset: { smoke: { from: string | null; clusters: number } } } };
+    };
+    // The inner loop after a full run of the good port: nothing is open, so the samples must find each bug.
+    expect((await port()).code).toBe(0);
+    for (const feature of bad) {
+      const { code, summary } = await smoke('--candidate', badPath(feature));
+      expect({ feature, code, clusters: summary.subset.smoke.clusters }).toEqual({ feature, code: 1, clusters: 0 });
+      expect(summary.clusters.map((c) => describeSignature(c.signature))).toContain(BAD_PORTS[feature].signature);
+    }
+
+    // After a full run of the bad ports and minimizing their clusters, smoke runs each repro.
+    const candidates = bad.flatMap((c) => ['--candidate', badPath(c)]);
+    const run = JSON.parse((await port('--json', ...candidates)).stdout) as RunSummary & { run_id: string };
+    const repros: string[] = [];
+    for (const i of bad.keys()) repros.push((JSON.parse((await minimize('--json', `${run.run_id}/${i + 1}`)).stdout) as { case: { id: string } }).case.id);
+    const { code, summary } = await smoke(...candidates);
+    expect(code).toBe(1);
+    expect(summary.subset.smoke).toMatchObject({ from: run.run_id, clusters: 3 });
+    for (const [i, feature] of bad.entries()) {
+      expect({ feature, diverging: summary.candidates[i]!.divergences.map((d) => d.case) }).toEqual({ feature, diverging: expect.arrayContaining([repros[i]]) });
+    }
+    // The good port passes the same smoke subset.
+    expect((await smoke()).code).toBe(0);
   }, 120_000);
 });
