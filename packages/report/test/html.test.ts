@@ -1,67 +1,6 @@
-import { scoreCandidate, waiverCoverage, type ScoredCase, type Waiver } from '@port-anything/core';
 import { describe, expect, it } from 'vitest';
-import { renderReportHtml, type ReportInput } from '../src/index.js';
-
-// Needs @port-anything/core built (`pnpm build`), like the CLI tests.
-
-const id = (n: number) => `sha256:${n.toString(16).padStart(8, '0')}${'a'.repeat(56)}`;
-
-/** The corpus: 25 `base` cases, 22 `opt.n`, 5 `opt.x` (under-sampled), 3 `opt.help` (self-description). */
-const CORPUS = [
-  ...Array.from({ length: 25 }, () => ['base']),
-  ...Array.from({ length: 22 }, () => ['opt.n']),
-  ...Array.from({ length: 5 }, () => ['opt.x']),
-  ...Array.from({ length: 3 }, () => ['opt.help']),
-].map((features, n) => ({ caseId: id(n + 1), features, origin: n < 40 ? ('recorded' as const) : ('generated' as const) }));
-
-const SPEC_FEATURES = ['base', 'opt.n', 'opt.x', 'opt.help', 'opt.z'].map((name) => ({ name, selfDescription: false }));
-
-const WAIVERS: Waiver[] = [
-  { match: { feature: 'opt.x', field: 'stdout', shape: 'missing-trailing-newline' }, category: 'intentional', reason: 'trailing newline <by design>' },
-  { match: { feature: 'base', field: 'exit', shape: 'exit-code' }, category: 'reference-bug', reason: 'the original exits 0 after "write error"' },
-];
-
-/** One candidate: which cases diverge, and which of those a waiver covers (waiver index, from 0). */
-function candidate(command: string, diverging: readonly number[], waived: ReadonlyMap<number, number> = new Map()) {
-  const cases: ScoredCase[] = CORPUS.map((c, n) => ({ ...c, verdict: diverging.includes(n + 1) ? 'diverge' : 'match', waived: waived.has(n + 1) }));
-  const score = scoreCandidate(cases, { minCasesPerFeature: 20, features: SPEC_FEATURES });
-  const matches = CORPUS.map((_, n) => (waived.has(n + 1) ? { fields: [[waived.get(n + 1)!]], waived: true, remaining: [] } : { fields: [[]], waived: false, remaining: [] }));
-  return {
-    command,
-    match: CORPUS.length - diverging.length,
-    diverge: diverging.length - waived.size,
-    waived: waived.size,
-    score,
-    waivers: waiverCoverage(WAIVERS, matches, CORPUS.length),
-    waivedCases: [...waived].map(([n, w]) => ({ case: id(n), waivers: [w + 1] })),
-  };
-}
-
-const INPUT: ReportInput = {
-  runId: '20261014-180203-a1b2',
-  created: '2026-10-14T18:02:03.000Z',
-  programName: 'tool',
-  sandbox: 'bwrap (no network)',
-  reference: './bin/tool',
-  compare: { profile: 'default', stderr: { mode: 'loose', similarity: 0.8 } },
-  cases: CORPUS.length,
-  normalizers: [{ normalizer: 'tmp-paths', cases: 4 }],
-  waivers: WAIVERS,
-  candidates: [
-    candidate('./port-a/tool', []),
-    candidate('./port-b/tool', [2, 3, 30, 53, 54]),
-    candidate("'./port c/tool' --strict", [1, 4, 26, 27, 28, 48, 49], new Map([[1, 1], [48, 0], [49, 0]])),
-  ],
-  clusters: [
-    { cluster: 1, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'number-value' }] }, features: [{ feature: 'base', cases: 2 }, { feature: 'opt.n', cases: 1 }], size: 3, weight: 0.12, cases: [id(2), id(3), id(30)], repro: id(3) },
-    { cluster: 2, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'other' }] }, features: [{ feature: 'opt.help', cases: 2 }], size: 2, weight: 0.6, cases: [id(53), id(54)] },
-    { cluster: 3, candidate: 3, signature: { fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs 2' }] }, features: [{ feature: 'opt.n', cases: 3 }, { feature: 'base', cases: 1 }], size: 4, weight: 0.17, cases: [id(4), id(26), id(27), id(28)], repro: id(26) },
-  ],
-  repros: {
-    [id(3)]: { argv: ['-n', 'a file.txt'], env: { LC_ALL: 'C' }, stdin: { bytes: 6, text: 'x\n<y>\n' }, fixtures: [{ path: 'a file.txt', bytes: 4, text: 'abc\n' }] },
-    [id(1)]: { argv: [], env: {}, stdin: { bytes: 70000, text: 'z'.repeat(40), truncated: true }, fixtures: [{ path: 'bin.dat', bytes: 3 }] },
-  },
-};
+import { renderReportHtml } from '../src/index.js';
+import { INPUT, WAIVERS, id } from './three-candidates.js';
 
 describe('renderReportHtml', () => {
   const html = renderReportHtml(INPUT);
