@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, lstatSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,13 +9,16 @@ import { tmpdir } from 'node:os';
  * - `bwrap`: bubblewrap. Read-only view of the system, writable case workdir, private `/tmp` and
  *   `/run`, no network, and (where the kernel allows it) its own PID namespace.
  * - `unshare`: fallback when bwrap isn't usable. No network, but the filesystem is not isolated.
+ * - `sandbox-exec`: macOS, with a generated Seatbelt profile. No network (Unix sockets included),
+ *   writes only inside the case workdir, no signals to processes outside the sandbox.
  * - `none`: no isolation at all; only with `--no-sandbox`.
  *
- * Neither is a strong security boundary: they keep a trusted program from touching the network or
- * (with bwrap) files outside its workdir by accident. A Unix socket the user keeps somewhere in
- * their own files (not under /tmp or /run) stays reachable.
+ * None is a strong security boundary: they keep a trusted program from touching the network or
+ * (except unshare) files outside its workdir by accident. Under bwrap, a Unix socket the user keeps
+ * somewhere in their own files (not under /tmp or /run) stays reachable; under sandbox-exec, Mach
+ * services (the macOS system daemons) do.
  */
-export type SandboxKind = 'bwrap' | 'unshare' | 'none';
+export type SandboxKind = 'bwrap' | 'unshare' | 'sandbox-exec' | 'none';
 
 /** A sandbox that isolates something; what the probe looks for. */
 export type LocalSandbox = Exclude<SandboxKind, 'none'>;
@@ -26,6 +29,7 @@ export type SandboxSetup =
   | { kind: 'bwrap'; isolatePids: boolean }
   /** mapCurrentUser: false on util-linux before 2.38; `id` then shows the overflow uid, file access is unchanged. */
   | { kind: 'unshare'; mapCurrentUser: boolean }
+  | { kind: 'sandbox-exec' }
   | { kind: 'none' };
 
 /** The process to spawn for one case. */
@@ -34,6 +38,25 @@ export interface SandboxCommand {
   args: string[];
   cwd: string;
 }
+
+/**
+ * The Seatbelt profile for sandbox-exec. The workdir comes in as the `WORKDIR` parameter, so no
+ * path needs quoting. Rules are matched last to first, so each exception follows its denial.
+ * Unlike bwrap there is no private /tmp: writes to /tmp and $TMPDIR are denied too.
+ */
+export const SEATBELT_PROFILE = [
+  '(version 1)',
+  '(allow default)',
+  // Covers Unix sockets as well as TCP and UDP.
+  '(deny network*)',
+  '(deny file-write*)',
+  '(allow file-write* (subpath (param "WORKDIR")))',
+  // Pipes and the standard devices. Not /dev/tty: a case has no terminal.
+  '(allow file-write-data (literal "/dev/null") (literal "/dev/zero") (literal "/dev/stdout") (literal "/dev/stderr") (regex #"^/dev/fd/[0-9]+$"))',
+  // A case could otherwise signal any of the user's processes (kill -9 -1).
+  '(deny signal)',
+  '(allow signal (target same-sandbox))',
+].join('\n');
 
 /** Wraps `argv` so it runs in `workdir` (an absolute path) inside the given sandbox. */
 export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], workdir: string): SandboxCommand {
@@ -66,8 +89,23 @@ export function sandboxCommand(setup: SandboxSetup, argv: readonly string[], wor
         args: ['--user', ...(setup.mapCurrentUser ? ['--map-current-user'] : []), '--net', '--', ...argv],
         cwd: workdir,
       };
+    case 'sandbox-exec':
+      return {
+        command: 'sandbox-exec',
+        args: ['-D', `WORKDIR=${resolvedDir(workdir)}`, '-p', SEATBELT_PROFILE, '--', ...argv],
+        cwd: workdir,
+      };
     case 'none':
       return { command: argv[0]!, args: argv.slice(1), cwd: workdir };
+  }
+}
+
+// Seatbelt matches the path the kernel resolved (/private/var/..., not macOS's /var symlink).
+function resolvedDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    throw new Error(`The case workdir "${dir}" does not exist.`);
   }
 }
 
@@ -123,6 +161,7 @@ const PROBE_ORDER: Record<string, Exclude<SandboxSetup, { kind: 'none' }>[][]> =
       { kind: 'unshare', mapCurrentUser: false },
     ],
   ],
+  darwin: [[{ kind: 'sandbox-exec' }]],
 };
 
 /**
@@ -152,7 +191,7 @@ export async function probeSandbox(host: SandboxHost = localHost()): Promise<San
     }
     attempts.push({ kind, ok: false, error });
   }
-  return { usable: undefined, attempts, fix: await fixText(host, missing) };
+  return { usable: undefined, attempts, fix: await fixText(host, attempts, missing) };
 }
 
 const SYSCTL = {
@@ -161,7 +200,7 @@ const SYSCTL = {
   maxUserNs: '/proc/sys/user/max_user_namespaces',
 };
 
-async function fixText(host: SandboxHost, missing: Set<LocalSandbox>): Promise<string> {
+async function fixText(host: SandboxHost, attempts: readonly SandboxAttempt[], missing: Set<LocalSandbox>): Promise<string> {
   const steps: string[] = [];
   if (host.platform === 'linux') {
     if (missing.has('bwrap')) {
@@ -195,6 +234,15 @@ async function fixText(host: SandboxHost, missing: Set<LocalSandbox>): Promise<s
     if (steps.length === 0) {
       steps.push('Make sure unprivileged user namespaces are allowed (bwrap and unshare -n both need them).');
     }
+  } else if (host.platform === 'darwin') {
+    if (missing.has('sandbox-exec')) {
+      steps.push('sandbox-exec ships with macOS as /usr/bin/sandbox-exec: make sure /usr/bin is on your PATH.');
+    } else if (attempts.some((a) => a.error?.includes('sandbox_apply'))) {
+      steps.push(
+        'port-anything already runs inside a sandbox (an app sandbox, or an agent that sandboxes its commands), and sandbox-exec cannot start a second one: run it from a regular terminal.',
+      );
+    }
+    steps.push('Use sandbox mode "container" instead.');
   } else {
     steps.push(`There is no local sandbox for ${host.platform} yet. Use sandbox mode "container" instead.`);
   }
@@ -213,6 +261,8 @@ function label(setup: SandboxSetup): string {
       return setup.isolatePids ? 'bwrap, no network' : 'bwrap, no network (processes not isolated)';
     case 'unshare':
       return 'unshare, no network (filesystem not isolated)';
+    case 'sandbox-exec':
+      return 'sandbox-exec, no network';
     case 'none':
       return 'none (--no-sandbox)';
   }

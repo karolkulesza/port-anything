@@ -23,6 +23,7 @@ export type { CaseIdErrorCode } from './case-id.js';
 export { BlobError, BlobStore, blobRef, cacheDir } from './blob-store.js';
 export type { BlobErrorCode } from './blob-store.js';
 export {
+  SEATBELT_PROFILE,
   SandboxUnavailableError,
   chooseSandbox,
   localHost,
