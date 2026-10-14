@@ -108,6 +108,19 @@ describe('runCases', () => {
     expect((await store.get(self.candidates[0]!.observation.stdout)).toString()).toMatch(/\/programs\/side-1\/tool\n$/);
   });
 
+  it('classifies the shape of each diverging field, after normalizing, and none for a match', async () => {
+    const result = await runCases(options([good, bad]));
+    const shapes = (candidate: number) => result.cases.map((c) => c.candidates[candidate]!.shapes);
+    expect(shapes(0).every((s) => s.length === 0)).toBe(true);
+    expect(shapes(1).filter((s) => s.length > 0)).toEqual([[{ field: 'stdout', shape: 'other' }], [{ field: 'exit', shape: 'exit-code', detail: '1 vs 2' }]]);
+
+    // `$0` names each side's own program directory (side-0, side-1); no shape once that is normalized.
+    const self = [canonicalCase({ argv: ['self'], origin: 'recorded' })];
+    expect((await runCases(options([good], { cases: self }))).cases[0]!.candidates[0]!.shapes).toEqual([{ field: 'stdout', shape: 'number-value' }]);
+    const normalizers = NormalizersSchema.parse(['tmp-paths']);
+    expect((await runCases(options([good], { cases: self, normalizers }))).cases[0]!.candidates[0]!.shapes).toEqual([]);
+  });
+
   it('compares under the standard profile by default, or the one given', async () => {
     // The good port prints the same message under its own file name, with other spacing; the bad one another message.
     const warn = [canonicalCase({ argv: ['warn'], origin: 'recorded' })];

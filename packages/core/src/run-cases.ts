@@ -2,6 +2,7 @@ import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BlobStore } from './blob-store.js';
 import { compareObservations, type CompareOptions, type Comparison } from './compare.js';
+import { classifyDiff, type FieldShape } from './diff-shape.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
 import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
@@ -48,6 +49,8 @@ export interface CandidateRun {
   observation: Observation;
   /** Of the normalized observations, under the strictness profile. */
   comparison: Comparison;
+  /** The shape of each diverging field of the normalized observations, for clustering; empty for a match. */
+  shapes: FieldShape[];
   /** Indexes into `RunCasesOptions.normalizers` of those that changed either side of this comparison. */
   normalizedBy: number[];
 }
@@ -107,7 +110,8 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
         store: options.store,
         programNames: { reference: programNames[0]!, candidate: programNames[i]! },
       });
-      candidates.push({ observation, comparison, normalizedBy: normalized.changedBy });
+      const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
+      candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy });
     }
     const result: CaseRun = { caseId: c.id, reference, candidates };
     options.onCase?.(result);
