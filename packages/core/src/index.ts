@@ -99,3 +99,4 @@ export {
 export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag, type ParsedHelp } from './help-parser.js';
 export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type SpecProbe, type SpecProbeResult } from './spec-probe.js';
 export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
+export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
