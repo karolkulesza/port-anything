@@ -79,3 +79,20 @@ export { COMPARED_FIELDS, compareExact, type ComparedField, type Comparison } fr
 export { runCases, type CandidateRun, type CaseRun, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, readConfigFile, type Config } from './config.js';
 export { RECORDED_DIR, loadCommittedCases } from './committed-cases.js';
+export {
+  CLI_SPEC_FILE,
+  CliSpecSchema,
+  POSITIONAL_ARITIES,
+  VALUE_TYPES,
+  cliSpecYaml,
+  parseCliSpec,
+  readCliSpecFile,
+  specFeatures,
+  type CliFlag,
+  type CliForm,
+  type CliPositional,
+  type CliSpec,
+  type CliSubcommand,
+  type CliValue,
+  type SpecFeature,
+} from './cli-spec.js';
