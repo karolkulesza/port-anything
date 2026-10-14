@@ -30,7 +30,7 @@ scripts/dev-linux.sh                # a shell
 pnpm test:linux                     # container smoke test, then build and test
 ```
 
-The container installs its own `node_modules` (in Docker volumes, so macOS builds of native packages stay on the host), runs commands with your uid, sets `PA_SANDBOX_TESTS=1` so the sandbox tests run (they are skipped elsewhere), and disables Docker's seccomp and AppArmor confinement and its `/proc` masking so bubblewrap can create its sandbox inside. In the container, `sort` is uutils and `gnusort` is GNU.
+The container installs its own `node_modules` (in Docker volumes, so macOS builds of native packages stay on the host), runs commands with your uid, sets `PA_SANDBOX_TESTS=1` so the Linux sandbox tests run (they are skipped elsewhere; the macOS `sandbox-exec` tests run on any Mac), and disables Docker's seccomp and AppArmor confinement and its `/proc` masking so bubblewrap can create its sandbox inside. In the container, `sort` is uutils and `gnusort` is GNU.
 
 | Package | What it is |
 |---|---|
