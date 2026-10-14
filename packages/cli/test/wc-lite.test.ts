@@ -42,7 +42,7 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; normalizers: unknown[]; divergences: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; normalizers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[] }[];
   clusters: SavedCluster[];
 }
 
@@ -98,7 +98,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     const { code, stdout } = await port('--json');
     const summary = JSON.parse(stdout) as RunSummary;
     expect(summary.cases).toBeGreaterThanOrEqual(20);
-    expect(summary.candidates).toEqual([{ command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, normalizers: [], divergences: [] }]);
+    expect(summary.candidates).toEqual([{ command: './port/target/release/wc-lite', match: summary.cases, diverge: 0, normalizers: [], divergences: [], flaky_candidate: [] }]);
     expect(code).toBe(0);
   }, 120_000);
 
