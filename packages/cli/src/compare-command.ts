@@ -12,30 +12,35 @@ import {
   SandboxUnavailableError,
   assertNotDestructive,
   baselineCases,
+  baselineRecord,
   cacheDir,
   chooseSandbox,
   cliSpecYaml,
   defaultProgramName,
+  DEFAULT_GENERATOR_SEED,
   generateCorpus,
   inferCliSpec,
   normalizerEntry,
   normalizerLabel,
   parseConfigSource,
   probeSandbox,
+  readConfigFile,
   runCases,
   shortCaseId,
   specFeatures,
+  writeBaselineRecord,
   type CliSpec,
   type NormalizerSpec,
   type ResolvedProgram,
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, resolveCommand, type CliResult } from './common.js';
+import { cacheGeneratedCorpus } from './corpus.js';
 
 /** Generated cases `compare` runs unless `--budget` says otherwise. */
 export const DEFAULT_COMPARE_BUDGET = 500;
 /** The generator seed of every `compare` run, so the same programs always get the same cases. */
-export const COMPARE_SEED = 42;
+export const COMPARE_SEED = DEFAULT_GENERATOR_SEED;
 /** Reference runs per case that look for output varying between runs. */
 export const COMPARE_REPEATS = 2;
 
@@ -218,7 +223,13 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
       saved: [],
       duration_ms: 0,
     };
-    if (args.save) summary.saved = await save(options.cwd, { args, programName: result.programName, spec, normalizers });
+    if (args.save) {
+      summary.saved = await save(options.cwd, { args, programName: result.programName, spec, normalizers });
+      // The project starts with this run's cases and flaky-reference list, so its first run compares the same cases.
+      const config = await readConfigFile(options.cwd);
+      await cacheGeneratedCorpus(options.cwd, config, { cases, stats: corpus.stats, skipped: corpus.skipped, blobs: corpus.blobs });
+      await writeBaselineRecord(options.cwd, baselineRecord(baseline));
+    }
     summary.duration_ms = Date.now() - started;
 
     const exitCode = summary.candidates.some((c) => c.divergences.length > 0) ? 1 : 0;

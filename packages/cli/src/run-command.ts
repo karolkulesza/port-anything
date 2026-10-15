@@ -21,7 +21,6 @@ import {
   featureWeights,
   gitHead,
   latestRun,
-  loadCommittedCases,
   measureSlowdown,
   matchWaivers,
   loadRun,
@@ -57,6 +56,7 @@ import {
   type WaiverMatch,
 } from '@port-anything/core';
 import { display, resolveCommand, type CliResult } from './common.js';
+import { loadCorpus } from './corpus.js';
 
 export { display } from './common.js';
 export type { CliResult } from './common.js';
@@ -117,11 +117,11 @@ export async function runCommand(argv: readonly string[], options: { cwd: string
   try {
     const args = parseRunArgs(argv);
     const config = await readConfigFile(options.cwd);
-    const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
+    const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
     const waivers = await readWaiversFile(options.cwd);
     prepared = { projectDir: options.cwd, config, cases, waivers, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
-    if (e instanceof ConfigError) return fail(e.message);
+    if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
   return executeRun(prepared);
@@ -179,7 +179,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
   if (commands.length === 0) {
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
-  if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
+  if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   if (args.smoke === true && subset !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);

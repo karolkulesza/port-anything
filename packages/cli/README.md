@@ -31,7 +31,7 @@ The first argument is the reference; every other argument is a candidate. Name p
 |---|---|
 | `--budget N` | Number of generated cases (default 500) |
 | `--json` | Print the result as JSON instead of text, for scripts and agents |
-| `--save` | Write `port-anything.yaml` and the inferred `port-anything/cli-spec.yaml`, as a starting point for a project (never overwrites) |
+| `--save` | Write `port-anything.yaml` and the inferred `port-anything/cli-spec.yaml`: a project where `port-anything run` runs the same cases (never overwrites) |
 | `--i-know` | Allow a tool known to be destructive (`rm`, `dd`, `mkfs`…) |
 | `--no-sandbox` | Run without a sandbox, for programs you trust |
 
@@ -39,9 +39,10 @@ The first argument is the reference; every other argument is a candidate. Name p
 
 ## A project, for a real port
 
-A port you work on for weeks gets a project: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. In a project directory:
+A port you work on for weeks gets a project: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. In a project directory:
 
 ```sh
+npx port-anything generate --budget 5000   # a bigger corpus; the budget and seed go into port-anything.yaml
 npx port-anything run          # parity, and the divergences grouped into clusters
 npx port-anything report       # the latest run as port-anything-report.html (with a repro per cluster), port-anything-report.json and a parity badge
 npx port-anything waive --from-cluster 1   # a waiver for an accepted difference, to paste into port-anything/waivers.yaml

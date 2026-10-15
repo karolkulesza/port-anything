@@ -1,8 +1,9 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { BlobStore, ConfigError, cacheDir, latestRun, loadCommittedCases, type CanonicalCase, type RunRecord } from '@port-anything/core';
+import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, latestRun, loadCommittedCases, readConfigFile, type CanonicalCase, type RunRecord } from '@port-anything/core';
 import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
+import { loadCorpus } from './corpus.js';
 import type { CliResult } from './run-command.js';
 
 /** Where `report` writes, in the project directory (the HTML under the name `compare` uses too). */
@@ -36,7 +37,12 @@ export async function reportCommand(argv: readonly string[], options: { cwd: str
     const run = await latestRun(options.cwd);
     if (run === undefined) throw new ConfigError('No saved run of the whole corpus yet: run port-anything run first.');
     const store = new BlobStore(cacheDir(options.cwd));
-    const cases = await loadCommittedCases(options.cwd, store);
+    // Generated cases only from the cache, since the report runs no program; without a config, only the committed ones.
+    const config = await readConfigFile(options.cwd).catch((e: unknown) => {
+      if (e instanceof ConfigError && e.message.startsWith(`No ${CONFIG_FILE} `)) return undefined;
+      throw e;
+    });
+    const cases = config === undefined ? await loadCommittedCases(options.cwd, store) : await loadCorpus(options.cwd, config, 'cache-only');
     const input = await reportInput(run, cases, store);
     const files: [string, string][] = [];
     if (all || values.html === true) files.push([REPORT_HTML_FILE, renderReportHtml(input)]);

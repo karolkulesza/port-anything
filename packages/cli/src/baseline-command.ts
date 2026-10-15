@@ -12,7 +12,6 @@ import {
   baselineRecord,
   cacheDir,
   chooseSandbox,
-  loadCommittedCases,
   normalizerLabel,
   parseConfigSource,
   probeSandbox,
@@ -24,6 +23,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, resolveCommand, withScratchDir, type CliResult } from './common.js';
+import { loadCorpus } from './corpus.js';
 
 /** The options of `port-anything baseline`. */
 export interface BaselineArgs {
@@ -64,10 +64,10 @@ export async function baselineCommand(argv: readonly string[], options: { cwd: s
   try {
     const args = parseBaselineArgs(argv);
     const config = await readConfigFile(options.cwd);
-    const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
+    const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
     prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
-    if (e instanceof ConfigError) return fail(e.message);
+    if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
   return executeBaseline(prepared);
@@ -105,7 +105,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
   if (config.sandbox.mode === 'container') {
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
-  if (cases.length === 0) throw new ConfigError('No cases to baseline: add some to port-anything/recorded/*.jsonl.');
+  if (cases.length === 0) throw new ConfigError('No cases to baseline: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   const reference = await resolveCommand(config.reference.cmd, projectDir);
   const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const repeats = args.repeats ?? config.corpus?.repeats ?? DEFAULT_REPEATS;
