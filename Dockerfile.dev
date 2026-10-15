@@ -46,6 +46,13 @@ RUN arch=$(uname -m) \
  && chmod 755 /usr/local/bin/jaq \
  && jaq --version
 
+# cargo-mutants generates the mutation ports of the wc-lite example. 26.0.0 is the newest release
+# that builds with Ubuntu's Rust (1.85); CI pins the same version.
+ARG CARGO_MUTANTS_VERSION=26.0.0
+RUN CARGO_HOME=/usr/local/cargo cargo install --locked --root /usr/local "cargo-mutants@$CARGO_MUTANTS_VERSION" \
+ && rm -rf /usr/local/cargo \
+ && cargo mutants --version
+
 ENV PNPM_HOME=/pnpm \
     npm_config_store_dir=/pnpm/store \
     CI=true

@@ -34,6 +34,17 @@ const DurationSchema = z.union([z.number(), z.string()]).transform((value, ctx) 
   return ms;
 });
 
+/** `2x`, `1.5x`, or a plain number: how many times slower than the reference a candidate may run. */
+const SlowdownSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
+  const match = typeof value === 'string' ? /^(\d+(?:\.\d+)?)x$/.exec(value) : null;
+  const factor = typeof value === 'number' ? value : match ? Number(match[1]) : NaN;
+  if (!(factor >= 1) || !Number.isFinite(factor)) {
+    ctx.addIssue({ code: 'custom', message: 'must be a factor of at least 1, such as 2x or 1.5x' });
+    return z.NEVER;
+  }
+  return factor;
+});
+
 const EnvNameSchema = text.refine((name) => name !== '' && !name.includes('='), 'must be non-empty and contain no "="');
 
 const SandboxSchema = z.strictObject({
@@ -62,12 +73,15 @@ const CompareSchema = z.strictObject({
         .default(() => ({ similarity: DEFAULT_STDERR_SIMILARITY })),
     })
     .default(() => ({ stderr: { similarity: DEFAULT_STDERR_SIMILARITY } })),
-  max_slowdown: later,
+  /** Optional gate: the run fails when a candidate's median time ratio is above this factor. */
+  max_slowdown: SlowdownSchema.optional(),
   min_parity: later,
 });
 
-/** `corpus`: only `min_cases_per_feature` is read so far (by scoring); the other keys are left to later commands. */
+/** `corpus`: only `repeats` (by `baseline`) and `min_cases_per_feature` (by scoring) are read so far; the other keys are left to later commands. */
 const CorpusSchema = z.looseObject({
+  /** Runs of each case against the reference in `baseline`. */
+  repeats: z.number().int().min(2).optional(),
   /** Features with fewer scored cases are left out of the headline. Default 20. */
   min_cases_per_feature: z.int().min(1).optional(),
 });
@@ -127,10 +141,15 @@ export async function readConfigFile(projectDir: string): Promise<Config> {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new ConfigError(`No ${CONFIG_FILE} in ${projectDir}.`);
     throw new ConfigError(`Cannot read ${CONFIG_FILE}: ${(e as Error).message}`);
   }
+  return parseConfigSource(source);
+}
+
+/** Parses and validates the text of a `port-anything.yaml`. Every failure is a `ConfigError`. */
+export function parseConfigSource(source: string, name = CONFIG_FILE): Config {
   // YAML 1.2 core schema (no `yes`/`no` booleans); duplicate keys are errors.
   const doc = parseDocument(source, { prettyErrors: true });
   if (doc.errors.length > 0) {
-    throw new ConfigError([`${CONFIG_FILE} is not valid YAML:`, ...doc.errors.map((e) => `  ${e.message.replace(/\n/g, '\n  ')}`)].join('\n'));
+    throw new ConfigError([`${name} is not valid YAML:`, ...doc.errors.map((e) => `  ${e.message.replace(/\n/g, '\n  ')}`)].join('\n'));
   }
-  return parseConfig(doc.toJS(), CONFIG_FILE);
+  return parseConfig(doc.toJS(), name);
 }

@@ -1,7 +1,26 @@
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, RUN_ID_PATTERN, cacheDir, canonicalCase, loadRun, parseConfig, parseWaivers, runsDir, shortCaseId, type CanonicalCase, type SandboxProbe } from '@port-anything/core';
+import {
+  BlobStore,
+  RUN_ID_PATTERN,
+  cacheDir,
+  canonicalCase,
+  describeSignature,
+  historyPath,
+  inlineCase,
+  latestRun,
+  loadRun,
+  parseConfig,
+  parseWaivers,
+  readHistory,
+  runsDir,
+  saveRepro,
+  shortCaseId,
+  type CanonicalCase,
+  type SandboxProbe,
+} from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
@@ -19,27 +38,42 @@ case "$1" in
 esac
 `;
 
+// A racy port: every other run of a command gets upper wrong. Its run counts live in $PA_TEST_STATE.<command>.
+const RACY = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ $((n % 2)) = 0 ]; then cat; else tr 'a-z' 'A-Z'; fi ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 /** Text output with the run ID, which differs on every run, replaced. */
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
 
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
-const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|\d+ (waived|flaky|timed)).*\n/gm, '');
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed)).*\n/gm, '');
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
-  it('reads repeated --candidate, --cluster, --json and --no-sandbox', () => {
+  it('reads repeated --candidate, --cluster or --smoke, --json and --no-sandbox', () => {
     expect(parseRunArgs(['--candidate', './a', '--candidate=coreutils sort', '--cluster', '20261014-190203-a1b2/2', '--json', '--no-sandbox'])).toEqual({
       candidates: ['./a', 'coreutils sort'],
       cluster: '20261014-190203-a1b2/2',
+      smoke: false,
       json: true,
       noSandbox: true,
     });
-    expect(parseRunArgs([])).toEqual({ candidates: [], json: false, noSandbox: false });
+    expect(parseRunArgs([])).toEqual({ candidates: [], smoke: false, json: false, noSandbox: false });
+    expect(parseRunArgs(['--smoke'])).toEqual({ candidates: [], smoke: true, json: false, noSandbox: false });
+    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke and --cluster run different subsets/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
-    expect(() => parseRunArgs(['--smoke'])).toThrow(/--smoke is not available yet/);
+    expect(() => parseRunArgs(['--all'])).toThrow(/--all is not available yet/);
     expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
     expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
     expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
@@ -56,6 +90,7 @@ describe('executeRun', () => {
     for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
+    writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -119,6 +154,7 @@ describe('executeRun', () => {
       reference: './bin/tool',
       compare: { profile: 'standard', stderr: { mode: 'loose', similarity: 0.6 } },
       cases: 3,
+      flaky_reference: [],
       normalizers: [],
       waivers: [],
       candidates: [
@@ -131,6 +167,7 @@ describe('executeRun', () => {
           normalizers: [],
           waivers: [],
           divergences: [],
+          flaky_candidate: [],
           waived_cases: [],
         },
         {
@@ -145,6 +182,7 @@ describe('executeRun', () => {
             { case: cases[1]!.id, fields: ['stdout'] },
             { case: cases[2]!.id, fields: ['exit'] },
           ],
+          flaky_candidate: [],
           waived_cases: [],
         },
       ],
@@ -174,6 +212,60 @@ describe('executeRun', () => {
     expect(saved).toEqual(json);
     expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
     expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
+    let state = 0;
+    const racy = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidates: [{ cmd: './bin/tool-copy' }, { cmd: './bin/tool-racy' }],
+            sandbox: { env: { PA_TEST_STATE: join(project, `racy-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await racy(false);
+    expect(text.exitCode).toBe(1);
+    expect(stable(text.stdout)).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
+        'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
+        'normalizers: none',
+        'candidate 1 ./bin/tool-copy: 3 of 3 cases match',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
+        'candidate 2 ./bin/tool-racy: 2 of 3 cases match, 1 diverge (1 flaky-candidate)',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  1 flaky-candidate (diverge)',
+        '  under-sampled, not in the parity: base 66.6% (3 cases)',
+        '  flaky-candidate, a re-run gave a different result:',
+        `    ${shortCaseId(cases[1]!.id)}  stdout`,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await racy(true)).stdout);
+    expect(json.candidates[1]).toEqual({
+      command: './bin/tool-racy',
+      match: 2,
+      diverge: 1,
+      waived: 0,
+      score: expect.objectContaining({ raw: expect.objectContaining({ scored: 3, match: 2, flakyCandidate: 1 }) }),
+      normalizers: [],
+      waivers: [],
+      divergences: [],
+      flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+      waived_cases: [],
+    });
+    // Kept out of the clusters, which only hold steady divergences.
+    expect(json.clusters).toEqual([]);
+    // Scores lower than the faithful port, not 2 of 2 as it would if flaky cases were dropped.
+    expect(json.candidates[1].match / json.cases).toBeLessThan(json.candidates[0].match / json.cases);
   });
 
   it('runs the --candidate programs instead of the configured ones, and exits 0 when all match', async () => {
@@ -447,6 +539,109 @@ describe('executeRun clusters', () => {
   });
 });
 
+describe('executeRun history', () => {
+  let project: string;
+  let outside: string;
+  let head: string;
+  let cases: CanonicalCase[];
+
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+      cwd: project,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    });
+
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-')));
+    outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-outside-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    writeFileSync(join(outside, 'tool-bad'), TOOL('bad'), { mode: 0o755 });
+    git('init', '-q', '-b', 'main');
+    git('add', 'bin');
+    git('commit', '-q', '-m', 'tools');
+    head = git('rev-parse', 'HEAD').trim();
+    const store = new BlobStore(cacheDir(project));
+    const input = await store.put('hello\n');
+    cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => {
+    rmSync(project, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  const options = (args: Partial<ExecuteRunOptions['args']> = {}): ExecuteRunOptions => ({
+    projectDir: project,
+    config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidates: [{ cmd: './bin/tool-copy' }, { cmd: [join(outside, 'tool-bad')] }], corpus: { min_cases_per_feature: 1 } }),
+    cases,
+    args: { candidates: [], json: true, noSandbox: true, ...args },
+    probe: NO_SANDBOX,
+  });
+
+  it('appends each run of the whole corpus with every candidate\'s parity and git commit, but not a cluster re-run', async () => {
+    expect(existsSync(historyPath(project))).toBe(false);
+    const first = JSON.parse((await executeRun(options())).stdout);
+    const again = JSON.parse((await executeRun(options())).stdout);
+    await executeRun(options({ cluster: '1' }));
+    const { entries, damaged } = await readHistory(project);
+    expect(damaged).toEqual([]);
+    expect(entries.map((e) => e.run_id)).toEqual([first.run_id, again.run_id]);
+    expect(entries[0]).toEqual({
+      version: 1,
+      run_id: first.run_id,
+      created: (await loadRun(project, first.run_id)).created,
+      cases: 3,
+      candidates: [
+        { command: './bin/tool-copy', sha: head, parity: 1, features: 1, scored: 3, match: 3 },
+        // Outside any git repository: no commit to record.
+        { command: [join(outside, 'tool-bad')], sha: null, parity: 1 / 3, features: 1, scored: 3, match: 1 },
+      ],
+    });
+  });
+
+  it('records the commit checked out when the run happened', async () => {
+    copyFileSync(join(project, 'bin', 'tool-copy'), join(project, 'bin', 'tool-copy2'));
+    git('add', 'bin');
+    git('commit', '-q', '-m', 'another copy');
+    const next = git('rev-parse', 'HEAD').trim();
+    const { run_id: runId } = JSON.parse((await executeRun(options({ candidates: ['./bin/tool-copy2'] }))).stdout);
+    const last = (await readHistory(project)).entries.at(-1)!;
+    expect(last).toMatchObject({ run_id: runId, candidates: [{ command: './bin/tool-copy2', sha: next, parity: 1 }] });
+    expect(next).not.toBe(head);
+  });
+
+  it('records the script\'s commit, not the interpreter\'s, for a candidate run by a program on the PATH', async () => {
+    // An interpreter installed inside a git repository of its own, as nvm and Homebrew do.
+    const interpreter = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-history-interp-')));
+    const savedPath = process.env.PATH;
+    try {
+      writeFileSync(join(interpreter, 'fake-sh'), '#!/bin/sh\nexec sh "$@"\n', { mode: 0o755 });
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: interpreter, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+      execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'interpreter'], {
+        cwd: interpreter,
+        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      });
+      process.env.PATH = `${interpreter}:${savedPath}`;
+      const script = join(project, 'bin', 'tool-copy');
+      const projectHead = git('rev-parse', 'HEAD').trim();
+      const { run_id: runId } = JSON.parse((await executeRun(options({ candidates: [`fake-sh ${script}`] }))).stdout);
+      const last = (await readHistory(project)).entries.at(-1)!;
+      expect(last).toMatchObject({ run_id: runId, candidates: [{ command: `fake-sh ${script}`, sha: projectHead }] });
+
+      // With no file among its arguments, nothing says where the candidate comes from.
+      writeFileSync(join(interpreter, 'fake-copy'), TOOL('good'), { mode: 0o755 });
+      await executeRun(options({ candidates: ['fake-copy'] }));
+      expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ command: 'fake-copy', sha: null }]);
+    } finally {
+      process.env.PATH = savedPath;
+      rmSync(interpreter, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('executeRun scores', () => {
   let project: string;
   beforeAll(() => {
@@ -514,6 +709,49 @@ describe('executeRun scores', () => {
   it('says why there is no parity when only self-description features have enough cases', async () => {
     const { text } = await run(echo(2, ['opt.help']), { corpus: { min_cases_per_feature: 2 } });
     expect(text).toContain('  parity n/a: no feature outside self-description has 2 scored cases (corpus.min_cases_per_feature)\n  self-description, not in the parity: opt.help 100.0% (2 cases)\n');
+  });
+});
+
+describe('executeRun slowdown gate', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-slow-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
+    // A deliberately slow port: right on every case, but it naps first.
+    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 0.3\n'), { mode: 0o755 });
+    const store = new BlobStore(cacheDir(project));
+    const input = await store.put('hello\n');
+    cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = async (compare: Record<string, unknown>, json = false) => {
+    const config = parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-slow' }, compare });
+    return executeRun({ projectDir: project, config, cases, args: { candidates: [], json, noSandbox: true }, probe: NO_SANDBOX });
+  };
+
+  it('fails a run whose candidate matches every case but is slower than compare.max_slowdown (done when)', async () => {
+    const result = await run({ max_slowdown: '2x' });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('candidate 1 ./bin/tool-slow: 3 of 3 cases match\n');
+    expect(result.stdout).toMatch(/^ {2}slowdown \d+\.\d\dx \(median of 3 cases\), above compare\.max_slowdown 2x$/m);
+
+    const json = JSON.parse((await run({ max_slowdown: '2x' }, true)).stdout);
+    expect(json.candidates[0]).toMatchObject({ match: 3, diverge: 0, slowdown: { cases: 3, max: 2, exceeded: true } });
+    expect(json.candidates[0].slowdown.ratio).toBeGreaterThan(2);
+  });
+
+  it('passes the same port when it is within the limit, and has no gate without one', async () => {
+    const within = await run({ max_slowdown: '1000x' });
+    expect(within.exitCode).toBe(0);
+    expect(within.stdout).toMatch(/^ {2}slowdown \d+\.\d\dx \(median of 3 cases\), within compare\.max_slowdown 1000x$/m);
+
+    const ungated = await run({});
+    expect(ungated.exitCode).toBe(0);
+    expect(ungated.stdout).not.toContain('slowdown');
+    expect(JSON.parse((await run({}, true)).stdout).candidates[0]).not.toHaveProperty('slowdown');
   });
 });
 
@@ -600,7 +838,7 @@ describe('runCommand', () => {
   it('exits 3 for bad arguments, a bad config or a broken case file', async () => {
     const project = mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-'));
     try {
-      expect((await runCommand(['--smoke'], { cwd: project })).stderr).toMatch(/--smoke is not available yet/);
+      expect((await runCommand(['--all'], { cwd: project })).stderr).toMatch(/--all is not available yet/);
       writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./ref }\ncandidate: { cmd: ./port }\n');
       mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
       writeFileSync(join(project, 'port-anything', 'recorded', 'x.jsonl'), '{"argv":[]}\n');
@@ -610,5 +848,75 @@ describe('runCommand', () => {
     } finally {
       rmSync(project, { recursive: true, force: true });
     }
+  });
+});
+
+describe('executeRun --smoke', () => {
+  let project: string;
+  let store: BlobStore;
+  let cases: CanonicalCase[];
+  beforeAll(async () => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-smoke-')));
+    mkdirSync(join(project, 'bin'));
+    for (const [file, variant] of [['tool', 'ref'], ['tool-copy', 'good'], ['tool-bad', 'bad']] as const) {
+      writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
+    }
+    store = new BlobStore(cacheDir(project));
+    // tool-bad gets every `upper` case (opt.u) and the one `fail` case (error) wrong; `echo` (opt.e) is right.
+    const upper = await Promise.all(Array.from({ length: 80 }, async (_, i) => ({ argv: ['upper'], stdin: await store.put(`w${i}\n`), features: ['opt.u'] })));
+    const echo = Array.from({ length: 20 }, (_, i) => ({ argv: ['echo', `e${i}`], features: ['opt.e'] }));
+    cases = [...upper, ...echo, { argv: ['fail'], features: ['error'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const exec = (args: Partial<ExecuteRunOptions['args']> = {}) =>
+    executeRun({
+      projectDir: project,
+      config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-bad' } }),
+      cases,
+      args: { candidates: [], json: false, noSandbox: true, ...args },
+      probe: NO_SANDBOX,
+    });
+  const json = async (args: Partial<ExecuteRunOptions['args']> = {}) => {
+    const result = await exec({ ...args, json: true });
+    return { exitCode: result.exitCode, ...JSON.parse(result.stdout) };
+  };
+
+  it('runs N cases per feature and a sample of the rest before any full run, and still catches a bad port', async () => {
+    const smoke = await json({ smoke: true });
+    expect(smoke).toMatchObject({ exitCode: 1, subset: { smoke: { from: null, corpus: 101, clusters: 0, per_feature: 11, passing: 50 } }, cases: 61 });
+    expect(smoke.clusters.map((c: { signature: unknown }) => describeSignature(c.signature as never))).toEqual(['stdout other', 'exit 1 vs 2']);
+    // A smoke run is not a full run.
+    expect(await latestRun(project)).toBeUndefined();
+  });
+
+  it("takes each open cluster's repro, or its smallest case, and samples passing cases only from those that passed", async () => {
+    const full = await json();
+    expect(full.clusters.map((c: { size: number }) => c.size)).toEqual([80, 1]);
+    // Cluster 1's repro: a case the corpus doesn't have.
+    const repro = canonicalCase({ argv: ['upper'], stdin: await store.put('q'), features: ['opt.u'], origin: 'recorded' });
+    await saveRepro(project, { run_id: full.run_id, cluster: 1, source: cases[0]!.id, reproduced: true, runs: 5, max_runs: 200, exhausted: false, case: await inlineCase(repro, store) });
+
+    const smoke = await json({ smoke: true });
+    // The fail case stands for cluster 2, and also for `error`; the 15 echo cases not picked by feature are the passing ones.
+    expect(smoke).toMatchObject({ exitCode: 1, subset: { smoke: { from: full.run_id, corpus: 101, clusters: 2, per_feature: 10, passing: 15 } }, cases: 27 });
+    const diverging = smoke.candidates[0].divergences.map((d: { case: string }) => d.case);
+    expect(diverging.slice(0, 2)).toEqual([repro.id, cases[100]!.id]);
+    expect(diverging).toHaveLength(2 + 5);
+    expect((await latestRun(project))?.run_id).toBe(full.run_id);
+
+    const text = await exec({ smoke: true });
+    expect(text.stdout).toMatch(
+      new RegExp(`^Ran 27 cases as "tool", sandbox: none \\(--no-sandbox\\)\nrun \\S+, smoke subset of 101 cases: 2 for the open clusters of run ${full.run_id}, 10 by feature, 15 passing\n`),
+    );
+    // A cluster of the smoke run can be re-run, its repro included.
+    const stdoutCluster = smoke.clusters.find((c: { cases: string[] }) => c.cases.includes(repro.id));
+    const again = await json({ cluster: `${smoke.run_id}/${stdoutCluster.cluster}` });
+    expect(again).toMatchObject({ exitCode: 1, cases: 6 });
+    expect(again.candidates[0].divergences.map((d: { case: string }) => d.case)).toContain(repro.id);
+  });
+
+  it('refuses --smoke with --cluster (exit 3)', async () => {
+    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });
   });
 });

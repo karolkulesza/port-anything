@@ -24,8 +24,9 @@ type Counts = [u64; NCOUNTS];
 /// Exit status for a usage error.
 #[cfg(not(feature = "bad-exit-code"))]
 const USAGE_STATUS: i32 = 2;
+// Bug: usage errors must exit 2, like the reference.
 #[cfg(feature = "bad-exit-code")]
-const USAGE_STATUS: i32 = 1; // Bug: usage errors must exit 2, like the reference.
+const USAGE_STATUS: i32 = 1;
 
 fn usage(program: &str) -> String {
     format!(
@@ -54,8 +55,21 @@ fn os_message(err: &io::Error) -> String {
     }
 }
 
+#[cfg(not(feature = "bad-words"))]
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
+}
+// Bug: tabs, newlines and the other C spaces must also end a word.
+#[cfg(feature = "bad-words")]
+fn is_space(b: u8) -> bool {
+    b == b' '
+}
+
+/// Run to run noise: the current time and process ID, never 0.
+#[cfg(feature = "bad-racy")]
+fn noise() -> u64 {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64);
+    1 + (nanos ^ u64::from(process::id()).rotate_left(32)) % 1_000_000_007
 }
 
 /// Counts everything `input` holds.
@@ -96,7 +110,15 @@ fn count(input: &mut dyn Read) -> io::Result<Counts> {
                 c[MAXLEN] = c[MAXLEN].max(line);
                 line = 0;
             } else if b == b'\t' {
-                line = (line / 8 + 1) * 8;
+                #[cfg(not(feature = "bad-rounding"))]
+                {
+                    line = (line / 8 + 1) * 8;
+                }
+                // Bug: rounds up to a tab stop, so a tab already at one (column 0, 8, …) doesn't move.
+                #[cfg(feature = "bad-rounding")]
+                {
+                    line = (line + 7) / 8 * 8;
+                }
             } else if lead {
                 line += 1;
             }
@@ -112,6 +134,12 @@ fn count(input: &mut dyn Read) -> io::Result<Counts> {
         c[LINES] += 1;
     }
     c[MAXLEN] = c[MAXLEN].max(line);
+    // Bug (stands in for a data race): the maximum line length picks up a value that changes from
+    // run to run, so two runs of the same case rarely agree.
+    #[cfg(feature = "bad-racy")]
+    {
+        c[MAXLEN] += noise();
+    }
     Ok(c)
 }
 
@@ -133,6 +161,12 @@ fn run() -> io::Result<i32> {
         None => argv0,
     };
     let program = String::from_utf8_lossy(base).into_owned();
+    // The name error messages start with.
+    #[cfg(not(feature = "bad-program-name"))]
+    let err_name = program.clone();
+    // Bug: errors must name the program as it was run (argv[0]).
+    #[cfg(feature = "bad-program-name")]
+    let err_name = String::from("wc");
     let mut out = io::BufWriter::new(io::stdout().lock());
     let mut err = io::stderr().lock();
 
@@ -146,7 +180,15 @@ fn run() -> io::Result<i32> {
         if options_done || bytes.len() < 2 || bytes[0] != b'-' {
             files.push(arg);
         } else if bytes == b"--" {
-            options_done = true;
+            #[cfg(not(feature = "bad-double-dash"))]
+            {
+                options_done = true;
+            }
+            // Bug: after "--", arguments that look like options must be read as files.
+            #[cfg(feature = "bad-double-dash")]
+            {
+                options_done = false;
+            }
         } else if bytes[1] == b'-' {
             if bytes == b"--help" {
                 out.write_all(usage(&program).as_bytes())?;
@@ -158,18 +200,22 @@ fn run() -> io::Result<i32> {
                 out.flush()?;
                 return Ok(0);
             }
-            err.write_all(format!("{program}: unrecognized option '").as_bytes())?;
+            err.write_all(format!("{err_name}: unrecognized option '").as_bytes())?;
             err.write_all(bytes)?;
-            err.write_all(format!("'\nTry '{program} --help' for more information.\n").as_bytes())?;
+            err.write_all(format!("'\nTry '{err_name} --help' for more information.\n").as_bytes())?;
             return Ok(USAGE_STATUS);
         } else {
             for &letter in &bytes[1..] {
-                match LETTERS.iter().position(|&l| l == letter) {
+                let known = LETTERS.iter().position(|&l| l == letter);
+                // Bug: -m is missing, so it is an invalid option.
+                #[cfg(feature = "bad-missing-flag")]
+                let known = known.filter(|_| letter != b'm');
+                match known {
                     Some(k) => show[k] = true,
                     None => {
-                        err.write_all(format!("{program}: invalid option -- '").as_bytes())?;
+                        err.write_all(format!("{err_name}: invalid option -- '").as_bytes())?;
                         err.write_all(&[letter])?;
-                        err.write_all(format!("'\nTry '{program} --help' for more information.\n").as_bytes())?;
+                        err.write_all(format!("'\nTry '{err_name} --help' for more information.\n").as_bytes())?;
                         return Ok(USAGE_STATUS);
                     }
                 }
@@ -186,7 +232,7 @@ fn run() -> io::Result<i32> {
         let c = match count(&mut io::stdin().lock()) {
             Ok(c) => c,
             Err(e) => {
-                writeln!(err, "{program}: -: {}", os_message(&e))?;
+                writeln!(err, "{err_name}: -: {}", os_message(&e))?;
                 return Ok(1);
             }
         };
@@ -197,6 +243,9 @@ fn run() -> io::Result<i32> {
 
     let mut status = 0;
     let mut total: Counts = [0; NCOUNTS];
+    // Bug: the files must be read and printed in the order given.
+    #[cfg(feature = "bad-ordering")]
+    files.reverse();
     for name in &files {
         let name = name.as_bytes();
         let result = if name == b"-" {
@@ -212,7 +261,7 @@ fn run() -> io::Result<i32> {
                 }
             }
             Err(e) => {
-                err.write_all(format!("{program}: ").as_bytes())?;
+                err.write_all(format!("{err_name}: ").as_bytes())?;
                 err.write_all(name)?;
                 err.write_all(format!(": {}\n", os_message(&e)).as_bytes())?;
                 status = 1;

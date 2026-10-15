@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
+  SEATBELT_PROFILE,
   SandboxUnavailableError,
   chooseSandbox,
   caseCommandOptions,
@@ -15,6 +19,7 @@ function fakeHost(opts: {
   platform?: NodeJS.Platform;
   bwrap?: Outcome | ((args: readonly string[]) => Outcome);
   unshare?: Outcome | ((args: readonly string[]) => Outcome);
+  sandboxExec?: Outcome;
   settings?: Record<string, string>;
   inContainer?: boolean;
 }): SandboxHost & { calls: string[][] } {
@@ -26,7 +31,7 @@ function fakeHost(opts: {
     inContainer: opts.inContainer ?? false,
     async run(command, args) {
       calls.push([command, ...args]);
-      const outcome = (command === 'bwrap' ? opts.bwrap : opts.unshare) ?? { ok: true };
+      const outcome = { bwrap: opts.bwrap, unshare: opts.unshare, 'sandbox-exec': opts.sandboxExec }[command] ?? { ok: true };
       return typeof outcome === 'function' ? outcome(args) : outcome;
     },
     async readSetting(path) {
@@ -92,6 +97,44 @@ describe('sandboxCommand', () => {
 
   it('runs the program directly without a sandbox', () => {
     expect(sandboxCommand({ kind: 'none' }, ['sort', '-n'], '/w')).toEqual({ command: 'sort', args: ['-n'], cwd: '/w' });
+  });
+
+  describe('sandbox-exec (macOS)', () => {
+    // A real directory, reached through a symlink, like macOS's /var -> /private/var.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pa-seatbelt-')));
+    const real = join(root, 'case');
+    const linked = join(root, 'link');
+    mkdirSync(real);
+    symlinkSync(real, linked);
+    afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+    it('runs sandbox-exec with the generated profile, the resolved workdir as a parameter', () => {
+      const cmd = sandboxCommand({ kind: 'sandbox-exec' }, ['sort', '-r', 'in.txt'], linked);
+      expect(cmd).toEqual({
+        command: 'sandbox-exec',
+        args: ['-D', `WORKDIR=${real}`, '-p', SEATBELT_PROFILE, '--', 'sort', '-r', 'in.txt'],
+        cwd: linked,
+      });
+    });
+
+    it('generates a profile that denies the network, signals to other processes and writes outside the workdir', () => {
+      const rules = SEATBELT_PROFILE.split('\n').map((line) => line.trim());
+      expect(rules[0]).toBe('(version 1)');
+      expect(rules).toContain('(deny network*)');
+      expect(rules).toContain('(deny file-write*)');
+      expect(rules).toContain('(allow file-write* (subpath (param "WORKDIR")))');
+      expect(rules).toContain('(deny mach-lookup (global-name "com.apple.cfprefsd.daemon") (global-name "com.apple.cfprefsd.agent"))');
+      expect(rules).toContain('(deny signal)');
+      expect(rules).toContain('(allow signal (target same-sandbox))');
+      // Later rules win: the workdir exception must follow the blanket write denial.
+      expect(rules.indexOf('(allow file-write* (subpath (param "WORKDIR")))')).toBeGreaterThan(rules.indexOf('(deny file-write*)'));
+      expect(SEATBELT_PROFILE).toContain('(literal "/dev/null")');
+      expect(SEATBELT_PROFILE).not.toContain('/dev/tty');
+    });
+
+    it('needs the workdir to exist, since it resolves symlinks in it', () => {
+      expect(() => sandboxCommand({ kind: 'sandbox-exec' }, ['true'], join(root, 'missing'))).toThrow(/does not exist/);
+    });
   });
 
   it('rejects a relative workdir and an empty argv', () => {
@@ -195,6 +238,32 @@ describe('probeSandbox', () => {
       fakeHost({ bwrap: { ok: false, message: NO_USERNS }, unshare: { ok: false, message: 'EPERM' }, inContainer: true }),
     );
     expect(probe.fix).toContain('--security-opt seccomp=unconfined');
+  });
+
+  it('uses sandbox-exec on macOS, tried with the same arguments cases get', async () => {
+    const host = fakeHost({ platform: 'darwin' });
+    const probe = await probeSandbox(host);
+    expect(probe.usable).toEqual({ kind: 'sandbox-exec' });
+    expect(probe.attempts).toEqual([{ kind: 'sandbox-exec', ok: true }]);
+    expect(host.calls).toEqual([['sandbox-exec', ...sandboxCommand({ kind: 'sandbox-exec' }, ['true'], '/tmp').args]]);
+    expect(chooseSandbox(probe).label).toBe('sandbox-exec, no network');
+  });
+
+  it('explains that sandbox-exec cannot run inside another sandbox', async () => {
+    const probe = await probeSandbox(
+      fakeHost({ platform: 'darwin', sandboxExec: { ok: false, message: 'sandbox-exec: sandbox_apply: Operation not permitted' } }),
+    );
+    expect(probe.usable).toBeUndefined();
+    expect(probe.fix).toMatch(/already runs inside a sandbox/);
+    expect(probe.fix).toContain('--no-sandbox');
+    expect(probe.fix).not.toContain('apt');
+  });
+
+  it('points at /usr/bin when sandbox-exec is missing on macOS', async () => {
+    const probe = await probeSandbox(
+      fakeHost({ platform: 'darwin', sandboxExec: { ok: false, message: 'sandbox-exec is not installed', missing: true } }),
+    );
+    expect(probe.fix).toContain('/usr/bin/sandbox-exec');
   });
 
   it('has no local sandbox on other platforms yet, and runs nothing there', async () => {

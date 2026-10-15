@@ -60,7 +60,10 @@ export function clusterSignature(d: Divergence): ClusterSignature {
   return { fields: d.shapes.map((s) => s.field), shapes };
 }
 
-export function signatureKey(s: ClusterSignature): string {
+export function signatureKey(s: {
+  readonly fields: readonly ComparedField[];
+  readonly shapes: readonly { readonly field: ComparedField; readonly shape: FieldShape['shape']; readonly detail?: string | undefined }[];
+}): string {
   return JSON.stringify([s.fields, s.shapes.map((x) => [x.field, x.shape, x.detail ?? null])]);
 }
 
@@ -75,8 +78,8 @@ export function featureWeights(cases: readonly { features: readonly string[] }[]
   return new Map([...counts].map(([f, n]) => [f, 1 / n]));
 }
 
-/** The features a case counts toward: its tags, or `base` when it has none. Internal: not exported from the package. */
-export const caseFeatures = (features: readonly string[]) => (features.length === 0 ? [UNTAGGED_FEATURE] : [...new Set(features)]);
+/** The features a case counts toward: its tags, or `base` when it has none. */
+export const caseFeatures = (features: readonly string[]): string[] => (features.length === 0 ? [UNTAGGED_FEATURE] : [...new Set(features)]);
 
 /**
  * Groups one candidate's divergences by signature (diverging fields + diff shapes; the cases'
