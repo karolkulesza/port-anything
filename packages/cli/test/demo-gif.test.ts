@@ -12,14 +12,18 @@ function gifDuration(bytes: Uint8Array): number {
   const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
   if (!/^GIF8[79]a$/.test(ascii(0, 6))) throw new Error('not a GIF');
   const colorTable = (packed: number) => (packed & 0x80 ? 3 * 2 ** ((packed & 0x07) + 1) : 0);
+  const end = (at: number) => {
+    if (at >= bytes.length) throw new Error('truncated GIF');
+    return bytes[at]!;
+  };
   const skipSubBlocks = (at: number) => {
-    while (bytes[at] !== 0) at += bytes[at]! + 1;
+    while (end(at) !== 0) at += bytes[at]! + 1;
     return at + 1;
   };
   let at = 13 + colorTable(bytes[10]!);
   let centiseconds = 0;
   for (;;) {
-    const block = bytes[at];
+    const block = end(at);
     if (block === 0x3b) return centiseconds / 100; // trailer
     if (block === 0x21) {
       if (bytes[at + 1] === 0xf9) centiseconds += bytes[at + 4]! | (bytes[at + 5]! << 8); // graphic control
@@ -27,7 +31,7 @@ function gifDuration(bytes: Uint8Array): number {
     } else if (block === 0x2c) {
       at = skipSubBlocks(at + 10 + colorTable(bytes[at + 9]!) + 1); // image: descriptor, LZW code size, data
     } else {
-      throw new Error(`unexpected GIF block 0x${block?.toString(16)} at ${at}`);
+      throw new Error(`unexpected GIF block 0x${block.toString(16)} at ${at}`);
     }
   }
 }
@@ -64,6 +68,11 @@ describe('gifDuration', () => {
 
   it('adds up the frame delays', () => {
     expect(gifDuration(gif)).toBe(1.75);
+  });
+
+  it('rejects a GIF cut off mid-frame', () => {
+    expect(() => gifDuration(gif.subarray(0, gif.length - 6))).toThrow('truncated GIF');
+    expect(() => gifDuration(gif.subarray(0, gif.length - 1))).toThrow('truncated GIF');
   });
 
   it('rejects other files', () => {
