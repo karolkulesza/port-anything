@@ -21,6 +21,7 @@ describe.runIf(process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === 
     expect(summary.corpus.cases).toBe(500);
     expect(summary.candidates[0]!.parity).not.toBeNull();
     expect(summary.candidates[0]!.features).toBeGreaterThan(10);
+    for (const feature of ['opt.key', 'opt.numeric-sort', 'opt.reverse']) expect(summary.untested).not.toContain(feature);
     expect(elapsed).toBeLessThan(60_000);
   });
 });
