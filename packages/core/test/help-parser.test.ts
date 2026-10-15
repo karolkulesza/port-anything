@@ -52,7 +52,7 @@ are not flags.
 
   it('reads short and long spellings, arity and placeholder types', () => {
     expect(flag(help.flags, '-a')).toEqual({ names: ['-a', '--all'], description: 'frob every line', values: [] });
-    expect(flag(help.flags, '--key').values).toEqual([{ name: 'KEYDEF', type: 'string' }]);
+    expect(flag(help.flags, '--key').values).toEqual([{ name: 'KEYDEF', type: 'int' }]);
     expect(flag(help.flags, '-n').values).toEqual([{ name: 'N', type: 'int' }]);
     expect(flag(help.flags, '-o').values).toEqual([{ name: 'FILE', type: 'path' }]);
     expect(flag(help.flags, '-S').values).toEqual([{ name: 'SIZE', type: 'size' }]);
@@ -154,7 +154,7 @@ Usage: frob [-abq] [-o FILE] [-t CHAR] [FILE]...
     expect(flag(help.flags, '-a').description).toBe('All lines');
     expect(flag(help.flags, '-o').values).toEqual([{ name: 'FILE', type: 'path' }]);
     expect(flag(help.flags, '-t').values).toEqual([{ name: 'CHAR', type: 'string' }]);
-    expect(flag(help.flags, '-k')).toMatchObject({ values: [{ name: 'N[,M]' }], description: 'Frob by field N' });
+    expect(flag(help.flags, '-k')).toMatchObject({ values: [{ name: 'N[,M]', type: 'int' }], description: 'Frob by field N' });
     expect(flag(help.flags, '-b').values).toEqual([]);
     expect(flag(help.flags, '-q').values).toEqual([]);
     expect(help.forms[0]!.args).toEqual([{ name: 'FILE', type: 'path', arity: '*' }]);
@@ -218,6 +218,20 @@ options:
     expect(help.forms[0]!.args).toEqual([{ name: 'DIR', type: 'path', arity: '1' }]);
   });
 
+  it('reads a usage-only text with key positions (BSD style)', () => {
+    const help = parseHelp('usage: frob [-bnr] [-kPOS1[,POS2] ... ] [+POS1 [-POS2]] [-S memsize] [-t char] [file ...]\n');
+    expect(help.flags.map((f) => f.names[0])).toEqual(['-b', '-n', '-r', '-k', '-S', '-t']);
+    expect(flag(help.flags, '-k').values).toEqual([{ name: 'POS1', type: 'int' }]);
+    expect(flag(help.flags, '-S').values).toEqual([{ name: 'memsize', type: 'size' }]);
+    // `+POS1 -POS2` is the old way to write a key, not a file to read.
+    expect(help.forms[0]!.args).toEqual([{ name: 'file', type: 'path', arity: '*' }]);
+  });
+
+  it('keeps a `+FORMAT` operand that has no `-` partner', () => {
+    const help = parseHelp('usage: frob [-u] [+FORMAT]\n');
+    expect(help.forms[0]!.args).toEqual([{ name: '+FORMAT', type: 'string', arity: '?' }]);
+  });
+
   it('drops control characters and names an empty placeholder, so the spec stays valid', () => {
     const help = parseHelp('Usage: frob <...> [<>]\n  -a, --all   frob\0 all\x07\n');
     expect(help.forms[0]!.args).toEqual([
@@ -243,7 +257,11 @@ describe('valueType', () => {
     ['NUM_THREADS', 'int'],
     ['MAX-ARGS', 'int'],
     ['SIZE', 'size'],
-    ['KEYDEF', 'string'],
+    ['KEYDEF', 'int'],
+    ['POS1', 'int'],
+    ['N[,M]', 'int'],
+    ['memsize', 'size'],
+    ['KEY', 'string'],
   ] as const)('%s is %s', (name, type) => expect(valueType(name)).toBe(type));
 });
 

@@ -170,6 +170,7 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
           flags.push({ names: aliases, values: [] });
           continue;
         }
+        if (oldKeySyntax(node.alts)) continue;
         for (const alt of node.alts) {
           walk(alt, {
             optional: ctx.optional || node.optional,
@@ -188,8 +189,9 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
           for (const name of cluster) flags.push({ names: [name], values: [] });
           continue;
         }
-        // `-Olevel`: a flag with its value attached; `-depth` (all lowercase) is a flag's name.
-        const attached = /^(-[A-Z])([a-z]{2,})$/.exec(word);
+        // `-Olevel` and `-kPOS1[,POS2]`: a flag with its value attached; `-depth` (all lowercase)
+        // is a flag's name.
+        const attached = /^(-[A-Z])([a-z]{2,})$/.exec(word) ?? /^(-[a-z])([A-Z][A-Z0-9_]+)(?:\[[^\]]*\])?$/.exec(word);
         const item = attached ? { name: attached[1]!, values: [valueFor(attached[2]!)] } : parseFlagItem(word, false);
         if (!item) continue;
         // `[-o FILE]`: words after the first flag of an optional group are its values.
@@ -221,6 +223,24 @@ function aliasPair(alts: UsageNode[][]): string[] | undefined {
   if (/^-[A-Za-z0-9?]$/.test(a) && /^--[A-Za-z0-9][\w-]*$/.test(b)) return [a, b];
   if (/^-[A-Za-z0-9?]$/.test(b) && /^--[A-Za-z0-9][\w-]*$/.test(a)) return [b, a];
   return undefined;
+}
+
+/**
+ * `[+POS1 [-POS2]]`: the old way to write a key (BSD and old GNU sort), positions written as an
+ * operand and a flag. Neither is a file to read nor a flag of its own.
+ */
+function oldKeySyntax(alts: UsageNode[][]): boolean {
+  if (alts.length !== 1 || alts[0]!.length !== 2) return false;
+  const [plus, rest] = alts[0] as [UsageNode, UsageNode];
+  return (
+    plus.kind === 'word' &&
+    /^\+[A-Z][A-Z0-9_]*$/.test(plus.text) &&
+    rest.kind === 'group' &&
+    rest.alts.length === 1 &&
+    rest.alts[0]!.length === 1 &&
+    rest.alts[0]![0]!.kind === 'word' &&
+    /^-[A-Z][A-Z0-9_]*$/.test(rest.alts[0]![0]!.text)
+  );
 }
 
 /**
@@ -429,10 +449,12 @@ const stripMeta = (word: string): string => word.replace(/^<([^<>]*)>$/, '$1').r
 
 /** A placeholder's type from its name: files and directories, counts, sizes, else text. */
 export function valueType(name: string): CliValue['type'] {
-  const n = name.replace(/[<>[\]{}=.]/g, '');
+  // `N[,M]`: what may follow the first value doesn't change its type.
+  const n = name.replace(/(?<=[^[])\[.*\]$/, '').replace(/[<>[\]{}=.]/g, '');
   if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(n) || /(file|dir|path)s?$/i.test(n)) return 'path';
-  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
-  if (/^(size|bytes)$/i.test(n)) return 'size';
+  // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`.
+  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
+  if (/^(size|memsize|bytes)$/i.test(n)) return 'size';
   return 'string';
 }
 
