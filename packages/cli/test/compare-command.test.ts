@@ -7,10 +7,13 @@ import { compareCommand, formatCompare, parseCompareArgs, percent, scoreParity, 
 import { run } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
-// `bad` ignores --upper; `flaky` prints a random number with --quiet; `pwd` prints its working
-// directory with --quiet, which differs between runs and is what the tmp-paths normalizer covers. Every stage of the pipeline
+// `bad` ignores --upper; `flaky` prints a random number with --quiet; `lucky` prints only `heads`
+// with --quiet, except on the 4th run of the same argv and input (counted in the `state` directory
+// given to `TOOL`; none: always `heads`), where it prints `tails`: output that varies by chance but agreed in the
+// generator's and both baseline runs, like `sort --random-sort` on two lines; `pwd` prints its working directory with --quiet, which differs between runs and is what the tmp-paths normalizer covers. Every stage of the pipeline
 // reads all its input (awk, not head), so no write ever fails on a closed pipe at random.
-const TOOL = (variant: 'ref' | 'bad' | 'flaky' | 'pwd') => `#!/bin/sh
+const TOOL = (variant: 'ref' | 'bad' | 'flaky' | 'lucky' | 'pwd', state = '') => `#!/bin/sh
+argv="$*"
 if [ "$1" = --help ]; then
   printf 'Usage: frob [OPTION]... [FILE]...\\n\\n  -q, --quiet     say less\\n  -u, --upper     upper-case the output\\n  -n, --count=N   stop after N lines\\n      --help      display this help and exit\\n'
   exit 0
@@ -29,7 +32,20 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-${variant === 'flaky' ? '[ -n "$quiet" ] && od -An -N4 -tu4 /dev/urandom' : variant === 'pwd' ? '[ -n "$quiet" ] && pwd' : ':'}
+${
+  variant === 'flaky'
+    ? '[ -n "$quiet" ] && od -An -N4 -tu4 /dev/urandom'
+    : variant === 'pwd'
+      ? '[ -n "$quiet" ] && pwd'
+      : variant === 'lucky'
+        ? `if [ -n "$quiet" ]; then
+  key="${state}/$({ printf '%s\\n' "$argv"; cat "$@" 2>/dev/null; } | cksum | cut -d' ' -f1)"
+  n=$(cat "$key" 2>/dev/null || echo 0); [ -z "${state}" ] || echo $((n + 1)) > "$key"
+  if [ -n "${state}" ] && [ "$n" = 3 ]; then echo tails; else echo heads; fi
+  exit 0
+fi`
+        : ':'
+}
 case "$count" in ''|*[!0-9]*) [ -z "$count" ] || { echo "frob: invalid count '$count'" >&2; exit 2; } ;; esac
 cat "$@" | if [ -n "$upper" ]; then tr 'a-z' 'A-Z'; else cat; fi | if [ -n "$count" ]; then awk -v n="$count" 'NR <= n'; else cat; fi
 `;
@@ -188,6 +204,9 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     for (const [file, variant] of [['frob', 'ref'], ['frob-copy', 'ref'], ['frob-bad', 'bad'], ['frob-flaky', 'flaky'], ['frob-pwd', 'pwd'], ['frob-pwd-copy', 'pwd']] as const) {
       writeFileSync(join(dir, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'bin', 'frob-lucky'), TOOL('lucky', join(dir, 'state')), { mode: 0o755 });
+    writeFileSync(join(dir, 'bin', 'frob-heads'), TOOL('lucky'), { mode: 0o755 });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -265,6 +284,21 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     }
     expect(summary.baseline.stable + summary.baseline.normalized + summary.baseline.flaky_reference.length).toBe(80);
     expect(summary.candidates[0]!.cases).toBe(80 - summary.baseline.flaky_reference.length);
+  });
+
+  it('re-runs the reference on a diverging case, and leaves the case out when the reference varies after all', async () => {
+    const { exitCode, summary } = await json(['./bin/frob-lucky', './bin/frob-heads', '--budget', '80']);
+    // The baseline saw `heads` 3 times; the scored run saw `tails`, the candidate `heads`, a re-run of the reference `heads` again.
+    expect(summary.candidates[0]!.divergences).toEqual([]);
+    expect(exitCode).toBe(0);
+    expect(summary.baseline.flaky_reference.length).toBeGreaterThan(0);
+    for (const f of summary.baseline.flaky_reference) {
+      expect(f.argv.some((a) => a === '--quiet' || /^-[a-z]*q/.test(a))).toBe(true);
+      expect(f.fields).toEqual(['stdout']);
+    }
+    expect(summary.baseline.stable + summary.baseline.normalized + summary.baseline.flaky_reference.length).toBe(80);
+    expect(summary.candidates[0]).toMatchObject({ parity: 1, cases: 80 - summary.baseline.flaky_reference.length });
+    expect(summary.candidates[0]!.match).toBe(summary.candidates[0]!.cases);
   });
 
   it('applies the normalizers the reference runs call for, and counts the cases they change', async () => {

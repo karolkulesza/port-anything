@@ -38,6 +38,13 @@ export const DEFAULT_COMPARE_BUDGET = 500;
 export const COMPARE_SEED = 42;
 /** Reference runs per case that look for output varying between runs. */
 export const COMPARE_REPEATS = 2;
+/**
+ * Further reference runs of a case a candidate diverges on, stopping at the first that differs.
+ * Output that varies by chance (`sort --random-sort` on two lines) can agree in every baseline run;
+ * a case whose reference varies here is flaky-reference too. A random order of two lines that
+ * fooled the earlier runs and made a candidate diverge still fools all 4 one time in 16.
+ */
+export const COMPARE_RECHECKS = 4;
 
 /** The arguments of `port-anything compare`. */
 export interface CompareArgs {
@@ -107,8 +114,9 @@ export interface CompareOptions {
  * `port-anything compare`: zero-config parity of one or more candidates against a reference. Reads
  * the reference's `--help` into a CLI spec, generates a corpus from it, runs every case twice more
  * on the reference to find output that varies between runs (normalizers for it, `flaky-reference`
- * for what still varies), then runs every candidate and reports per-feature parity. Nothing is
- * written outside a scratch directory, unless `--save` writes `port-anything.yaml` and the CLI
+ * for what still varies), then runs every candidate and reports per-feature parity. A case a
+ * candidate diverges on runs on the reference a few more times, and is flaky-reference too if the
+ * reference varies there. Nothing is written outside a scratch directory, unless `--save` writes `port-anything.yaml` and the CLI
  * spec. Exit code 0 when every candidate matches on every case, 1 when any case diverges, 3 when
  * the run can't start (arguments, programs, sandbox, a destructive tool).
  */
@@ -167,12 +175,17 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
 
     progress(`running the reference ${COMPARE_REPEATS} more times on ${cases.length} cases …`);
     const baseline = await baselineCases({ ...common, cases, repeats: COMPARE_REPEATS, workDir: join(scratch, 'baseline') });
-    const flaky = new Map(baseline.cases.filter((c) => c.status === 'flaky-reference').map((c) => [c.caseId, c.unstable]));
+    const flaky = new Map<string, string[]>(baseline.cases.filter((c) => c.status === 'flaky-reference').map((c) => [c.caseId, c.unstable]));
     const normalizers = baseline.proposals.map((p) => p.spec);
 
     progress(`running ${candidates.length === 1 ? 'the candidate' : `${candidates.length} candidates`} …`);
     const scored = cases.filter((c) => !flaky.has(c.id));
-    const result = await runCases({ ...common, candidates, cases: scored, normalizers, workDir: join(scratch, 'run') });
+    const run = await runCases({ ...common, candidates, cases: scored, normalizers, recheckReference: COMPARE_RECHECKS, workDir: join(scratch, 'run') });
+    // The reference varied on a re-check: flaky-reference after all, so out of the score and listed.
+    const late = new Map(run.cases.flatMap((c) => (c.referenceVaried === undefined ? [] : [[c.caseId, c.referenceVaried] as const])));
+    for (const [id, fields] of late) flaky.set(id, fields);
+    const result = { ...run, cases: run.cases.filter((c) => !late.has(c.caseId)) };
+    const trusted = baseline.cases.filter((c) => !late.has(c.caseId));
 
     const selfDescription = new Set(specFeatures(spec).filter((f) => f.selfDescription).map((f) => f.name));
     const byId = new Map(cases.map((c) => [c.id, c]));
@@ -196,9 +209,9 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         .filter((name) => !cases.some((c) => c.features.includes(name))),
       baseline: {
         repeats: COMPARE_REPEATS,
-        stable: baseline.cases.filter((c) => c.status === 'stable').length,
-        normalized: baseline.cases.filter((c) => c.status === 'normalized').length,
-        flaky_reference: [...flaky].map(([id, fields]) => ({ case: id, argv: byId.get(id)!.argv, fields })),
+        stable: trusted.filter((c) => c.status === 'stable').length,
+        normalized: trusted.filter((c) => c.status === 'normalized').length,
+        flaky_reference: cases.filter((c) => flaky.has(c.id)).map((c) => ({ case: c.id, argv: c.argv, fields: flaky.get(c.id)! })),
       },
       normalizers: normalizers.map((spec, n) => ({
         normalizer: normalizerLabel(spec),
