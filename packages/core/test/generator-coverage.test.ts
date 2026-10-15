@@ -9,15 +9,18 @@ import { generateCorpus, type ObserveReference } from '../src/corpus-generator.j
 import { cliSpecFromHelp, parseHelp } from '../src/help-parser.js';
 import { canonicalObservation } from '../src/model.js';
 
-// What `compare` generates for the sort binaries of the README quickstarts: BSD sort on macOS,
-// GNU sort (Homebrew's gsort, the dev container's gnusort, a Linux /usr/bin/sort). The help texts
+// What `compare` generates for the references of the README quickstarts: BSD sort on macOS, GNU
+// sort on Linux (and Homebrew's gsort, the dev container's gnusort). The help texts
 // are captured here, at test time, and never committed (GNU's is GPL). The reference runs without
 // a sandbox: sort is harmless and every generated path is relative to a scratch directory.
 
-/** The sorts this machine has, by the command that runs them. */
+const isGnu = (cmd: string) => spawnSync(cmd, ['--version'], { encoding: 'utf8' }).stdout?.includes('GNU coreutils') === true;
+
+/** The quickstart sorts this machine has, by the command that runs them. */
 const SORTS = [
   ...(process.platform === 'darwin' ? ['/usr/bin/sort', 'gsort'] : []),
-  ...(process.platform === 'linux' ? ['/usr/bin/sort', 'gnusort'] : []),
+  // On Ubuntu 25.10 and later /usr/bin/sort is uutils, which the quickstart uses as the candidate.
+  ...(process.platform === 'linux' ? ['/usr/bin/sort', 'gnusort'].filter(isGnu) : []),
 ].filter((cmd) => spawnSync(cmd, ['--help'], { stdio: 'ignore' }).error === undefined);
 
 /** Same seed and budget as `compare`. */
@@ -55,7 +58,8 @@ function observer(cmd: string): ObserveReference {
       });
       rmSync(dir, { recursive: true, force: true });
       return canonicalObservation({
-        exit: result.status ?? 128,
+        // Killed (by the timeout or otherwise): a signal and no exit code.
+        exit: result.signal === null ? result.status : null,
         signal: result.signal,
         timeout: result.error !== undefined,
         stdout: blobRef(result.stdout ?? new Uint8Array()),
