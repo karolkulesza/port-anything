@@ -46,11 +46,13 @@ npx port-anything generate --budget 5000   # a bigger corpus; the budget and see
 npx port-anything run          # parity, and the divergences grouped into clusters
 npx port-anything report       # the latest run as port-anything-report.html (with a repro per cluster), port-anything-report.json and a parity badge
 npx port-anything waive --from-cluster 1   # a waiver for an accepted difference, to paste into port-anything/waivers.yaml
+npx port-anything baseline     # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
+npx port-anything verify       # check the cases and the reference's output against the manifest
 ```
 
 [`examples/wc-lite`](https://github.com/karolkulesza/port-anything/tree/main/examples/wc-lite) in the repo is a complete project to try this on.
 
-**Exit codes:** 0 = no divergences, 1 = divergences, 3 = usage or config error.
+**Exit codes:** 0 = no divergences, 1 = divergences, 2 = integrity broken (`verify`), 3 = usage or config error.
 
 More, including the integrity threat model: [github.com/karolkulesza/port-anything](https://github.com/karolkulesza/port-anything)
 
