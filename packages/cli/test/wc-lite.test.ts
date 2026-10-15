@@ -160,6 +160,9 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     for (const feature of Object.keys(BAD_PORTS)) {
       builds.push(`cargo build --release --manifest-path port/Cargo.toml --features ${feature} --target-dir port/target/${feature}`);
     }
+    // Cargo creates a missing target dir atomically (a temp dir renamed into place), which would
+    // replace a port/target a parallel bad-port build has just made under it; make it first.
+    mkdirSync(join(project, 'port', 'target'), { recursive: true });
     await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
     mkdirSync(join(project, 'copy'));
     copyFileSync(join(project, 'ref', 'wc-lite'), join(project, 'copy', 'wc-copy'));
