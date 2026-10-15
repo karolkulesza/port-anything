@@ -135,8 +135,10 @@ describe('a project with a generated corpus', () => {
     expect(ids).toHaveLength(40);
 
     // The same settings again: the same cases, and the config untouched.
+    const configBefore = readFileSync(join(dir, 'port-anything.yaml'), 'utf8');
     const again = await cli(['generate', '--no-sandbox']);
     expect(again.stdout).not.toMatch(/^set corpus/m);
+    expect(readFileSync(join(dir, 'port-anything.yaml'), 'utf8')).toBe(configBefore);
     expect(cachedIds()).toEqual(ids);
 
     const baseline = await cli(['baseline', '--no-sandbox']);
