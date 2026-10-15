@@ -86,7 +86,7 @@ async function walkThrough(shell: Shell, page: Block[], edit: (block: Block, she
 
 describe('the docs pages', () => {
   it('show configs that parse', () => {
-    for (const name of ['refactor-guard.md']) {
+    for (const name of ['refactor-guard.md', 'library-drivers.md']) {
       const configs = pageBlocks(name).filter((b) => b.lang === 'yaml' && b.body.startsWith('version: 1'));
       expect(configs.length, name).toBeGreaterThan(0);
       for (const { body } of configs) expect(() => parseConfigSource(body), `${name}:\n${body}`).not.toThrow();
@@ -149,4 +149,8 @@ describe.runIf(enabled)('the docs pages, run as written', () => {
     expect(commands).toBeGreaterThanOrEqual(5);
   }, 600_000);
 
+  it('library drivers: the durations example runs as shown', async () => {
+    const commands = await walkThrough(shell(), pageBlocks('library-drivers.md'));
+    expect(commands).toBeGreaterThanOrEqual(5);
+  }, 600_000);
 });
