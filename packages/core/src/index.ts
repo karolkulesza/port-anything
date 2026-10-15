@@ -286,6 +286,34 @@ export {
 } from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
 export {
+  FingerprintSchema,
+  environmentFingerprint,
+  fingerprintDifferences,
+  localFingerprintHost,
+  type Fingerprint,
+  type FingerprintHost,
+  type FingerprintOptions,
+} from './fingerprint.js';
+export {
+  MANIFEST_FILE,
+  checkManifest,
+  manifestCases,
+  manifestGenerator,
+  manifestNormalizers,
+  manifestPath,
+  observationHash,
+  readManifest,
+  referenceObservationHashes,
+  writeManifest,
+  type Manifest,
+  type ManifestCase,
+  type ManifestCheck,
+  type ManifestProblem,
+  type ManifestState,
+  type ObservationHashOptions,
+  type ObserveReferenceOptions,
+} from './manifest.js';
+export {
   LARGE_WAIVER_SHARE,
   WAIVERS_FILE,
   WAIVER_CATEGORIES,

@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { observationHash } from './manifest.js';
 import type { Observation } from './model.js';
 import { normalizePair, type NormalizerName, type NormalizerSpec, type ScopeEntry, type SideContext } from './normalize.js';
 import { defaultConcurrency, mapPool } from './pool.js';
@@ -44,6 +45,11 @@ export interface CaseBaseline {
    * `flaky-reference`: something still varies; the case is excluded from scoring.
    */
   status: 'stable' | 'normalized' | 'flaky-reference';
+  /**
+   * Hash of the first run's observation with the configured and proposed normalizers (see
+   * `observationHash`), what the manifest freezes; null for a flaky-reference case.
+   */
+  observationHash: string | null;
 }
 
 export interface NormalizerProposal {
@@ -110,7 +116,11 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
   for (const { caseId, runs: r, varied, fixes } of runs) {
     const unstable = varied.length === 0 ? [] : await variedFields(r, pipeline, options);
     const status = varied.length === 0 ? 'stable' : unstable.length === 0 ? 'normalized' : 'flaky-reference';
-    cases.push({ caseId, observations: r.observations, varied, fixes, unstable, status });
+    const hash =
+      status === 'flaky-reference'
+        ? null
+        : await observationHash(r.observations[0]!, { normalizers: pipeline, features: r.features, context: r.contexts[0]!, store: options.store });
+    cases.push({ caseId, observations: r.observations, varied, fixes, unstable, status, observationHash: hash });
   }
   return { programName: name, repeats, cases, proposals, withheld };
 }
