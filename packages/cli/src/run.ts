@@ -1,7 +1,12 @@
 import { baselineCommand } from './baseline-command.js';
 import { compareCommand } from './compare-command.js';
+import { minimizeCommand } from './minimize-command.js';
+import { reportCommand } from './report-command.js';
+import { initCommand } from './init-command.js';
 import { runCommand } from './run-command.js';
+import { waiveCommand } from './waive-command.js';
 import { specCommand } from './spec-command.js';
+import { strengthCommand } from './strength-command.js';
 
 export interface RunResult {
   exitCode: number;
@@ -18,7 +23,13 @@ export interface RunOptions {
 
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
-Not released yet. Follow progress at https://github.com/karolkulesza/port-anything
+Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]
+       port-anything spec infer [--no-sandbox]
+       port-anything baseline [--repeats N] [--no-sandbox]
+       port-anything run [--candidate <cmd>]… [--json] [--no-sandbox]
+
+Exit codes: 0 all good, 1 divergences, 3 config or usage error.
+Docs: https://github.com/karolkulesza/port-anything
 `;
 
 /**
@@ -41,7 +52,12 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
     return compareCommand(rest, { cwd: options.cwd ?? process.cwd(), ...(options.progress === undefined ? {} : { progress: options.progress }) });
   }
   if (command === 'run') return runCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'init') return initCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'minimize') return minimizeCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'spec') return specCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'baseline') return baselineCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "compare", "run", "baseline" and "spec infer" are.\n` };
+  if (command === 'waive') return waiveCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'report') return reportCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'strength') return strengthCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are.\n` };
 }

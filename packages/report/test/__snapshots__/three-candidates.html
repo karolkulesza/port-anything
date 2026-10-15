@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="port-anything">
+<title>Port Anything report: tool</title>
+<style>
+:root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #ffffff; --soft: #f6f8fa; --good: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --bg: #0d1117; --soft: #151b23; --good: #3fb950; --warn: #d29922; --bad: #f85149; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+code, pre { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.meta, .note { color: var(--muted); }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card { flex: 1 1 18rem; border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; }
+.card .parity { font-size: 2.2rem; font-weight: 700; }
+table { border-collapse: collapse; margin: .5rem 0; }
+th, td { border: 1px solid var(--line); padding: .25rem .6rem; text-align: left; vertical-align: top; }
+thead th { background: var(--soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.group th { background: var(--soft); font-weight: 600; }
+.full { color: var(--good); }
+.high { color: var(--warn); }
+.low { color: var(--bad); }
+.out { color: var(--muted); font-style: italic; }
+.flag { color: var(--bad); font-weight: 600; }
+.cluster { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: .75rem 0; }
+.cluster h3 { margin-top: .25rem; }
+</style>
+</head>
+<body>
+<header>
+<h1>Port Anything report: tool</h1>
+<p class="meta">run 20261014-180203-a1b2 · 2026-10-14T18:02:03.000Z · 55 cases · reference <code>./bin/tool</code></p>
+</header>
+<main>
+<section id="headline">
+<h2>Parity</h2>
+<div class="cards">
+<div class="card">
+<p class="meta">candidate 1</p>
+<p><code>./port-a/tool</code></p>
+<p class="parity full">100.0%</p><p>mean of 2 features · 55 of 55 scored cases match (raw 100.0%)</p>
+<p>55 cases match · 0 diverge · 0 waived (not scored)</p>
+<p>by origin: recorded 100.0% (40 cases) · generated 100.0% (15 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 2</p>
+<p><code>./port-b/tool</code></p>
+<p class="parity high">93.7%</p><p>mean of 2 features · 50 of 55 scored cases match (raw 90.9%)</p>
+<p>50 cases match · 5 diverge · 0 waived (not scored)</p>
+<p>by origin: recorded 92.6% (40 cases) · generated 100.0% (15 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 3</p>
+<p><code>&#39;./port c/tool&#39; --strict</code></p>
+<p class="parity high">91.0%</p><p>mean of 2 features · 48 of 52 scored cases match (raw 92.3%)</p>
+<p>48 cases match · 4 diverge · 3 waived (not scored)</p>
+<p>by origin: recorded 87.9% (40 cases) · generated 100.0% (15 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+</div>
+</section>
+<section id="matrix">
+<h2>Features × candidates</h2>
+<p class="note">Parity per feature: matching cases over scored cases (waived and flaky-reference cases are not scored).</p>
+<table>
+<thead><tr><th scope="col">feature</th><th scope="col">candidate 1<br><code>./port-a/tool</code></th><th scope="col">candidate 2<br><code>./port-b/tool</code></th><th scope="col">candidate 3<br><code>&#39;./port c/tool&#39; --strict</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">headline (mean)</th><td class="num full"><strong>100.0%</strong></td><td class="num high"><strong>93.7%</strong></td><td class="num high"><strong>91.0%</strong></td></tr>
+<tr class="group"><th colspan="4" scope="rowgroup">In the headline</th></tr>
+<tr><th scope="row"><code>base</code></th><td class="num full">100.0% <span class="note">(25/25)</span></td><td class="num high">92.0% <span class="note">(23/25)</span></td><td class="num high">95.8% <span class="note">(23/24)</span></td></tr>
+<tr><th scope="row"><code>opt.n</code></th><td class="num full">100.0% <span class="note">(22/22)</span></td><td class="num high">95.4% <span class="note">(21/22)</span></td><td class="num low">86.3% <span class="note">(19/22)</span></td></tr>
+<tr class="group"><th colspan="4" scope="rowgroup">Under-sampled (not in the headline)</th></tr>
+<tr><th scope="row"><code>opt.x</code></th><td class="num out">100.0% <span class="note">(5/5)</span></td><td class="num out">100.0% <span class="note">(5/5)</span></td><td class="num out">100.0% <span class="note">(3/3)</span></td></tr>
+<tr class="group"><th colspan="4" scope="rowgroup">Self-description (not in the headline)</th></tr>
+<tr><th scope="row"><code>opt.help</code></th><td class="num out">100.0% <span class="note">(3/3)</span></td><td class="num out">33.3% <span class="note">(1/3)</span></td><td class="num out">100.0% <span class="note">(3/3)</span></td></tr>
+</tbody>
+</table>
+</section>
+<section id="untested">
+<h2>Untested features</h2>
+<p class="note">Features in the CLI spec that no case carries. They don't count toward the headline, so they are listed here instead.</p>
+<ul>
+<li><code>opt.z</code></li>
+</ul>
+</section>
+<section id="under-sampled">
+<h2>Under-sampled features</h2>
+<p class="note">Features with fewer than 20 scored cases (<code>corpus.min_cases_per_feature</code>): shown, but left out of the headline so a single case can't swing it.</p>
+<ul>
+<li>candidate 1: <code>opt.x</code> 100.0% (5 scored cases)</li>
+<li>candidate 2: <code>opt.x</code> 100.0% (5 scored cases)</li>
+<li>candidate 3: <code>opt.x</code> 100.0% (3 scored cases)</li>
+</ul>
+</section>
+<section id="self-description">
+<h2>Self-description features</h2>
+<p class="note"><code>--help</code>, <code>--version</code>, <code>--usage</code> and features marked <code>self_description: true</code> in the CLI spec. Their text differs between implementations by design, so they are reported here and left out of the headline.</p>
+<ul>
+<li>candidate 1: <code>opt.help</code> 100.0% (3 scored cases)</li>
+<li>candidate 2: <code>opt.help</code> 33.3% (3 scored cases)</li>
+<li>candidate 3: <code>opt.help</code> 100.0% (3 scored cases)</li>
+</ul>
+</section>
+<section id="clusters">
+<h2>Clusters</h2>
+<p class="note">Diverging cases grouped by what differs, heaviest first: a cluster's weight is how much of the per-feature headline it holds down. The repro is the cluster's smallest case.</p>
+<h3>candidate 1 <code>./port-a/tool</code>: 0 clusters</h3>
+<h3>candidate 2 <code>./port-b/tool</code>: 2 clusters</h3>
+<div class="cluster" id="cluster-1">
+<h3>cluster 1: 3 cases · stdout number-value</h3>
+<p>features base (2), opt.n (1)</p>
+<p>repro: case <code>c_00000003</code></p>
+<pre>$ LC_ALL=C tool -n &#39;a file.txt&#39;</pre>
+<p class="note">stdin (6 bytes):</p>
+<pre>x
+&lt;y&gt;
+</pre>
+<p class="note">file <code>a file.txt</code> (4 bytes):</p>
+<pre>abc
+</pre>
+<p class="note">cases: <code>c_00000002</code> <code>c_00000003</code> <code>c_0000001e</code></p>
+</div>
+<div class="cluster" id="cluster-2">
+<h3>cluster 2: 2 cases · stdout other</h3>
+<p>features opt.help (2)</p>
+<p class="note">cases: <code>c_00000035</code> <code>c_00000036</code></p>
+</div>
+<h3>candidate 3 <code>&#39;./port c/tool&#39; --strict</code>: 1 cluster</h3>
+<div class="cluster" id="cluster-3">
+<h3>cluster 3: 4 cases · exit 0 vs 2</h3>
+<p>features opt.n (3), base (1)</p>
+<p>repro: case <code>c_0000001a</code> (no longer in the corpus)</p>
+<p class="note">cases: <code>c_00000004</code> <code>c_0000001a</code> <code>c_0000001b</code> <code>c_0000001c</code></p>
+</div>
+</section>
+<section id="reference-bugs">
+<h2>Reference bugs found</h2>
+<p class="note">Divergences where the candidate is right and the reference is wrong, waived with category <code>reference-bug</code> in <code>port-anything/waivers.yaml</code>.</p>
+<div class="cluster">
+<h3>waiver 2: the original exits 0 after &quot;write error&quot;</h3>
+<p><code>feature base, field exit, shape exit-code (reference-bug)</code></p>
+<p>candidate 1: 0 cases · candidate 2: 0 cases · candidate 3: 1 case</p>
+<p>repro: case <code>c_00000001</code></p>
+<pre>$ tool</pre>
+<p class="note">stdin (70000 bytes):</p>
+<pre>zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+…</pre>
+<p class="note">file <code>bin.dat</code> (3 bytes):</p>
+<p class="note">(binary, not shown)</p>
+</div>
+</section>
+<section id="integrity">
+<h2>Integrity</h2>
+<ul>
+<li>sandbox: bwrap (no network)</li>
+<li>program name (argv[0], both sides): <code>tool</code></li>
+<li>compared under: default (stderr loose, similarity 0.8)</li>
+<li>manifest verification: not run by this version</li>
+<li>environment fingerprint: not recorded by this version</li>
+<li>fresh holdout: not run by this version</li>
+<li>candidate language composition: not measured by this version</li>
+</ul>
+<h3>Normalizers</h3>
+<table>
+<thead><tr><th scope="col">normalizer</th><th scope="col">cases changed</th></tr></thead>
+<tbody>
+<tr><td><code>tmp-paths</code></td><td class="num">4 (7.2%)</td></tr>
+</tbody>
+</table>
+<h3>Waivers</h3>
+<table>
+<thead><tr><th scope="col">waiver</th><th scope="col">reason</th><th scope="col">cases covered, candidate 1</th><th scope="col">cases covered, candidate 2</th><th scope="col">cases covered, candidate 3</th></tr></thead>
+<tbody>
+<tr><td>1. <code>feature opt.x, field stdout, shape missing-trailing-newline (intentional)</code></td><td>trailing newline &lt;by design&gt;</td><td class="num">0 (0.0%)</td><td class="num">0 (0.0%)</td><td class="num">2 (3.6%)</td></tr>
+<tr><td>2. <code>feature base, field exit, shape exit-code (reference-bug)</code></td><td>the original exits 0 after &quot;write error&quot;</td><td class="num">0 (0.0%)</td><td class="num">0 (0.0%)</td><td class="num">1 (1.8%)</td></tr>
+</tbody>
+</table>
+</section>
+<section id="rules">
+<h2>How the score is counted</h2>
+<ul>
+<li>The headline is the mean of per-feature parity, so each feature weighs the same however many cases it has.</li>
+<li>A case tagged with several features counts once in each of them; a case without flags counts in <code>base</code>.</li>
+<li>Self-description features are reported on their own and left out of the headline.</li>
+<li>Features with fewer than 20 scored cases are under-sampled: shown, but left out of the headline.</li>
+<li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
+<li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

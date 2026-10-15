@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument } from 'yaml';
 import { z } from 'zod';
+import { DEFAULT_STDERR_SIMILARITY, PROFILES } from './compare.js';
 import { NormalizersSchema } from './normalize.js';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
 
@@ -33,6 +34,17 @@ const DurationSchema = z.union([z.number(), z.string()]).transform((value, ctx) 
   return ms;
 });
 
+/** `2x`, `1.5x`, or a plain number: how many times slower than the reference a candidate may run. */
+const SlowdownSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
+  const match = typeof value === 'string' ? /^(\d+(?:\.\d+)?)x$/.exec(value) : null;
+  const factor = typeof value === 'number' ? value : match ? Number(match[1]) : NaN;
+  if (!(factor >= 1) || !Number.isFinite(factor)) {
+    ctx.addIssue({ code: 'custom', message: 'must be a factor of at least 1, such as 2x or 1.5x' });
+    return z.NEVER;
+  }
+  return factor;
+});
+
 const EnvNameSchema = text.refine((name) => name !== '' && !name.includes('='), 'must be non-empty and contain no "="');
 
 const SandboxSchema = z.strictObject({
@@ -47,10 +59,31 @@ const SandboxSchema = z.strictObject({
 /** Sections read by later commands; accepted here so a config written for them still loads. */
 const later = z.unknown().optional();
 
-/** `corpus`: only `repeats` is read so far (by `baseline`); the other keys are left to later commands. */
+const CompareSchema = z.strictObject({
+  /** Which observation fields count: strict (all), standard (stderr loosely), lenient (exit status and stdout). */
+  profile: z.enum(PROFILES).default('standard'),
+  fields: z
+    .strictObject({
+      /** `mode` absent: exact under strict, loose under standard. */
+      stderr: z
+        .strictObject({
+          mode: z.enum(['exact', 'loose']).optional(),
+          similarity: z.number().min(0).max(1).default(DEFAULT_STDERR_SIMILARITY),
+        })
+        .default(() => ({ similarity: DEFAULT_STDERR_SIMILARITY })),
+    })
+    .default(() => ({ stderr: { similarity: DEFAULT_STDERR_SIMILARITY } })),
+  /** Optional gate: the run fails when a candidate's median time ratio is above this factor. */
+  max_slowdown: SlowdownSchema.optional(),
+  min_parity: later,
+});
+
+/** `corpus`: only `repeats` (by `baseline`) and `min_cases_per_feature` (by scoring) are read so far; the other keys are left to later commands. */
 const CorpusSchema = z.looseObject({
   /** Runs of each case against the reference in `baseline`. */
   repeats: z.number().int().min(2).optional(),
+  /** Features with fewer scored cases are left out of the headline. Default 20. */
+  min_cases_per_feature: z.int().min(1).optional(),
 });
 
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
@@ -64,7 +97,7 @@ export const ConfigSchema = z
     candidate: ProgramSchema.optional(),
     candidates: z.array(ProgramSchema).min(1).optional(),
     sandbox: SandboxSchema.default(() => SandboxSchema.parse({})),
-    compare: later,
+    compare: CompareSchema.default(() => CompareSchema.parse({})),
     /** Applied in order to both sides before comparing. */
     normalizers: NormalizersSchema.default([]),
     corpus: CorpusSchema.optional(),

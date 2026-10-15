@@ -5,17 +5,17 @@ import { describe, expect, it } from 'vitest';
 import { run } from '../src/run.js';
 
 describe('run', () => {
-  it('prints the not-released-yet notice and exits 0 without a command', async () => {
+  it('prints the usage and exits 0 without a command', async () => {
     for (const argv of [[], ['--help']]) {
       const result = await run(argv);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('rewrite it in any language and show nothing changed');
-      expect(result.stdout).toContain('Not released yet.');
+      expect(result.stdout).toContain('Usage: port-anything compare');
     }
   });
 
   it('exits 3 for a command this version does not have', async () => {
-    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "compare", "run", "baseline" and "spec infer" are/) });
+    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are/) });
   });
 
   it('routes spec to the spec command', async () => {

@@ -1,0 +1,87 @@
+{
+  "tool": "cargo-mutants 26.0.0",
+  "mutants": 59,
+  "caught": 54,
+  "missed": 5,
+  "timeout": 0,
+  "unviable": 0,
+  "score": 0.9153,
+  "survivors": [
+    {
+      "mutant": "src/main.rs:160:29: replace + with * in run",
+      "why": "equivalent here: every side runs with argv[0] set to the bare program name, so there is no \"/\" to cut the name after"
+    },
+    {
+      "mutant": "src/main.rs:160:29: replace + with - in run",
+      "why": "equivalent here: every side runs with argv[0] set to the bare program name, so there is no \"/\" to cut the name after"
+    },
+    {
+      "mutant": "src/main.rs:88:23: replace match guard e.kind() == ErrorKind::Interrupted with false in count",
+      "why": "untested: a read interrupted by a signal (EINTR) never happens on the corpus"
+    },
+    {
+      "mutant": "src/main.rs:88:23: replace match guard e.kind() == ErrorKind::Interrupted with true in count",
+      "why": "untested: no case makes a read fail (e.g. a directory as FILE), where this mutant would loop"
+    },
+    {
+      "mutant": "src/main.rs:88:32: replace == with != in count",
+      "why": "untested: no case makes a read fail (e.g. a directory as FILE), where this mutant would loop"
+    }
+  ],
+  "caught_mutants": [
+    "src/main.rs:101:26: replace += with *= in count",
+    "src/main.rs:101:26: replace += with -= in count",
+    "src/main.rs:103:18: replace == with != in count",
+    "src/main.rs:104:26: replace += with *= in count",
+    "src/main.rs:104:26: replace += with -= in count",
+    "src/main.rs:112:25: replace == with != in count",
+    "src/main.rs:115:34: replace / with % in count",
+    "src/main.rs:115:34: replace / with * in count",
+    "src/main.rs:115:38: replace + with * in count",
+    "src/main.rs:115:38: replace + with - in count",
+    "src/main.rs:115:43: replace * with + in count",
+    "src/main.rs:115:43: replace * with / in count",
+    "src/main.rs:123:22: replace += with *= in count",
+    "src/main.rs:123:22: replace += with -= in count",
+    "src/main.rs:147:5: replace print_counts -> io::Result<()> with Ok(())",
+    "src/main.rs:157:5: replace run -> io::Result<i32> with Ok(-1)",
+    "src/main.rs:157:5: replace run -> io::Result<i32> with Ok(0)",
+    "src/main.rs:157:5: replace run -> io::Result<i32> with Ok(1)",
+    "src/main.rs:159:52: replace == with != in run",
+    "src/main.rs:180:25: replace || with && in run",
+    "src/main.rs:180:40: replace < with <= in run",
+    "src/main.rs:180:40: replace < with == in run",
+    "src/main.rs:180:40: replace < with > in run",
+    "src/main.rs:180:44: replace || with && in run",
+    "src/main.rs:180:56: replace != with == in run",
+    "src/main.rs:182:25: replace == with != in run",
+    "src/main.rs:192:28: replace == with != in run",
+    "src/main.rs:193:22: replace == with != in run",
+    "src/main.rs:198:22: replace == with != in run",
+    "src/main.rs:209:60: replace == with != in run",
+    "src/main.rs:225:8: delete ! in run",
+    "src/main.rs:251:30: replace == with != in run",
+    "src/main.rs:260:37: replace == with != in run",
+    "src/main.rs:260:86: replace + with * in run",
+    "src/main.rs:260:86: replace + with - in run",
+    "src/main.rs:271:20: replace > with < in run",
+    "src/main.rs:271:20: replace > with == in run",
+    "src/main.rs:271:20: replace > with >= in run",
+    "src/main.rs:279:5: replace main with ()",
+    "src/main.rs:32:5: replace usage -> String with \"xyzzy\".into()",
+    "src/main.rs:32:5: replace usage -> String with String::new()",
+    "src/main.rs:51:5: replace os_message -> String with \"xyzzy\".into()",
+    "src/main.rs:51:5: replace os_message -> String with String::new()",
+    "src/main.rs:60:5: replace is_space -> bool with false",
+    "src/main.rs:60:5: replace is_space -> bool with true",
+    "src/main.rs:77:5: replace count -> io::Result<Counts> with Ok(Default::default())",
+    "src/main.rs:91:18: replace += with *= in count",
+    "src/main.rs:91:18: replace += with -= in count",
+    "src/main.rs:93:26: replace & with ^ in count",
+    "src/main.rs:93:26: replace & with | in count",
+    "src/main.rs:93:33: replace != with == in count",
+    "src/main.rs:95:26: replace += with *= in count",
+    "src/main.rs:95:26: replace += with -= in count",
+    "src/main.rs:99:23: delete ! in count"
+  ]
+}

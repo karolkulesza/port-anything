@@ -9,7 +9,7 @@ import { canonicalCase, withoutProtoKeys, type CanonicalCase } from './model.js'
 export const RECORDED_DIR = 'port-anything/recorded';
 
 /** File content written inline: UTF-8 text, or `{"base64": "…"}` for bytes that aren't. */
-const ContentSchema = z.union([z.string(), z.strictObject({ base64: z.base64() })]);
+export const InlineContentSchema = z.union([z.string(), z.strictObject({ base64: z.base64() })]);
 
 /**
  * One line of a committed case file: the Case shape with inline content instead of blob refs. The
@@ -19,17 +19,28 @@ const LineSchema = withoutProtoKeys(
   z.strictObject({
     id: z.unknown().optional(),
     argv: z.unknown(),
-    stdin: ContentSchema.nullable().default(null),
+    stdin: InlineContentSchema.nullable().default(null),
     env: z.unknown().optional(),
-    fixtures: z.record(z.string(), ContentSchema).default({}),
+    fixtures: z.record(z.string(), InlineContentSchema).default({}),
     features: z.unknown().optional(),
     origin: z.unknown(),
   }),
 );
 
-type Content = z.output<typeof ContentSchema>;
+export type InlineContent = z.output<typeof InlineContentSchema>;
 
-const bytesOf = (content: Content) => (typeof content === 'string' ? content : Buffer.from(content.base64, 'base64'));
+const bytesOf = (content: InlineContent) => (typeof content === 'string' ? content : Buffer.from(content.base64, 'base64'));
+
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/** Bytes written inline: as text when they are well-formed UTF-8, else as base64. */
+export function inlineContent(bytes: Uint8Array): InlineContent {
+  try {
+    return utf8.decode(bytes);
+  } catch {
+    return { base64: Buffer.from(bytes).toString('base64') };
+  }
+}
 
 /**
  * Loads every `port-anything/recorded/*.jsonl` file of the project, in file name order, storing
