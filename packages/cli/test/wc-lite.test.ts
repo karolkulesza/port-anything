@@ -16,7 +16,7 @@ const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
 
 interface Repro {
   argv: string[];
-  stdin: string | null;
+  stdin: string | { base64: string } | null;
   env: Record<string, string>;
   fixtures: Record<string, string>;
 }
@@ -111,10 +111,85 @@ const BAD_PORTS: Record<string, Expected> = {
     repro: { argv: ['a.txt'], stdin: null, env: {}, fixtures: { 'a.txt': '\n' } },
     parity: '64.7%',
   },
+  // -m counts bytes, so every case with a multibyte character (or a stray continuation byte) is off.
+  'bad-chars': {
+    cluster: { size: 3, signature: 'stdout number-value', features: 'opt.m (3), opt.c (2), opt.L (1), opt.l (1), opt.w (1)' },
+    // From `-mc` on binary input: one continuation byte is a byte but not a character.
+    repro: { argv: ['-mc'], stdin: { base64: 'qQ==' }, ...none },
+    parity: '70.4%',
+  },
+  // A vertical tab or a form feed doesn't end a word.
+  'bad-vertical-space': {
+    cluster: { size: 1, signature: 'stdout number-value', features: 'opt.w (1)' },
+    // A form feed alone is a word; -w goes too, since the default output has the words count.
+    repro: { argv: [], stdin: '\f', ...none },
+    parity: '96.8%',
+  },
+  // -L leaves out a last line without a newline.
+  'bad-last-line': {
+    cluster: { size: 1, signature: 'stdout number-value', features: 'opt.L (1)' },
+    repro: { argv: ['-L'], stdin: 'd', ...none },
+    parity: '96.8%',
+  },
+  // Empty standard input prints nothing instead of zeros.
+  'bad-empty-input': {
+    cluster: { size: 1, signature: 'stdout empty (candidate empty)', features: 'base (1)' },
+    repro: { argv: [], stdin: null, ...none },
+    parity: '96.8%',
+  },
+  // Several files get no total line: the output stops one line early.
+  'bad-no-total': {
+    cluster: { size: 3, signature: 'stdout prefix-suffix (candidate stops early)', features: 'base (2), error.file (1), opt.l (1)' },
+    // Two operands, even when one can't be read.
+    repro: { argv: ['-', 'a.txt'], stdin: null, ...none },
+    parity: '87.0%',
+  },
+  // "-" is opened as a file, which doesn't exist, instead of reading standard input.
+  'bad-dash-file': {
+    cluster: { size: 1, signature: 'exit 0 vs 1, stdout other, stderr empty (reference empty)', features: 'base (1)' },
+    // Empty input on both would make the stdout difference a missing line rather than "other".
+    repro: { argv: ['-', 'a.txt'], stdin: 'f', env: {}, fixtures: { 'a.txt': '' } },
+    parity: '96.8%',
+  },
+  // The last file decides the exit status: an unreadable file followed by a readable one exits 0.
+  'bad-error-status': {
+    cluster: { size: 1, signature: 'exit 1 vs 0', features: 'error.file (1), opt.l (1)' },
+    repro: { argv: ['missing.txt', 'b.txt'], stdin: null, env: {}, fixtures: { 'b.txt': '' } },
+    parity: '93.3%',
+  },
+  // Stops at the first file that can't be read, so the later ones are missing (and the total is short).
+  'bad-stop-on-error': {
+    cluster: { size: 1, signature: 'stdout other', features: 'error.file (1), opt.l (1)' },
+    repro: { argv: ['missing.txt', 'b.txt'], stdin: null, env: {}, fixtures: { 'b.txt': 'o' } },
+    parity: '93.3%',
+  },
+  // Accepts --lines as -l, where the reference rejects every long option but --help and --version.
+  'bad-long-option': {
+    cluster: { size: 1, signature: 'exit 2 vs 0, stdout empty (reference empty), stderr empty (candidate empty)', features: 'error.usage (1)' },
+    repro: { argv: ['--lines'], stdin: null, ...none },
+    parity: '95.8%',
+  },
+  // Options end at the first file, so `a.txt -w` reads -w as a second file.
+  'bad-options-first': {
+    cluster: { size: 1, signature: 'exit 0 vs 1, stdout other, stderr empty (reference empty)', features: 'opt.w (1)' },
+    repro: { argv: ['a.txt', '-w'], stdin: null, env: {}, fixtures: { 'a.txt': '' } },
+    parity: '96.8%',
+  },
 };
 const BAD = Object.keys(BAD_PORTS);
 /** The bad ports with a cluster, in candidate order: cluster n is the nth of them. */
 const CLUSTERED = BAD.filter((feature) => BAD_PORTS[feature]!.cluster !== null);
+
+// Without the toolchain: the list above must be every bad port the example has, and its README must show each one.
+describe('examples/wc-lite bad ports', () => {
+  it('lists one entry per cargo feature, 20 in all, each in the README table', () => {
+    const manifest = readFileSync(join(example, 'port', 'Cargo.toml'), 'utf8');
+    expect([...manifest.matchAll(/^(bad-[a-z-]+) = \[\]$/gm)].map((m) => m[1])).toEqual(BAD);
+    expect(BAD).toHaveLength(20);
+    const readme = readFileSync(join(example, 'README.md'), 'utf8');
+    expect([...readme.matchAll(/^\| `(bad-[a-z-]+)` \|/gm)].map((m) => m[1])).toEqual(BAD);
+  });
+});
 
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
 const toolchain = (await has('cc')) && (await has('cargo'));
@@ -160,6 +235,9 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     for (const feature of Object.keys(BAD_PORTS)) {
       builds.push(`cargo build --release --manifest-path port/Cargo.toml --features ${feature} --target-dir port/target/${feature}`);
     }
+    // Cargo creates a missing target dir atomically (a temp dir renamed into place), which would
+    // replace a port/target a parallel bad-port build has just made under it; make it first.
+    mkdirSync(join(project, 'port', 'target'), { recursive: true });
     await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
     mkdirSync(join(project, 'copy'));
     copyFileSync(join(project, 'ref', 'wc-lite'), join(project, 'copy', 'wc-copy'));

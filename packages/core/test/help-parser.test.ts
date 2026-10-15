@@ -259,6 +259,9 @@ describe('valueType', () => {
   it.each([
     ['FILE', 'path'],
     ['NUL_FILE', 'path'],
+    ['FILE1', 'path'],
+    ['FILE2', 'path'],
+    ['dir2', 'path'],
     ['DIR', 'path'],
     ['N', 'int'],
     ['NUM_THREADS', 'int'],

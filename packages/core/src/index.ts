@@ -270,7 +270,20 @@ export {
   type NormalizerProposal,
   type ProposableNormalizer,
 } from './baseline.js';
-export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { appendNormalizers, normalizerEntry, setCorpusSettings } from './config-edit.js';
+export {
+  DEFAULT_GENERATOR_SEED,
+  GENERATED_CORPUS_FILE,
+  SEEDS_DIR,
+  generatedCorpusKey,
+  generatedCorpusSettings,
+  readGeneratedCorpusCache,
+  readSeedFixtures,
+  writeGeneratedCorpusCache,
+  type GeneratedCorpusCache,
+  type GeneratedCorpusKeyInput,
+  type GeneratedCorpusSettings,
+} from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
 export {
   LARGE_WAIVER_SHARE,

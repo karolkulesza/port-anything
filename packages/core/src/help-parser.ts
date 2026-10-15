@@ -453,7 +453,8 @@ const stripMeta = (word: string): string => word.replace(/^<([^<>]*)>$/, '$1').r
 export function valueType(name: string): CliValue['type'] {
   // `N[,M]`: what may follow the first value doesn't change its type.
   const n = name.replace(/(?<=[^[])\[.*\]$/, '').replace(/[<>[\]{}=.]/g, '');
-  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(n) || /(file|dir|path)s?$/i.test(n)) return 'path';
+  const base = n.replace(/\d+$/, ''); // FILE1 FILE2 (comm, join, diff)
+  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
   // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`.
   if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
   if (/^(size|memsize|bytes)$/i.test(n)) return 'size';

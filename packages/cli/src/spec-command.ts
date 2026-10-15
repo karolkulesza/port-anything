@@ -21,7 +21,7 @@ import {
 } from '@port-anything/core';
 import type { CliResult } from './run-command.js';
 
-const USAGE = 'Usage: port-anything spec infer [--no-sandbox]';
+export const USAGE = 'Usage: port-anything spec infer [--no-sandbox]';
 
 /**
  * `port-anything spec infer`: reads the reference's `--help` (and its subcommands'), writes a first

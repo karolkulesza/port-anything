@@ -6,13 +6,10 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
-  BlobStore,
   ConfigError,
   DEFAULT_STRENGTH_MUTANTS,
   SandboxUnavailableError,
-  cacheDir,
   configCandidates,
-  loadCommittedCases,
   mapPool,
   openCaseRunner,
   parseProgramCommand,
@@ -24,6 +21,7 @@ import {
   type SandboxProbe,
   type StrengthScore,
 } from '@port-anything/core';
+import { loadCorpus } from './corpus.js';
 import { display, prepareSides, removeScratch, scratchDir, type CliResult } from './run-command.js';
 import { chooseTool, type ToolContext } from './strength-tools.js';
 
@@ -35,7 +33,7 @@ export interface StrengthArgs {
   noSandbox: boolean;
 }
 
-const USAGE = 'Usage: port-anything strength [--mutants 200] [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything strength [--mutants 200] [--json] [--no-sandbox]';
 
 /** Reads the arguments after `strength`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseStrengthArgs(argv: readonly string[]): StrengthArgs {
@@ -78,7 +76,7 @@ export async function strengthCommand(argv: readonly string[], options: Strength
   try {
     const args = parseStrengthArgs(argv);
     const config = await readConfigFile(options.cwd);
-    const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
+    const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
     return await measure({ projectDir: options.cwd, config, cases, args, cliEntry: options.cliEntry ?? defaultCliEntry(), ...(options.probe === undefined ? {} : { probe: options.probe }) });
   } catch (e) {
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
@@ -141,7 +139,7 @@ async function measure({ projectDir, config, cases, args, cliEntry, probe }: Mea
   const candidates = configCandidates(config);
   const candidate = candidates[0];
   if (candidate === undefined) throw new ConfigError('No candidate to measure: set candidate in port-anything.yaml.');
-  if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
+  if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
 
   // The cases the unmutated candidate matches: a mutant is caught when one of them diverges.
   const sideOptions = { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) };
@@ -265,13 +263,14 @@ export async function runCheck(spec: CheckSpec, overrides: CheckOverrides = {}):
   const projectDir = overrides.project ?? spec.project;
   const config = await readConfigFile(projectDir);
   const wanted = new Set(spec.cases);
-  const cases = (await loadCommittedCases(projectDir, new BlobStore(cacheDir(projectDir)))).filter((c) => wanted.has(c.id));
+  // A copy of the project has no cache: its generated cases come from the original's.
+  const original = spec.origin ?? spec.project;
+  const cases = (await loadCorpus(projectDir, config, projectDir === original ? 'cache-only' : { copyOf: original })).filter((c) => wanted.has(c.id));
   if (cases.length !== wanted.size) throw new ConfigError(`The corpus changed while measuring: ${wanted.size - cases.length} of the cases to check are gone.`);
 
   const words = parseProgramCommand(spec.candidate);
   let command = [words.executable, ...(words.tool === undefined ? [] : [words.tool]), ...words.args];
   // Checking in a copy of the project: absolute paths into the project lead into the copy (relative ones already do).
-  const original = spec.origin ?? spec.project;
   if (projectDir !== original) command = command.map((word) => (isAbsolute(word) ? fromRoot(word, original, original, projectDir) : word));
   if (spec.root !== undefined) {
     command = command.map((word) => fromRoot(word, spec.project, spec.root!, process.cwd()));
