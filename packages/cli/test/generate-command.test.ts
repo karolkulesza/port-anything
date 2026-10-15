@@ -106,6 +106,16 @@ describe('a project with a generated corpus', () => {
     await check();
   });
 
+  it('compare --save uses the seed fixtures already in the directory, so a fresh clone regenerates the same cases', { timeout: 120_000 }, async () => {
+    mkdirSync(join(dir, 'port-anything', 'seeds'), { recursive: true });
+    writeFileSync(join(dir, 'port-anything', 'seeds', 'words.txt'), 'zebra\napple\nMango\n');
+    await json<CompareJson>(['compare', './bin/frob', './bin/frob-bad', '--budget', '200', '--save', '--json', '--no-sandbox']);
+    const ids = cachedIds();
+    rmSync(join(dir, '.port-anything'), { recursive: true, force: true });
+    expect((await json<RunJson>(['run', '--json', '--no-sandbox'])).out.cases).toBe(ids.length);
+    expect(cachedIds()).toEqual(ids);
+  });
+
   it('generate writes the settings to the config and generates the corpus that run, baseline, minimize and report then use', { timeout: 120_000 }, async () => {
     writeFileSync(join(dir, 'port-anything.yaml'), '# my project\nversion: 1\nreference: { cmd: ./bin/frob }\ncandidate: { cmd: ./bin/frob-bad }\n');
     const noSpec = await cli(['generate', '--no-sandbox']);

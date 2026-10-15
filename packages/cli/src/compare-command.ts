@@ -25,6 +25,7 @@ import {
   parseConfigSource,
   probeSandbox,
   readConfigFile,
+  readSeedFixtures,
   runCases,
   shortCaseId,
   specFeatures,
@@ -156,6 +157,8 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
       generator: DEFAULT_GENERATOR,
       iKnow: args.iKnow,
       budget: args.budget,
+      // A saved project regenerates its cases with the seed fixtures there, so these must use them too.
+      ...(args.save ? { seeds: await readSeedFixtures(options.cwd) } : {}),
       observe: async (cases, blobs) => {
         for (const c of cases) {
           for (const ref of [c.stdin, ...Object.values(c.fixtures)]) {
