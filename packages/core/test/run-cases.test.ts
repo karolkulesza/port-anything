@@ -41,6 +41,20 @@ case "$1" in
 esac
 `;
 
+// A reference whose output depends on chance, like `sort --random-sort` on two lines: its first two
+// runs of a command agree, so a baseline of two runs would call it stable; from the third on it differs.
+const LUCKY = `#!/bin/sh
+echo "lucky $*" >> "$PA_TEST_LOG"
+state="$PA_TEST_STATE.lucky.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  shuffle) if [ "$n" -lt 2 ]; then printf 'a\\nb\\n'; else printf 'b\\na\\n'; fi ;;
+  upper) tr 'a-z' 'A-Z' ;;
+esac
+`;
+
 describe('runCases', () => {
   let root: string;
   let store: BlobStore;
@@ -49,6 +63,7 @@ describe('runCases', () => {
   let good: ResolvedProgram;
   let bad: ResolvedProgram;
   let racy: ResolvedProgram;
+  let lucky: ResolvedProgram;
   let cases: CanonicalCase[];
   let scratch = 0;
 
@@ -59,12 +74,14 @@ describe('runCases', () => {
       writeFileSync(join(root, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
     writeFileSync(join(root, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
+    writeFileSync(join(root, 'bin', 'tool-lucky'), LUCKY, { mode: 0o755 });
     log = join(root, 'runs.log');
     store = new BlobStore(join(root, 'cache'));
     ref = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool')));
     good = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-copy')));
     bad = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-bad')));
     racy = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-racy')));
+    lucky = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-lucky')));
     const input = await store.put('hello\n');
     const fixture = await store.put('fixture text\n');
     const doomed = await store.put('bye\n');
@@ -208,6 +225,41 @@ describe('runCases', () => {
     const normalizers = NormalizersSchema.parse([{ regex: { pattern: 'run \\d+', replacement: 'run N' } }]);
     const normalized = await runCases(options([racy], { cases: stamp, normalizers }));
     expect(normalized.cases[0]!.candidates[0]).toMatchObject({ comparison: { verdict: 'diverge' }, flaky: false, observation: { runs: 2, stable: true } });
+  });
+
+  it('re-runs the reference on a diverging case when asked, and says which fields it changed', async () => {
+    rmSync(log, { force: true });
+    // The bad port knows no `shuffle` (prints nothing) and cats `upper` instead of upcasing it: both diverge.
+    const chance = [{ argv: ['echo', 'a'] }, { argv: ['shuffle'] }, { argv: ['upper'], stdin: cases[1]!.stdin }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+    const result = await runCases(options([bad], { reference: lucky, cases: chance, recheckReference: 4, concurrency: 1 }));
+    const [echo, shuffle, upper] = result.cases;
+    expect(echo!.candidates[0]!.comparison.verdict).toBe('match');
+    expect(echo!.referenceVaried).toBeUndefined();
+    // Runs 1 and 2 agree (the second is the first re-check); the third differs, so it stops there.
+    expect(shuffle!.candidates[0]!.comparison.verdict).toBe('diverge');
+    expect(shuffle!.referenceVaried).toEqual(['stdout']);
+    // A reference that never varies is re-run the full 4 times and stays trusted.
+    expect(upper!.candidates[0]!.comparison.verdict).toBe('diverge');
+    expect(upper!.referenceVaried).toBeUndefined();
+    const runs = (arg: string) => logLines().filter((l) => l === `lucky ${arg}`).length;
+    expect([runs('echo a'), runs('shuffle'), runs('upper')]).toEqual([1, 3, 5]);
+    // The first observation is still the one compared.
+    expect((await store.get(shuffle!.reference.stdout)).toString()).toBe('a\nb\n');
+  });
+
+  it('re-checks the reference after the normalizers, and not at all by default', async () => {
+    rmSync(log, { force: true });
+    // The reference's `stamp`-like output: the racy port as reference prints its run count.
+    const stamp = [canonicalCase({ argv: ['stamp'], origin: 'recorded' })];
+    const raw = await runCases(options([bad], { reference: racy, cases: stamp, recheckReference: 2 }));
+    expect(raw.cases[0]!.referenceVaried).toEqual(['stdout']);
+    const normalizers = NormalizersSchema.parse([{ regex: { pattern: 'run \\d+', replacement: 'run N' } }]);
+    const normalized = await runCases(options([bad], { reference: racy, cases: stamp, normalizers, recheckReference: 2 }));
+    expect(normalized.cases[0]!.referenceVaried).toBeUndefined();
+    rmSync(log, { force: true });
+    const plain = await runCases(options([bad], { reference: racy, cases: stamp }));
+    expect(plain.cases[0]!.referenceVaried).toBeUndefined();
+    expect(logLines().filter((l) => l.startsWith('racy ')).length).toBe(1);
   });
 
   it('runs each case once with rerun off, still classifying the divergences', async () => {

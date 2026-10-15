@@ -1,7 +1,7 @@
 import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BlobStore } from './blob-store.js';
-import { compareObservations, type CompareOptions, type Comparison } from './compare.js';
+import { compareExact, compareObservations, type ComparedField, type CompareOptions, type Comparison } from './compare.js';
 import { classifyDiff, type FieldShape } from './diff-shape.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
@@ -47,6 +47,13 @@ export interface RunCasesOptions {
    * Defaults to true; the minimizer turns it off, since it only needs the first run's signature.
    */
   rerun?: boolean;
+  /**
+   * On a case some candidate diverges on, run the reference up to this many more times, stopping at
+   * the first run that observes something else than the first once both are normalized (see
+   * `CaseRun.referenceVaried`). A baseline of a few runs can miss output that varies by chance, such
+   * as a random sort of two lines; this catches it where it would count. Defaults to 0 (off).
+   */
+  recheckReference?: number;
 }
 
 /** One candidate's observation of a case and how it compares with the reference's. */
@@ -80,6 +87,12 @@ export interface CaseRun {
   reference: Observation;
   /** In the order of `RunCasesOptions.candidates`. */
   candidates: CandidateRun[];
+  /**
+   * Fields a re-check of the reference (`RunCasesOptions.recheckReference`) observed differently
+   * from its first run, after the normalizers; absent when it observed the same or didn't run. The
+   * reference isn't stable on this case, so it can't be scored.
+   */
+  referenceVaried?: ComparedField[];
 }
 
 export interface RunCasesResult {
@@ -161,6 +174,21 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
       const rerun = await observe(side);
       const flaky = (await compare({ observation, side: i }, rerun)).comparison.verdict === 'diverge';
       candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate }, rerun, flaky });
+    }
+    const recheck = options.recheckReference ?? 0;
+    if (recheck > 0 && candidates.some((run) => run.comparison.verdict === 'diverge')) {
+      for (let n = 0; n < recheck; n++) {
+        const again = await observe(sides[0]!);
+        const pair = await normalizePair({
+          normalizers: options.normalizers ?? [],
+          features: c.features,
+          reference: { observation: reference, context: context(0, caseDir) },
+          candidate: { observation: again, context: context(0, caseDir) },
+          store: options.store,
+        });
+        const { fields } = compareExact(pair.reference, pair.candidate);
+        if (fields.length > 0) return { caseId: c.id, reference, candidates, referenceVaried: fields };
+      }
     }
     return { caseId: c.id, reference, candidates };
   };
