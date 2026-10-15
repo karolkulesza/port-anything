@@ -11,13 +11,15 @@ import { run } from '../src/run.js';
 // with --quiet, except on the 4th run of the same argv and input (counted in the `state` directory
 // given to `TOOL`; none: always `heads`), where it prints `tails`: output that varies by chance but agreed in the
 // generator's and both baseline runs, like `sort --random-sort` on two lines; `pwd` prints its working directory with --quiet, which differs between runs and is what the tmp-paths normalizer covers. Every stage of the pipeline
-// reads all its input (awk, not head), so no write ever fails on a closed pipe at random.
-const TOOL = (variant: 'ref' | 'bad' | 'flaky' | 'lucky' | 'pwd', state = '') => `#!/bin/sh
+// reads all its input (awk, not head), so no write ever fails on a closed pipe at random. `stall`
+// answers like `ref`, except that the very first run (of any case) sleeps past the timeout, as a starved machine can make it do.
+const TOOL = (variant: 'ref' | 'bad' | 'flaky' | 'lucky' | 'pwd' | 'stall', state = '') => `#!/bin/sh
 argv="$*"
 if [ "$1" = --help ]; then
   printf 'Usage: frob [OPTION]... [FILE]...\\n\\n  -q, --quiet     say less\\n  -u, --upper     upper-case the output\\n  -n, --count=N   stop after N lines\\n      --help      display this help and exit\\n'
   exit 0
 fi
+${variant === 'stall' ? `mkdir "${state}/stalled" 2>/dev/null && exec sleep 10` : ''}
 upper=; count=; quiet=
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -137,7 +139,7 @@ describe('formatCompare', () => {
     },
     normalizers: [{ normalizer: 'tmp-paths on stderr', cases: 2 }],
     candidates: [
-      { command: 'coreutils sort', parity: 1, features: 2, match: 59, cases: 59, divergences: [], per_feature: [feature('base', 20, 20), feature('opt.n', 39, 39), feature('opt.help', 1, 1, { selfDescription: true })] },
+      { command: 'coreutils sort', parity: 1, features: 2, match: 59, cases: 59, divergences: [], timeout_recovered: [], per_feature: [feature('base', 20, 20), feature('opt.n', 39, 39), feature('opt.help', 1, 1, { selfDescription: true })] },
       {
         command: './my sort',
         parity: 0.9125,
@@ -145,6 +147,7 @@ describe('formatCompare', () => {
         match: 55,
         cases: 59,
         divergences: [],
+        timeout_recovered: [{ case: `sha256:${'cd'.repeat(32)}`, argv: ['-n', 'in.txt'] }],
         per_feature: [feature('base', 20, 20), feature('opt.n', 33, 40), feature('opt.help', 0, 1, { selfDescription: true }), feature('opt.r', 2, 3, { underSampled: true })],
       },
     ],
@@ -175,6 +178,9 @@ describe('formatCompare', () => {
         'flaky-reference (output still varies between reference runs):',
         `  c_${'ab'.repeat(4)}  sort --random-sort 'input file.txt'  stdout`,
         '',
+        './my sort: timeout, recovered on re-run (the re-run was compared): 1',
+        `  c_${'cd'.repeat(4)}  sort -n in.txt`,
+        '',
         'done in 12 s',
         '',
       ].join('\n'),
@@ -190,6 +196,7 @@ describe('formatCompare', () => {
     expect(text).toMatch(/^ {2}feature +parity$/m);
     expect(text).toMatch(/^saved port-anything\.yaml and port-anything\/cli-spec\.yaml$/m);
     expect(text).not.toMatch(/^flaky-reference \(/m);
+    expect(text).not.toMatch(/timeout, recovered/);
   });
 });
 
@@ -207,6 +214,7 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     mkdirSync(join(dir, 'state'));
     writeFileSync(join(dir, 'bin', 'frob-lucky'), TOOL('lucky', join(dir, 'state')), { mode: 0o755 });
     writeFileSync(join(dir, 'bin', 'frob-heads'), TOOL('lucky'), { mode: 0o755 });
+    writeFileSync(join(dir, 'bin', 'frob-stall'), TOOL('stall', join(dir, 'state')), { mode: 0o755 });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -299,6 +307,20 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     expect(summary.baseline.stable + summary.baseline.normalized + summary.baseline.flaky_reference.length).toBe(80);
     expect(summary.candidates[0]).toMatchObject({ parity: 1, cases: 80 - summary.baseline.flaky_reference.length });
     expect(summary.candidates[0]!.match).toBe(summary.candidates[0]!.cases);
+  });
+
+  it('scores a case on the candidate re-run when its first run timed out, and lists it as recovered', async () => {
+    const stall = (args: string[]) => {
+      rmSync(join(dir, 'state', 'stalled'), { recursive: true, force: true });
+      return compareCommand(['./bin/frob', './bin/frob-stall', '--budget', '40', '--no-sandbox', ...args], { cwd: dir, probe: NO_SANDBOX, tmpDir: scratch, concurrency: 2, timeoutMs: 3000 });
+    };
+    const text = await stall([]);
+    expect(text.exitCode).toBe(0);
+    expect(text.stdout).toMatch(/^\.\/bin\/frob-stall: parity .*; 40\/40 cases\)$/m);
+    expect(text.stdout).toMatch(/^\.\/bin\/frob-stall: timeout, recovered on re-run \(the re-run was compared\): 1\n {2}c_[0-9a-f]{8} {2}frob /m);
+    const json = JSON.parse((await stall(['--json'])).stdout) as CompareSummary;
+    expect(json.candidates[0]).toMatchObject({ match: 40, cases: 40, divergences: [] });
+    expect(json.candidates[0]!.timeout_recovered).toEqual([{ case: expect.stringMatching(/^sha256:/), argv: expect.any(Array) }]);
   });
 
   it('applies the normalizers the reference runs call for, and counts the cases they change', async () => {

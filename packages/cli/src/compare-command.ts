@@ -108,6 +108,8 @@ export interface CompareOptions {
   tmpDir?: string;
   /** Cases running at once; defaults to the number of CPU cores. */
   concurrency?: number;
+  /** Per run of a case; defaults to the runner's. */
+  timeoutMs?: number;
 }
 
 /**
@@ -147,7 +149,14 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
   const scratch = await mkdtemp(join(options.tmpDir ?? tmpdir(), 'port-anything-compare-'));
   try {
     const store = new BlobStore(cacheDir(scratch));
-    const common = { reference, store, sandbox, programName, ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }) };
+    const common = {
+      reference,
+      store,
+      sandbox,
+      programName,
+      ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    };
 
     progress(`reading ${programName} --help …`);
     const { spec, helpArgv } = await inferCliSpec({ ...common, workDir: join(scratch, 'spec') });
@@ -218,7 +227,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         cases: result.cases.filter((c) => c.candidates.some((run) => run.normalizedBy.includes(n))).length,
       })),
       candidates: args.candidates.map((command, i) => {
-        const verdicts = result.cases.map((c) => ({ case: byId.get(c.caseId)!, comparison: c.candidates[i]!.comparison }));
+        const verdicts = result.cases.map((c) => ({ case: byId.get(c.caseId)!, comparison: c.candidates[i]!.comparison, recovered: c.candidates[i]!.timeoutRecovered }));
         const score = scoreParity(
           verdicts.map((v) => ({ features: v.case.features, match: v.comparison.verdict === 'match' })),
           selfDescription,
@@ -226,7 +235,9 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         const divergences = verdicts
           .filter((v) => v.comparison.verdict === 'diverge')
           .map((v) => ({ case: v.case.id, argv: v.case.argv, fields: v.comparison.fields }));
-        return { command, ...score, divergences };
+        // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+        const timeoutRecovered = verdicts.filter((v) => v.recovered).map((v) => ({ case: v.case.id, argv: v.case.argv }));
+        return { command, ...score, divergences, timeout_recovered: timeoutRecovered };
       }),
       saved: [],
       duration_ms: 0,
@@ -349,7 +360,12 @@ export interface CompareSummary {
   untested: string[];
   baseline: { repeats: number; stable: number; normalized: number; flaky_reference: { case: string; argv: string[]; fields: string[] }[] };
   normalizers: { normalizer: string; cases: number }[];
-  candidates: (Parity & { command: string; divergences: { case: string; argv: string[]; fields: string[] }[] })[];
+  candidates: (Parity & {
+    command: string;
+    divergences: { case: string; argv: string[]; fields: string[] }[];
+    /** Cases scored on the candidate's re-run, its first run having timed out where the reference finished. */
+    timeout_recovered: { case: string; argv: string[] }[];
+  })[];
   saved: string[];
   duration_ms: number;
 }
@@ -390,6 +406,10 @@ export function formatCompare(s: CompareSummary): string {
   if (s.baseline.flaky_reference.length > 0) {
     lines.push('', 'flaky-reference (output still varies between reference runs):');
     for (const f of s.baseline.flaky_reference) lines.push(`  ${shortCaseId(f.case)}  ${s.program_name} ${display(f.argv)}  ${f.fields.join(', ')}`);
+  }
+  for (const c of s.candidates.filter((c) => c.timeout_recovered.length > 0)) {
+    lines.push('', `${c.command}: timeout, recovered on re-run (the re-run was compared): ${c.timeout_recovered.length}`);
+    for (const r of c.timeout_recovered) lines.push(`  ${shortCaseId(r.case)}  ${s.program_name} ${display(r.argv)}`);
   }
   if (s.saved.length > 0) lines.push('', `saved ${s.saved.join(' and ')}`);
   lines.push('', `done in ${Math.round(s.duration_ms / 1000)} s`);
