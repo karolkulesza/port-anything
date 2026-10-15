@@ -1,6 +1,6 @@
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
-import { appendNormalizers, normalizerEntry } from '../src/config-edit.js';
+import { appendNormalizers, normalizerEntry, setCorpusSettings } from '../src/config-edit.js';
 import { parseConfig } from '../src/config.js';
 import { NormalizersSchema, type NormalizerSpec } from '../src/normalize.js';
 
@@ -68,5 +68,23 @@ describe('appendNormalizers', () => {
 
   it('returns the source unchanged when there is nothing to add', () => {
     expect(appendNormalizers('version: 1\n', [])).toBe('version: 1\n');
+  });
+});
+
+describe('setCorpusSettings', () => {
+  it('sets keys in an existing corpus section, keeping the comments and the other keys', () => {
+    const source = ['version: 1 # first', 'reference: { cmd: ./ref }', 'corpus:', '  repeats: 3 # three runs', '  generator: v1', ''].join('\n');
+    const edited = setCorpusSettings(source, { generator: 'v1', generator_seed: 7, budget: 60 });
+    expect(parse(edited)).toEqual({ version: 1, reference: { cmd: './ref' }, corpus: { repeats: 3, generator: 'v1', generator_seed: 7, budget: 60 } });
+    expect(edited).toContain('version: 1 # first');
+    expect(edited).toContain('repeats: 3 # three runs');
+    expect(parseConfig(parse(edited)).corpus?.generator_seed).toBe(7);
+  });
+
+  it('adds the section when it is missing, and leaves the text alone when nothing changes', () => {
+    const source = 'version: 1\nreference: { cmd: ./ref }\n';
+    const edited = setCorpusSettings(source, { generator: 'v1', generator_seed: 42 });
+    expect(parse(edited).corpus).toEqual({ generator: 'v1', generator_seed: 42 });
+    expect(setCorpusSettings(edited, { generator: 'v1', generator_seed: 42 })).toBe(edited);
   });
 });
