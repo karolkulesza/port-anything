@@ -21,6 +21,6 @@ Show
 Type "port-anything compare gnusort 'coreutils sort'"
 Sleep 600ms
 Enter
-# The run takes about 35 s; wait for the prompt to come back, then leave the result on screen.
+# The run takes 20–40 s on a quiet machine; wait for the prompt to come back, then leave the result on screen.
 Wait@120s /\$\s*$/
 Sleep 4s
