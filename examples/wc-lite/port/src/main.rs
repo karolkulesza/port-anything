@@ -57,6 +57,11 @@ fn os_message(err: &io::Error) -> String {
 
 #[cfg(not(feature = "bad-words"))]
 fn is_space(b: u8) -> bool {
+    // Bug: a vertical tab and a form feed must also end a word.
+    #[cfg(feature = "bad-vertical-space")]
+    if b == 0x0b || b == 0x0c {
+        return false;
+    }
     matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r')
 }
 // Bug: tabs, newlines and the other C spaces must also end a word.
@@ -92,6 +97,11 @@ fn count(input: &mut dyn Read) -> io::Result<Counts> {
         for &b in &buf[..got] {
             let lead = b & 0xC0 != 0x80;
             if lead {
+                c[CHARS] += 1;
+            }
+            // Bug: -m must count UTF-8 characters, and a continuation byte doesn't start one.
+            #[cfg(feature = "bad-chars")]
+            if !lead {
                 c[CHARS] += 1;
             }
             if is_space(b) {
@@ -133,6 +143,9 @@ fn count(input: &mut dyn Read) -> io::Result<Counts> {
     if prev != b'\n' {
         c[LINES] += 1;
     }
+    // Bug: a last line without a newline must count for -L too.
+    #[cfg(feature = "bad-last-line")]
+    let line = 0;
     c[MAXLEN] = c[MAXLEN].max(line);
     // Bug (stands in for a data race): the maximum line length picks up a value that changes from
     // run to run, so two runs of the same case rarely agree.
@@ -179,6 +192,11 @@ fn run() -> io::Result<i32> {
         let bytes = arg.as_bytes();
         if options_done || bytes.len() < 2 || bytes[0] != b'-' {
             files.push(arg);
+            // Bug: options may also follow the files; only "--" ends them.
+            #[cfg(feature = "bad-options-first")]
+            {
+                options_done = true;
+            }
         } else if bytes == b"--" {
             #[cfg(not(feature = "bad-double-dash"))]
             {
@@ -199,6 +217,12 @@ fn run() -> io::Result<i32> {
                 writeln!(out, "wc-lite {VERSION}")?;
                 out.flush()?;
                 return Ok(0);
+            }
+            // Bug: long options other than --help and --version must be rejected, like the reference.
+            #[cfg(feature = "bad-long-option")]
+            if bytes == b"--lines" {
+                show[LINES] = true;
+                continue;
             }
             err.write_all(format!("{err_name}: unrecognized option '").as_bytes())?;
             err.write_all(bytes)?;
@@ -236,6 +260,11 @@ fn run() -> io::Result<i32> {
                 return Ok(1);
             }
         };
+        // Bug: empty input must still print its counts (all 0).
+        #[cfg(feature = "bad-empty-input")]
+        if c[BYTES] == 0 {
+            return Ok(0);
+        }
         print_counts(&mut out, &c, &show, None)?;
         out.flush()?;
         return Ok(0);
@@ -248,13 +277,23 @@ fn run() -> io::Result<i32> {
     files.reverse();
     for name in &files {
         let name = name.as_bytes();
-        let result = if name == b"-" {
+        #[cfg(not(feature = "bad-dash-file"))]
+        let stdin_operand = name == b"-";
+        // Bug: "-" must read standard input, not a file named "-".
+        #[cfg(feature = "bad-dash-file")]
+        let stdin_operand = false;
+        let result = if stdin_operand {
             count(&mut io::stdin().lock())
         } else {
             File::open(OsStr::from_bytes(name)).and_then(|mut f| count(&mut f))
         };
         match result {
             Ok(c) => {
+                // Bug: the exit status must stay 1 once a file couldn't be read, whatever comes after.
+                #[cfg(feature = "bad-error-status")]
+                {
+                    status = 0;
+                }
                 print_counts(&mut out, &c, &show, Some(name))?;
                 for k in 0..NCOUNTS {
                     total[k] = if k == MAXLEN { total[k].max(c[k]) } else { total[k] + c[k] };
@@ -265,9 +304,15 @@ fn run() -> io::Result<i32> {
                 err.write_all(name)?;
                 err.write_all(format!(": {}\n", os_message(&e)).as_bytes())?;
                 status = 1;
+                // Bug: the files after one that can't be read must still be counted.
+                #[cfg(feature = "bad-stop-on-error")]
+                break;
             }
         }
     }
+    // Bug: several files must be followed by a total line.
+    #[cfg(feature = "bad-no-total")]
+    files.truncate(1);
     if files.len() > 1 {
         print_counts(&mut out, &total, &show, Some(b"total"))?;
     }

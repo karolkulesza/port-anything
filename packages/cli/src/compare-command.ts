@@ -23,20 +23,24 @@ import {
   normalizerEntry,
   normalizerLabel,
   parseConfigSource,
+  parseProgramCommand,
   probeSandbox,
   readConfigFile,
   readSeedFixtures,
+  resolveProgram,
   runCases,
   shortCaseId,
   specFeatures,
   writeBaselineRecord,
   type CliSpec,
   type NormalizerSpec,
+  type ProgramCommand,
   type ResolvedProgram,
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, resolveCommand, type CliResult } from './common.js';
 import { cacheGeneratedCorpus } from './corpus.js';
+import { checkoutRev, isInside, parseGitRef, removeCheckout, rerootPath, runBuild, type GitCheckout } from './git-ref.js';
 
 /** Generated cases `compare` runs unless `--budget` says otherwise. */
 export const DEFAULT_COMPARE_BUDGET = 500;
@@ -47,7 +51,10 @@ export const COMPARE_REPEATS = 2;
 
 /** The arguments of `port-anything compare`. */
 export interface CompareArgs {
+  /** The reference command, or `git:<rev>` as `--ref` gave it. */
   reference: string;
+  /** With `--ref git:<rev>`: the revision whose build is the reference. */
+  gitRev?: string;
   candidates: string[];
   budget: number;
   save: boolean;
@@ -56,7 +63,10 @@ export interface CompareArgs {
   noSandbox: boolean;
 }
 
-export const USAGE = "Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]";
+export const USAGE = [
+  "Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]",
+  "       port-anything compare --ref git:<rev> '<candidate cmd>'… [--budget 500] [--json] [--i-know] [--no-sandbox]",
+].join('\n');
 
 /** Reads the arguments after `compare`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseCompareArgs(argv: readonly string[]): CompareArgs {
@@ -66,6 +76,7 @@ export function parseCompareArgs(argv: readonly string[]): CompareArgs {
       args: [...argv],
       options: {
         budget: { type: 'string' },
+        ref: { type: 'string' },
         save: { type: 'boolean' },
         json: { type: 'boolean' },
         'i-know': { type: 'boolean' },
@@ -78,8 +89,19 @@ export function parseCompareArgs(argv: readonly string[]): CompareArgs {
     throw new ConfigError(`${(e as Error).message}\n${USAGE}`);
   }
   const { values, positionals } = parsed;
-  const [reference, ...candidates] = positionals;
-  if (reference === undefined || candidates.length === 0) throw new ConfigError(`compare needs a reference and at least one candidate.\n${USAGE}`);
+  let reference: string | undefined;
+  let candidates: string[];
+  let gitRev: string | undefined;
+  if (values.ref !== undefined) {
+    gitRev = parseGitRef(values.ref);
+    if (gitRev === undefined) throw new ConfigError(`--ref takes git:<rev> (a commit, branch or tag, such as git:HEAD~1), got "${values.ref}".\n${USAGE}`);
+    [reference, candidates] = [values.ref, positionals];
+    if (candidates.length === 0) throw new ConfigError(`compare --ref needs at least one candidate.\n${USAGE}`);
+    if (values.save) throw new ConfigError('--save can\'t record a git reference in port-anything.yaml; run compare --ref without --save.');
+  } else {
+    [reference, ...candidates] = positionals;
+    if (reference === undefined || candidates.length === 0) throw new ConfigError(`compare needs a reference and at least one candidate.\n${USAGE}`);
+  }
   let budget = DEFAULT_COMPARE_BUDGET;
   if (values.budget !== undefined) {
     if (!/^\d+$/.test(values.budget) || Number(values.budget) < 1) throw new ConfigError(`--budget must be a whole number of at least 1, got "${values.budget}".`);
@@ -87,6 +109,7 @@ export function parseCompareArgs(argv: readonly string[]): CompareArgs {
   }
   return {
     reference,
+    ...(gitRev === undefined ? {} : { gitRev }),
     candidates,
     budget,
     save: values.save ?? false,
@@ -132,18 +155,32 @@ const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr:
 async function execute(args: CompareArgs, options: CompareOptions): Promise<CliResult> {
   const started = Date.now();
   const progress = options.progress ?? (() => {});
-  const reference = await resolveCommand(args.reference, options.cwd);
   const candidates = await Promise.all(args.candidates.map((cmd) => resolveCommand(cmd, options.cwd)));
-  const programName = pinnedName([reference, ...candidates]);
-  for (const program of [reference, ...candidates]) {
-    assertNotDestructive([program.path, ...(program.tool === undefined ? [] : [program.tool]), ...program.args], args);
-  }
-  assertNotDestructive([programName], args);
+  const gitReference = args.gitRev === undefined ? undefined : await gitReferenceCommand(args, options.cwd);
+  // A git reference is built later; the candidates are checked now, before anything is built.
+  let reference = gitReference === undefined ? await resolveCommand(args.reference, options.cwd) : undefined;
+  checkPrograms(reference === undefined ? candidates : [reference, ...candidates], args);
   if (args.save) await assertCanSave(options.cwd);
   const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
 
   const scratch = await mkdtemp(join(options.tmpDir ?? tmpdir(), 'port-anything-compare-'));
+  let checkout: GitCheckout | undefined;
   try {
+    let git: CompareSummary['git'];
+    if (gitReference !== undefined) {
+      checkout = await checkoutRev(options.cwd, args.gitRev!);
+      const where = `git:${checkout.rev} (${checkout.commit.slice(0, 7)})`;
+      if (gitReference.build === undefined) progress(`checking out ${where} in a temporary worktree …`);
+      else {
+        progress(`building ${where} in a temporary worktree …`);
+        await runBuild(gitReference.build, checkout.projectDir);
+      }
+      reference = await resolveAtCommit(gitReference, checkout);
+      git = { rev: checkout.rev, commit: checkout.commit, cmd: display(gitReference.cmd), build: gitReference.build ?? null };
+    }
+    if (reference === undefined) throw new Error('unreachable: no reference');
+    const programName = checkPrograms([reference, ...candidates], args);
+
     const store = new BlobStore(cacheDir(scratch));
     const common = { reference, store, sandbox, programName, ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }) };
 
@@ -188,6 +225,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
       program_name: result.programName,
       sandbox: sandbox.label,
       reference: args.reference,
+      ...(git === undefined ? {} : { git }),
       spec: specSummary(spec, helpArgv),
       corpus: {
         cases: cases.length,
@@ -239,8 +277,72 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
     if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
     return { exitCode, stdout: formatCompare(summary), stderr: '' };
   } finally {
+    if (checkout !== undefined) await removeCheckout(checkout);
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/** Checks that the programs can run under one name and that none is destructive (without `--i-know`); returns the name. */
+function checkPrograms(programs: readonly ResolvedProgram[], args: CompareArgs): string {
+  const programName = pinnedName(programs);
+  for (const program of programs) {
+    assertNotDestructive([program.path, ...(program.tool === undefined ? [] : [program.tool]), ...program.args], args);
+  }
+  assertNotDestructive([programName], args);
+  return programName;
+}
+
+/** The reference `--ref git:<rev>` builds and runs at that commit. */
+interface GitReferenceCommand {
+  cmd: string | readonly string[];
+  build?: string;
+  /** Whether `cmd` is the config's `reference.cmd` rather than a command on the command line. */
+  fromConfig: boolean;
+}
+
+/**
+ * With a `port-anything.yaml` in the directory, `reference.cmd` and `reference.build` from it (as
+ * they are now, not at the commit); without one, the first candidate's command and no build step.
+ */
+async function gitReferenceCommand(args: CompareArgs, cwd: string): Promise<GitReferenceCommand> {
+  const hasConfig = await access(join(cwd, CONFIG_FILE)).then(
+    () => true,
+    () => false,
+  );
+  if (!hasConfig) return { cmd: args.candidates[0]!, fromConfig: false };
+  const { reference } = await readConfigFile(cwd);
+  return { cmd: reference.cmd, ...(reference.build === undefined ? {} : { build: reference.build }), fromConfig: true };
+}
+
+/**
+ * Finds the reference in the checkout: a relative executable starts at the checkout's copy of the
+ * project directory, and an absolute path into the repository (the executable, or an argument such
+ * as the script of `python3 /repo/tool.py`) points into the checkout instead. A command with
+ * nothing in the checkout would be the same at every commit, so it's refused.
+ */
+async function resolveAtCommit(ref: GitReferenceCommand, checkout: GitCheckout): Promise<ResolvedProgram> {
+  let command: ProgramCommand;
+  try {
+    command = parseProgramCommand(ref.cmd);
+  } catch (e) {
+    throw new ConfigError((e as Error).message);
+  }
+  const executable = (await rerootPath(command.executable, checkout)) ?? command.executable;
+  const args = await Promise.all(command.args.map(async (arg) => ({ arg, rerooted: await rerootPath(arg, checkout) })));
+  command = { ...command, executable, args: args.map((a) => a.rerooted ?? a.arg) };
+  const at = `in the checkout of git:${checkout.rev}${ref.build === undefined ? ` (no reference.build in ${CONFIG_FILE} ran there)` : ' after reference.build'}`;
+  let program: ResolvedProgram;
+  try {
+    program = await resolveProgram(command, { cwd: checkout.projectDir });
+  } catch (e) {
+    throw new ConfigError(`${(e as Error).message.replace(/\.$/, '')} ${at}.`);
+  }
+  if (!isInside(program.path, checkout.worktree) && !args.some((a) => a.rerooted !== undefined)) {
+    throw new ConfigError(
+      `Nothing in the reference ${display(ref.cmd)}${ref.fromConfig ? ` (reference.cmd in ${CONFIG_FILE})` : ''} is in the repository (it runs ${program.path}), so it would be the same program at every commit. Give the program's path in the repository (./bin/tool), or, for a script run by an interpreter, the script's absolute path (python3 ${join(checkout.repoTop, 'tool.py')}).`,
+    );
+  }
+  return program;
 }
 
 /** The argv[0] every side runs as; a multicall side fixes it, so two that disagree can't be compared. */
@@ -332,7 +434,10 @@ export function percent(share: number): string {
 export interface CompareSummary {
   program_name: string;
   sandbox: string;
+  /** The reference command, or `git:<rev>` with `--ref`. */
   reference: string;
+  /** With `--ref git:<rev>`: the commit it named, and the command and build that ran there. */
+  git?: { rev: string; commit: string; cmd: string; build: string | null };
   spec: { help: string; flags: number; forms: number; subcommands: number; features: number };
   corpus: {
     cases: number;
@@ -359,6 +464,9 @@ export interface CompareSummary {
 export function formatCompare(s: CompareSummary): string {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const lines = [
+    ...(s.git === undefined
+      ? []
+      : [`reference: ${s.git.cmd} at git:${s.git.rev} (${s.git.commit.slice(0, 7)}), ${s.git.build === null ? 'no build step' : `built with \`${s.git.build}\``}`]),
     `read "${s.program_name} ${s.spec.help}": ${plural(s.spec.flags, 'flag')}, ${plural(s.spec.forms, 'positional form')}${s.spec.subcommands > 0 ? `, ${plural(s.spec.subcommands, 'subcommand')}` : ''}`,
     `every side runs as \`${s.program_name}\` (argv[0] pinned) · sandbox: ${s.sandbox}`,
     `generated ${plural(s.corpus.cases, 'case')} (budget ${s.corpus.budget})${s.corpus.skipped.length > 0 ? `; left out as destructive: ${s.corpus.skipped.join(', ')}` : ''}`,

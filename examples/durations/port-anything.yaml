@@ -1,0 +1,15 @@
+version: 1
+program_name: dur-driver
+# Both sides are drivers: one call of the library per stdin line, one JSON result per stdout line.
+reference:
+  cmd: ./ref/dur-driver
+  build: cc -O2 -o ref/dur-driver ref/driver.c ref/dur.c
+candidate:
+  cmd: ./port/target/release/dur-driver
+  build: cargo build --release --manifest-path port/Cargo.toml
+sandbox:
+  mode: local
+  timeout: 10s
+corpus:
+  # A few cases per feature here; with the default of 20, every feature would be under-sampled.
+  min_cases_per_feature: 3
