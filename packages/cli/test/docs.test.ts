@@ -50,7 +50,8 @@ async function runLine(shell: Shell, line: string): Promise<string> {
   const expected = Number(/#\s*exit code (\d+)\s*$/.exec(line)?.[1] ?? 0);
   const cd = /^cd\s+(\S+)$/.exec(line.trim());
   const command = cd === null ? line : `cd ${cd[1]} && pwd`;
-  const result = await exec('sh', ['-c', `${command} 2>&1`], { cwd: shell.cwd, env: shell.env, maxBuffer: 64 * 1024 * 1024 }).then(
+  // On its own line, the redirect stays out of a trailing `# exit code N` comment.
+  const result = await exec('sh', ['-c', `{ ${command}\n} 2>&1`], { cwd: shell.cwd, env: shell.env, maxBuffer: 64 * 1024 * 1024 }).then(
     (r) => ({ code: 0, out: r.stdout }),
     (e: { code: number; stdout: string }) => ({ code: e.code, out: e.stdout }),
   );
