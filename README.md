@@ -36,18 +36,20 @@ read "sort --help": 31 flags, 2 positional forms
 every side runs as `sort` (argv[0] pinned) · sandbox: bwrap, no network
 generated 500 cases (budget 500)
 reference re-run 2× per case: 498 stable, 2 stable after normalizers, 0 flaky-reference (left out)
-normalizers (cases changed): sort-lines on stdout for opt.sort 9
+normalizers (cases changed): sort-lines on stdout for opt.sort 8
 
-coreutils sort: parity 64.7%  (mean of 22 features; 316/500 cases)
+coreutils sort: parity 60.6%  (mean of 18 features; 314/500 cases)
 
-  feature                                 parity
-  base                                    85.0% 17/20
-  opt.debug                               0.0% 0/21
-  opt.field-separator                     60.0% 12/20
-  opt.numeric-sort (under-sampled)        53.3% 8/15
+  feature                                    parity
+  base                                       80.0% 16/20
+  opt.debug                                  0.0% 0/20
+  opt.field-separator (under-sampled)        50.0% 9/18
+  opt.key                                    30.0% 6/20
+  opt.numeric-sort (under-sampled)           53.3% 8/15
+  opt.reverse                                70.0% 14/20
   …
 under-sampled: fewer than 20 cases, left out of the parity
-untested (no generated case): opt.batch-size, opt.check, opt.C, opt.files0-from, opt.key
+untested (no generated case): opt.batch-size, opt.check, opt.C, opt.files0-from
 ```
 
 The first argument is the reference: what it does is correct by definition. Every other argument is a candidate, and with several of them you get a feature × candidate matrix:

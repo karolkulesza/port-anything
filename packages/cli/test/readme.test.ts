@@ -38,6 +38,11 @@ describe('README', () => {
     expect(slot).toBeLessThan(readme.indexOf('## Quickstart'));
   });
 
+  it("doesn't show sort's -k, -n or -r as untested in the sample output", () => {
+    const untested = /^untested \(no generated case\): (.*)$/m.exec(section('Quickstart'))?.[1]?.split(', ') ?? [];
+    for (const feature of ['opt.key', 'opt.k', 'opt.numeric-sort', 'opt.n', 'opt.reverse', 'opt.r']) expect(untested).not.toContain(feature);
+  });
+
   it('gives a Linux and a macOS one-liner with explicit binaries', () => {
     const quickstart = section('Quickstart');
     expect(quickstart).toContain("npx port-anything compare /usr/bin/sort 'coreutils sort'");
