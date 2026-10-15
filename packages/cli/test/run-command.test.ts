@@ -50,11 +50,23 @@ case "$1" in
 esac
 `;
 
+// A port that stalls on its first `upper`, as a starved machine makes any program do, then answers rightly.
+const STALL = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ "$n" = 0 ]; then exec sleep 10; fi; tr 'a-z' 'A-Z' ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 /** Text output with the run ID, which differs on every run, replaced. */
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
 
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
-const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed)).*\n/gm, '');
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed|timeout)).*\n/gm, '');
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
@@ -91,6 +103,7 @@ describe('executeRun', () => {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
     writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-stall'), STALL, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -168,6 +181,7 @@ describe('executeRun', () => {
           waivers: [],
           divergences: [],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
         {
@@ -183,6 +197,7 @@ describe('executeRun', () => {
             { case: cases[2]!.id, fields: ['exit'] },
           ],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
       ],
@@ -212,6 +227,49 @@ describe('executeRun', () => {
     expect(saved).toEqual(json);
     expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
     expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('scores a case on the candidate re-run when its first run timed out, and lists it as recovered', { timeout: 60_000 }, async () => {
+    let state = 0;
+    const stall = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidate: { cmd: './bin/tool-stall' },
+            sandbox: { timeout: '2s', env: { PA_TEST_STATE: join(project, `stall-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await stall(false);
+    expect(text.exitCode).toBe(0);
+    expect(stable(text.stdout)).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
+        'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
+        'normalizers: none',
+        'candidate 1 ./bin/tool-stall: 3 of 3 cases match',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  1 timeout, recovered on re-run',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
+        '  timeout, recovered on re-run (the re-run was compared):',
+        `    ${shortCaseId(cases[1]!.id)}`,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await stall(true)).stdout);
+    expect(json.candidates[0]).toMatchObject({
+      match: 3,
+      diverge: 0,
+      score: { raw: { scored: 3, match: 3, timeouts: 0, timeoutRecovered: 1 } },
+      divergences: [],
+      flaky_candidate: [],
+      timeout_recovered: [{ case: cases[1]!.id }],
+    });
   });
 
   it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
@@ -260,6 +318,7 @@ describe('executeRun', () => {
       waivers: [],
       divergences: [],
       flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+      timeout_recovered: [],
       waived_cases: [],
     });
     // Kept out of the clusters, which only hold steady divergences.

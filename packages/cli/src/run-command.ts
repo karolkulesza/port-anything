@@ -271,6 +271,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
         const m = matches[n];
         return m === undefined || m.waived || !c.candidates[i]!.flaky ? [] : [{ case: c.caseId, fields: c.candidates[i]!.comparison.fields }];
       });
+      // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+      const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
       const score = scoreCandidate(
         result.cases.map((c, n) => ({
           caseId: c.caseId,
@@ -281,6 +283,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
           flakyCandidate: c.candidates[i]!.flaky,
           // A case the reference also times out on is compared like any other.
           candidateTimeout: timedOut(c, i),
+          timeoutRecovered: c.candidates[i]!.timeoutRecovered,
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
@@ -306,6 +309,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
         waivers: waiverCoverage(waivers, matches.filter((m) => m !== undefined), result.cases.length),
         divergences,
         flaky_candidate: flakyCandidate,
+        timeout_recovered: timeoutRecovered,
         waived_cases: waivedCases,
       };
     }),
@@ -366,6 +370,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
     }
     if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
     for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    if (c.timeout_recovered.length > 0) lines.push('  timeout, recovered on re-run (the re-run was compared):');
+    for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
@@ -447,12 +453,13 @@ function scoreLines(score: Score): string[] {
   ];
   const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);
   if (origins.length > 1) lines.push(`  by origin: ${origins.map(([name, o]) => `${name} ${o.parity === null ? 'n/a' : percent(o.parity)} (${count(o.cases, 'case')})`).join(', ')}`);
-  const { waived, flakyReference, flakyCandidate, timeouts } = score.raw;
+  const { waived, flakyReference, flakyCandidate, timeouts, timeoutRecovered } = score.raw;
   const excluded = [
     [waived, 'waived (not scored)'],
     [flakyReference, 'flaky-reference (not scored)'],
     [flakyCandidate, 'flaky-candidate (diverge)'],
     [timeouts, 'timed out (diverge)'],
+    [timeoutRecovered, 'timeout, recovered on re-run'],
   ] as const;
   if (excluded.some(([n]) => n > 0)) lines.push(`  ${excluded.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(' · ')}`);
   const list = (names: readonly string[]) =>
