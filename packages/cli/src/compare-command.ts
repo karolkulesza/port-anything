@@ -50,7 +50,7 @@ export interface CompareArgs {
   noSandbox: boolean;
 }
 
-const USAGE = "Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]";
+export const USAGE = "Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]";
 
 /** Reads the arguments after `compare`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseCompareArgs(argv: readonly string[]): CompareArgs {

@@ -32,7 +32,7 @@ export interface BaselineArgs {
   noSandbox: boolean;
 }
 
-const USAGE = 'Usage: port-anything baseline [--repeats N] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything baseline [--repeats N] [--no-sandbox]';
 
 /** Reads the arguments after `baseline`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseBaselineArgs(argv: readonly string[]): BaselineArgs {

@@ -76,7 +76,7 @@ export interface RunArgs {
 // Documented options that later versions add.
 const NOT_YET = ['feature', 'all', 'holdout'];
 
-const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {

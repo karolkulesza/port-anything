@@ -14,6 +14,16 @@ describe('run', () => {
     }
   });
 
+  it('lists every command with the usage line the command itself prints', async () => {
+    const { stdout } = await run(['--help']);
+    const listed = stdout.split('\n').map((l) => l.replace(/^(Usage:| {6}) /, '')).filter((l) => l.startsWith('port-anything '));
+    for (const sub of ['compare', 'init', 'spec', 'baseline', 'run', 'minimize', 'report', 'waive', 'strength']) {
+      const own = (await run([sub, '--no-such-option'])).stderr.split('\n').find((l) => l.startsWith(`Usage: port-anything ${sub}`));
+      expect(own, sub).toBeDefined();
+      expect(listed, sub).toContain(own!.slice('Usage: '.length));
+    }
+  });
+
   it('exits 3 for a command this version does not have', async () => {
     expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are/) });
   });

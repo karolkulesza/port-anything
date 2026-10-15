@@ -35,7 +35,7 @@ export interface StrengthArgs {
   noSandbox: boolean;
 }
 
-const USAGE = 'Usage: port-anything strength [--mutants 200] [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything strength [--mutants 200] [--json] [--no-sandbox]';
 
 /** Reads the arguments after `strength`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseStrengthArgs(argv: readonly string[]): StrengthArgs {

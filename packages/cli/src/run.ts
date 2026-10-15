@@ -1,12 +1,12 @@
-import { baselineCommand } from './baseline-command.js';
-import { compareCommand } from './compare-command.js';
-import { minimizeCommand } from './minimize-command.js';
-import { reportCommand } from './report-command.js';
-import { initCommand } from './init-command.js';
-import { runCommand } from './run-command.js';
-import { waiveCommand } from './waive-command.js';
-import { specCommand } from './spec-command.js';
-import { strengthCommand } from './strength-command.js';
+import { baselineCommand, USAGE as BASELINE_USAGE } from './baseline-command.js';
+import { compareCommand, USAGE as COMPARE_USAGE } from './compare-command.js';
+import { minimizeCommand, USAGE as MINIMIZE_USAGE } from './minimize-command.js';
+import { reportCommand, USAGE as REPORT_USAGE } from './report-command.js';
+import { initCommand, USAGE as INIT_USAGE } from './init-command.js';
+import { runCommand, USAGE as RUN_USAGE } from './run-command.js';
+import { waiveCommand, USAGE as WAIVE_USAGE } from './waive-command.js';
+import { specCommand, USAGE as SPEC_USAGE } from './spec-command.js';
+import { strengthCommand, USAGE as STRENGTH_USAGE } from './strength-command.js';
 
 export interface RunResult {
   exitCode: number;
@@ -21,12 +21,12 @@ export interface RunOptions {
   progress?: (line: string) => void;
 }
 
+// Each command's own usage line, so the overview can't drift from what the command accepts.
+const USAGES = [COMPARE_USAGE, INIT_USAGE, SPEC_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, STRENGTH_USAGE];
+
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
-Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]
-       port-anything spec infer [--no-sandbox]
-       port-anything baseline [--repeats N] [--no-sandbox]
-       port-anything run [--candidate <cmd>]… [--json] [--no-sandbox]
+${USAGES.map((usage, i) => (i === 0 ? usage : usage.replace(/^Usage:/, '      '))).join('\n')}
 
 Exit codes: 0 all good, 1 divergences, 3 config or usage error.
 Docs: https://github.com/karolkulesza/port-anything

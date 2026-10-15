@@ -14,7 +14,7 @@ export function badgeFile(n: number): string {
   return n === 1 ? 'port-anything-badge.svg' : `port-anything-badge-${n}.svg`;
 }
 
-const USAGE = 'Usage: port-anything report [--html] [--badge] [--json]';
+export const USAGE = 'Usage: port-anything report [--html] [--badge] [--json]';
 
 /**
  * `port-anything report [--html] [--badge] [--json]`: writes the latest saved run of the whole

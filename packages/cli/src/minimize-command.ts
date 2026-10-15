@@ -32,7 +32,7 @@ export interface MinimizeArgs {
   noSandbox: boolean;
 }
 
-const USAGE = 'Usage: port-anything minimize [<run-id>/]<cluster> [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything minimize [<run-id>/]<cluster> [--json] [--no-sandbox]';
 
 /** Reads the arguments after `minimize`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseMinimizeArgs(argv: readonly string[]): MinimizeArgs {
