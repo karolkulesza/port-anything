@@ -62,7 +62,7 @@ Name the binaries explicitly: on Ubuntu 25.10 and later, plain `sort` already *i
 |---|---|
 | `--budget N` | Number of generated cases (default 500) |
 | `--json` | Print the result as JSON instead of text, for scripts and agents |
-| `--save` | Write `port-anything.yaml` and the inferred `port-anything/cli-spec.yaml`, as a starting point for a project (never overwrites) |
+| `--save` | Write `port-anything.yaml` and the inferred `port-anything/cli-spec.yaml`: a project where `port-anything run` runs the same cases (never overwrites) |
 | `--i-know` | Allow a tool known to be destructive (`rm`, `dd`, `mkfs`…) |
 | `--no-sandbox` | Run without a sandbox, for programs you trust |
 
@@ -74,7 +74,15 @@ The score is the **mean of per-feature parity** (a feature is a flag, subcommand
 
 ## A project, for a real port
 
-`compare` is zero-config. A port you work on for weeks gets a project instead: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. [`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
+`compare` is zero-config. A port you work on for weeks gets a project instead: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config.
+
+```sh
+npx port-anything compare ./ref/tool ./port/tool --save   # writes port-anything.yaml and port-anything/cli-spec.yaml
+npx port-anything run                      # the same generated cases, against the candidate in the config
+npx port-anything generate --budget 5000   # a bigger corpus; the budget and seed go into port-anything.yaml
+```
+
+[`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
 
 ```sh
 git clone https://github.com/karolkulesza/port-anything && cd port-anything/examples/wc-lite
