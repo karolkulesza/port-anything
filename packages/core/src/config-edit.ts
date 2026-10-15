@@ -71,3 +71,17 @@ function documentEdit(doc: Document, additions: readonly { comment: string }[], 
   }
   return doc.toString();
 }
+
+/**
+ * The text of `port-anything.yaml` with these `corpus` keys set (the section is added when
+ * missing), edited through the YAML document so comments stay. Unchanged text when every key
+ * already has its value.
+ */
+export function setCorpusSettings(source: string, values: Readonly<Record<string, string | number>>): string {
+  const doc = parseDocument(source);
+  const corpus = (doc.toJS() as { corpus?: Record<string, unknown> } | null)?.corpus ?? {};
+  const changed = Object.entries(values).filter(([key, value]) => corpus[key] !== value);
+  if (changed.length === 0) return source;
+  for (const [key, value] of changed) doc.setIn(['corpus', key], value);
+  return doc.toString();
+}

@@ -1,0 +1,20 @@
+[package]
+name = "dur"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.70"
+license = "Apache-2.0"
+publish = false
+description = "Rust port of the dur reference library, used to show Port Anything on a library"
+
+# The port is correct without features. The feature compiles in a deliberate bug, giving a bad
+# port that Port Anything must catch.
+[features]
+bad-overflow = []
+
+[[bin]]
+name = "dur-driver"
+path = "src/bin/dur-driver.rs"
+
+[profile.release]
+debug = false

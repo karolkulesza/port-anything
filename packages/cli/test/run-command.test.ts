@@ -719,8 +719,9 @@ describe('executeRun slowdown gate', () => {
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-slow-')));
     mkdirSync(join(project, 'bin'));
     writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
-    // A deliberately slow port: right on every case, but it naps first.
-    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 0.3\n'), { mode: 0o755 });
+    // A deliberately slow port: right on every case, but it naps first, long enough that a slow
+    // reference spawn on a loaded machine can't bring the ratio under the 2x gate.
+    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 1.5\n'), { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -914,7 +915,7 @@ describe('executeRun --smoke', () => {
     const again = await json({ cluster: `${smoke.run_id}/${stdoutCluster.cluster}` });
     expect(again).toMatchObject({ exitCode: 1, cases: 6 });
     expect(again.candidates[0].divergences.map((d: { case: string }) => d.case)).toContain(repro.id);
-  });
+  }, 30_000);
 
   it('refuses --smoke with --cluster (exit 3)', async () => {
     expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });

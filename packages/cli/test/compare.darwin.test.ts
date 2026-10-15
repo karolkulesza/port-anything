@@ -32,5 +32,7 @@ describe.runIf(process.platform === 'darwin' && hasGsort)('compare (macOS)', () 
     expect(gsort!.command).toBe('gsort');
     expect(gsort!.parity).toBeGreaterThan(0);
     expect(gsort!.parity).toBeLessThan(1);
+    // The README quickstart's sample output: BSD sort's -k, -n and -r all get cases.
+    for (const feature of ['opt.k', 'opt.n', 'opt.r']) expect(summary.untested).not.toContain(feature);
   });
 });

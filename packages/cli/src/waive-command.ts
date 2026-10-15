@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { ConfigError, resolveCluster, suggestWaivers } from '@port-anything/core';
 import type { CliResult } from './run-command.js';
 
-const USAGE = 'Usage: port-anything waive --from-cluster [<run-id>/]<n>';
+export const USAGE = 'Usage: port-anything waive --from-cluster [<run-id>/]<n>';
 
 /**
  * `port-anything waive --from-cluster <id>`: prints suggested waivers for a cluster of a saved run

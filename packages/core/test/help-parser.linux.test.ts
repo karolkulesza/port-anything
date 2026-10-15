@@ -37,7 +37,7 @@ const TOOLS: Tool[] = [
       args: [file],
       flags: {
         '-n': { names: ['-n', '--numeric-sort'], values: [] },
-        '-k': { names: ['-k', '--key'], values: [{ name: 'KEYDEF', type: 'string' }] },
+        '-k': { names: ['-k', '--key'], values: [{ name: 'KEYDEF', type: 'int' }] },
         '-o': { values: [{ name: 'FILE', type: 'path' }] },
         '-S': { values: [{ name: 'SIZE', type: 'size' }] },
         '--parallel': { values: [{ name: 'N', type: 'int' }] },

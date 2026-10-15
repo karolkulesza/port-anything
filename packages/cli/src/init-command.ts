@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { ConfigError, initProject, type InitStep } from '@port-anything/core';
 import type { CliResult } from './run-command.js';
 
-const USAGE = 'Usage: port-anything init <dir> --ref <cmd> [--candidate <cmd>]…';
+export const USAGE = 'Usage: port-anything init <dir> --ref <cmd> [--candidate <cmd>]…';
 
 /**
  * `port-anything init <dir> --ref <cmd> [--candidate <cmd>]…`: sets up a project directory (see
