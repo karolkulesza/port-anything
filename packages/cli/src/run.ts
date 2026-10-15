@@ -8,6 +8,7 @@ import { runCommand, USAGE as RUN_USAGE } from './run-command.js';
 import { waiveCommand, USAGE as WAIVE_USAGE } from './waive-command.js';
 import { specCommand, USAGE as SPEC_USAGE } from './spec-command.js';
 import { strengthCommand, USAGE as STRENGTH_USAGE } from './strength-command.js';
+import { verifyCommand, USAGE as VERIFY_USAGE } from './verify-command.js';
 
 export interface RunResult {
   exitCode: number;
@@ -23,13 +24,13 @@ export interface RunOptions {
 }
 
 // Each command's own usage line, so the overview can't drift from what the command accepts.
-const USAGES = [COMPARE_USAGE, INIT_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, STRENGTH_USAGE];
+const USAGES = [COMPARE_USAGE, INIT_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE];
 
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
 ${USAGES.map((usage, i) => (i === 0 ? usage : usage.replace(/^Usage:/, '      '))).join('\n')}
 
-Exit codes: 0 all good, 1 divergences, 3 config or usage error.
+Exit codes: 0 all good, 1 divergences, 2 integrity broken (verify), 3 config or usage error.
 Docs: https://github.com/karolkulesza/port-anything
 `;
 
@@ -60,6 +61,7 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   if (command === 'baseline') return baselineCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'waive') return waiveCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'report') return reportCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'verify') return verifyCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'strength') return strengthCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report" and "strength" are.\n` };
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify" and "strength" are.\n` };
 }
