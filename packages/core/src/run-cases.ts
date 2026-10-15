@@ -59,8 +59,8 @@ export interface RunCasesOptions {
 /** One candidate's observation of a case and how it compares with the reference's. */
 export interface CandidateRun {
   /**
-   * The first run's observation, the one compared. After a re-run, `runs` is 2 and `stable` says
-   * whether the re-run observed the same.
+   * The observation compared: the first run's, or the re-run's when `timeoutRecovered`. After a
+   * re-run, `runs` is 2 and `stable` says whether the re-run observed the same.
    */
   observation: Observation;
   /** Of the normalized observations, under the strictness profile. */
@@ -80,6 +80,14 @@ export interface CandidateRun {
    * clustering and listed on its own.
    */
   flaky: boolean;
+  /**
+   * The first run timed out where the reference finished, and the re-run finished: a timeout isn't
+   * an answer (a stall on a busy machine), so the re-run is the observation compared and the case
+   * isn't flaky. A real hang times out on the re-run too and is compared as it was.
+   */
+  timeoutRecovered: boolean;
+  /** The first run's timed-out observation, when `timeoutRecovered`. */
+  firstRun?: Observation;
 }
 
 export interface CaseRun {
@@ -105,8 +113,9 @@ export interface RunCasesResult {
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
  * candidate's observation with the reference's under the strictness profile, once both have been normalized. A candidate
- * that diverges on a case runs it once more, to tell a racy port (`flaky`) from a steady divergence. Cases run in a worker pool;
- * within a case the sides run one after another, in the same working directory path (also HOME),
+ * that diverges on a case runs it once more, to tell a racy port (`flaky`) from a steady divergence
+ * or, when its first run timed out, to compare an answer instead (`timeoutRecovered`). Cases run
+ * in a worker pool; within a case the sides run one after another, in the same working directory path (also HOME),
  * so a program that prints its directory doesn't diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
@@ -165,15 +174,24 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
         });
         return { normalized, comparison };
       };
-      const { normalized, comparison } = await compare({ observation: reference, side: 0 }, observation);
-      const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
-      if (comparison.verdict === 'match' || options.rerun === false) {
-        candidates.push({ observation, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate }, flaky: false });
+      const result = async (observed: Observation, first: Awaited<ReturnType<typeof compare>>) => {
+        const { normalized, comparison } = first;
+        const shapes = comparison.verdict === 'match' ? [] : await classifyDiff(normalized.reference, normalized.candidate, comparison.fields, options.store);
+        return { observation: observed, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate } };
+      };
+      const first = await compare({ observation: reference, side: 0 }, observation);
+      if (first.comparison.verdict === 'match' || options.rerun === false) {
+        candidates.push({ ...(await result(observation, first)), flaky: false, timeoutRecovered: false });
         continue;
       }
       const rerun = await observe(side);
+      if (observation.timeout && !reference.timeout && !rerun.timeout) {
+        const again = await result({ ...rerun, runs: 2, stable: false }, await compare({ observation: reference, side: 0 }, rerun));
+        candidates.push({ ...again, rerun, flaky: false, timeoutRecovered: true, firstRun: observation });
+        continue;
+      }
       const flaky = (await compare({ observation, side: i }, rerun)).comparison.verdict === 'diverge';
-      candidates.push({ observation: { ...observation, runs: 2, stable: !flaky }, comparison, shapes, normalizedBy: normalized.changedBy, normalized: { reference: normalized.reference, candidate: normalized.candidate }, rerun, flaky });
+      candidates.push({ ...(await result({ ...observation, runs: 2, stable: !flaky }, first)), rerun, flaky, timeoutRecovered: false });
     }
     const recheck = options.recheckReference ?? 0;
     if (recheck > 0 && candidates.some((run) => run.comparison.verdict === 'diverge')) {

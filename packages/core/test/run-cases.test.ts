@@ -55,6 +55,20 @@ case "$1" in
 esac
 `;
 
+// A port that stalls, as a starved machine makes any program do: the first run of each command
+// sleeps past the timeout, later runs answer (rightly for `upper`, wrongly for `echo`). `env` hangs on every run.
+const STALL = (tag: string) => `#!/bin/sh
+echo "${tag} $*" >> "$PA_TEST_LOG"
+state="$PA_TEST_STATE.${tag}.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+if [ "$n" = 0 ] || [ "$1" = env ]; then exec sleep 10; fi
+case "$1" in
+  echo) shift; echo wrong "$@" ;;
+  upper) tr 'a-z' 'A-Z' ;;
+esac
+`;
+
 describe('runCases', () => {
   let root: string;
   let store: BlobStore;
@@ -64,6 +78,8 @@ describe('runCases', () => {
   let bad: ResolvedProgram;
   let racy: ResolvedProgram;
   let lucky: ResolvedProgram;
+  let stall: ResolvedProgram;
+  let stallToo: ResolvedProgram;
   let cases: CanonicalCase[];
   let scratch = 0;
 
@@ -75,6 +91,8 @@ describe('runCases', () => {
     }
     writeFileSync(join(root, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
     writeFileSync(join(root, 'bin', 'tool-lucky'), LUCKY, { mode: 0o755 });
+    writeFileSync(join(root, 'bin', 'tool-stall'), STALL('stall'), { mode: 0o755 });
+    writeFileSync(join(root, 'bin', 'tool-stall-too'), STALL('stall-too'), { mode: 0o755 });
     log = join(root, 'runs.log');
     store = new BlobStore(join(root, 'cache'));
     ref = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool')));
@@ -82,6 +100,8 @@ describe('runCases', () => {
     bad = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-bad')));
     racy = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-racy')));
     lucky = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-lucky')));
+    stall = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-stall')));
+    stallToo = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-stall-too')));
     const input = await store.put('hello\n');
     const fixture = await store.put('fixture text\n');
     const doomed = await store.put('bye\n');
@@ -260,6 +280,37 @@ describe('runCases', () => {
     const plain = await runCases(options([bad], { reference: racy, cases: stamp }));
     expect(plain.cases[0]!.referenceVaried).toBeUndefined();
     expect(logLines().filter((l) => l.startsWith('racy ')).length).toBe(1);
+  });
+
+  it('compares the re-run of a candidate whose first run timed out, and marks the case recovered, not flaky', { timeout: 60_000 }, async () => {
+    rmSync(log, { force: true });
+    const stalls = [{ argv: ['upper'], stdin: cases[1]!.stdin }, { argv: ['echo', 'a'] }, { argv: ['env'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
+    const result = await runCases(options([stall], { cases: stalls, timeoutMs: 2000 }));
+    const [upper, echo, env] = result.cases.map((c) => c.candidates[0]!);
+    // Timed out, then answered like the reference: a match.
+    expect(upper).toMatchObject({ comparison: { verdict: 'match' }, flaky: false, timeoutRecovered: true, observation: { timeout: false, runs: 2 } });
+    expect(upper!.shapes).toEqual([]);
+    expect(upper!.firstRun).toMatchObject({ timeout: true });
+    expect((await store.get(upper!.observation.stdout)).toString()).toBe('HELLO\n');
+    // Timed out, then answered wrongly: a steady divergence on the re-run's answer, clustered as usual.
+    expect(echo).toMatchObject({ comparison: { verdict: 'diverge', fields: ['stdout'] }, flaky: false, timeoutRecovered: true, observation: { timeout: false } });
+    expect(echo!.shapes.map((s) => s.field)).toEqual(['stdout']);
+    expect((await store.get(echo!.normalized.candidate.stdout)).toString()).toBe('wrong a\n');
+    // Timed out twice: a divergence as before.
+    expect(env).toMatchObject({ comparison: { verdict: 'diverge' }, flaky: false, timeoutRecovered: false, observation: { timeout: true } });
+    expect(env!.firstRun).toBeUndefined();
+    // No run beyond the one re-run.
+    expect(logLines().filter((l) => l.startsWith('stall ')).length).toBe(6);
+  });
+
+  it('keeps the strict rule for a candidate that did not time out, and for one the reference timed out on too', { timeout: 60_000 }, async () => {
+    const result = await runCases(options([racy], { cases: [cases[1]!], concurrency: 1 }));
+    expect(result.cases[0]!.candidates[0]).toMatchObject({ flaky: true, timeoutRecovered: false });
+    // Both sides stall on their first run; the candidate's re-run answers, but the reference never
+    // did, so there is nothing to recover: the first run is compared, a match (both timed out).
+    const both = await runCases(options([stall], { reference: stallToo, cases: [canonicalCase({ argv: ['upper'], stdin: cases[1]!.stdin, origin: 'recorded' })], timeoutMs: 2000 }));
+    expect(both.cases[0]!.reference.timeout).toBe(true);
+    expect(both.cases[0]!.candidates[0]).toMatchObject({ timeoutRecovered: false, observation: { timeout: true, runs: 1 } });
   });
 
   it('runs each case once with rerun off, still classifying the divergences', async () => {
