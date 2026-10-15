@@ -17,7 +17,10 @@ describe('run', () => {
   it('lists every command with the usage line the command itself prints', async () => {
     const { stdout } = await run(['--help']);
     const listed = stdout.split('\n').map((l) => l.replace(/^(Usage:| {6}) /, '')).filter((l) => l.startsWith('port-anything '));
-    for (const sub of ['compare', 'init', 'spec', 'baseline', 'run', 'minimize', 'report', 'waive', 'strength']) {
+    // Every command the dispatcher has, from the message it gives for one it doesn't.
+    const known = [...(await run(['no-such-command'])).stderr.matchAll(/"([a-z]+)[^"]*"/g)].map((m) => m[1]!).filter((name) => name !== 'no');
+    expect(known.length).toBeGreaterThanOrEqual(9);
+    for (const sub of known) {
       const own = (await run([sub, '--no-such-option'])).stderr.split('\n').find((l) => l.startsWith(`Usage: port-anything ${sub}`));
       expect(own, sub).toBeDefined();
       expect(listed, sub).toContain(own!.slice('Usage: '.length));
