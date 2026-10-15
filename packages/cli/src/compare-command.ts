@@ -118,9 +118,10 @@ export interface CompareOptions {
  * on the reference to find output that varies between runs (normalizers for it, `flaky-reference`
  * for what still varies), then runs every candidate and reports per-feature parity. A case a
  * candidate diverges on runs on the reference a few more times, and is flaky-reference too if the
- * reference varies there. Nothing is written outside a scratch directory, unless `--save` writes `port-anything.yaml` and the CLI
- * spec. Exit code 0 when every candidate matches on every case, 1 when any case diverges, 3 when
- * the run can't start (arguments, programs, sandbox, a destructive tool).
+ * reference varies there. Nothing is written outside a scratch directory, unless `--save` writes
+ * `port-anything.yaml` and the CLI spec. Exit code 0 when every candidate matches on every case,
+ * 1 when any case diverges, 3 when the run can't start (arguments, programs, sandbox, a
+ * destructive tool).
  */
 export async function compareCommand(argv: readonly string[], options: CompareOptions): Promise<CliResult> {
   try {
