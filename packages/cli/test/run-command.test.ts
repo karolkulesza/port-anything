@@ -719,8 +719,9 @@ describe('executeRun slowdown gate', () => {
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-slow-')));
     mkdirSync(join(project, 'bin'));
     writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
-    // A deliberately slow port: right on every case, but it naps first.
-    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 0.3\n'), { mode: 0o755 });
+    // A deliberately slow port: right on every case, but it naps first, long enough that a slow
+    // reference spawn on a loaded machine can't bring the ratio under the 2x gate.
+    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 1.5\n'), { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
