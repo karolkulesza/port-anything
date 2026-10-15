@@ -8,6 +8,8 @@ Port Anything records what a program actually does, generates thousands more tes
 
 <!-- GIF of `port-anything compare` goes here: docs/compare.gif -->
 
+**Scope of v0.1:** black-box programs you can run as a process with pipes (argv, stdin, environment, input files), compared on exit code, stdout, stderr and file changes. One reference, one or more candidates. Linux first; macOS works by copying all fixtures into the sandbox or in container mode. Everything runs with pipes, never a terminal, so a program that changes its output when it sees a terminal is tested in its non-terminal mode. Programs that need a terminal (TUIs, interactive prompts), network services and GUI apps are out of scope for now.
+
 **Status:** early. Commands, file formats and exit codes may still change before v1.0.
 
 ## Quickstart
@@ -92,7 +94,7 @@ Snapshot tools compare a program to its own past. Port Anything compares two (or
 | Tool | What it does | How Port Anything differs |
 |---|---|---|
 | [`uufuzz`](https://github.com/uutils/coreutils/tree/main/fuzz) and the uutils fuzz targets | Differential fuzzers that run uutils against GNU, per utility (`cksum`, `cut`, `date`, `sort`, `tr`, `wc`…) | Generic rather than per project; a per-flag parity matrix; clustered, minimized repros; a report. Our coreutils showcase leaves out the utilities they already fuzz. |
-| [flagdiff](https://github.com/uutils/coreutils/issues/15254) | An AI-driven differential fuzzer over all of coreutils, reported to uutils as one issue per finding | Few findings, de-duplicated, clustered and minimized before anyone sees them; N-way, so busybox and toybox get a column too; inputs whose *content* matters, not only flag combinations. |
+| [flagdiff](https://github.com/uutils/coreutils/issues/15254) | An AI-built differential fuzzer that ran GNU coreutils against uutils and reported about 180 differences in one issue | Findings de-duplicated, clustered and minimized into a few reproducers before anyone reads them; N-way, so busybox and toybox get a column too; inputs whose *content* matters, not only flag combinations. |
 | [uutils GNU test suite tracking](https://github.com/uutils/coreutils-tracking) | Runs the GNU test suite against uutils and charts the pass rate over time | Cases generated beyond the GNU suite, a per-flag matrix, minimized repros, and the same thing for any pair of programs. |
 | [Babelmark](https://babelmark.github.io/) | Renders one Markdown input in dozens of implementations side by side | The model for the N-way matrix, but one hand-typed input at a time; no generation, scoring or minimization. |
 | Mutation testing (`cargo-mutants`, Stryker, `mull`) | Measures how good a test suite is by checking it catches injected bugs | Not a competitor: Port Anything uses mutated ports to test its own detection, and `port-anything strength` reports how many mutants of your port a corpus catches. |
@@ -101,6 +103,7 @@ Snapshot tools compare a program to its own past. Port Anything compares two (or
 | `diffoscope` | Deep diffs of files and archives | A diff viewer for two artifacts, not a test harness. |
 | [keploy](https://github.com/keploy/keploy) | Records and replays HTTP traffic for API tests | HTTP services only. Port Anything starts with CLIs and would integrate keploy for services rather than rebuild it. |
 | Google's C → Rust work (giflib-rs) | AI translation plus differential fuzzing, per library | The same method, done in-house for one project at a time. Port Anything packages it for any pair of programs. |
+| [`A-Raphie/parity`](https://github.com/A-Raphie/Parity) | A side-by-side runner built around IBM Bob 2.0 | Demo-level and tied to one agent product; Port Anything works with any agent, or none. |
 
 ## Integrity: what it can and can't promise
 
@@ -116,7 +119,7 @@ What v0.1 does:
 - Features without enough cases are listed as untested or under-sampled instead of quietly counting as passed.
 - A candidate that answers differently when a diverging case is re-run is counted as diverging, not excluded as flaky, so randomness doesn't hide hard cases.
 
-Not in v0.1 yet: a committed manifest of case hashes with a `verify` command, an environment fingerprint, a **fresh holdout** (new cases from a seed that is never stored, compared live against the reference, which defeats a lookup table of expected outputs), and keeping the candidate from calling or linking the reference: in local mode the candidate still sees your `PATH`, so a "port" that just runs the original isn't caught yet. The report's integrity panel lists the checks this version doesn't run, so a parity number never looks more defended than it is.
+Not in v0.1 yet: a committed manifest of case hashes with a `verify` command, an environment fingerprint, a **fresh holdout** (new cases from a seed that is never stored, compared live against the reference, which defeats a lookup table of expected outputs), and keeping the candidate from calling or linking the reference: in local mode the candidate still sees your `PATH`, so a "port" that just runs the original isn't caught yet. The report's integrity panel says which of these checks this version doesn't run (manifest verification, environment fingerprint, fresh holdout, the candidate's language composition).
 
 ## Showcases
 

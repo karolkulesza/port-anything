@@ -21,6 +21,12 @@ describe('README', () => {
     expect(readme.split('\n')[0]).toBe('v0.1 covers non-interactive CLIs.');
   });
 
+  it('states the v0.1 scope before the quickstart: pipes only, and what is out of scope', () => {
+    const intro = readme.slice(0, readme.indexOf('## Quickstart'));
+    expect(intro).toContain('**Scope of v0.1:**');
+    for (const words of ['with pipes', 'never a terminal', 'TUIs, interactive prompts', 'network services', 'GUI apps']) expect(intro, words).toContain(words);
+  });
+
   it('has the quickstart, prior art, integrity and showcases sections, quickstart first', () => {
     expect(headings[0]).toMatch(/^Quickstart/);
     for (const title of ['Prior art', 'Integrity', 'Showcases']) expect(headings.some((h) => h.startsWith(title)), title).toBe(true);
@@ -40,7 +46,7 @@ describe('README', () => {
 
   it('names the prior art', () => {
     const prior = section('Prior art');
-    for (const name of ['uufuzz', 'flagdiff', 'coreutils-tracking', 'Babelmark', 'cargo-mutants', 'trycmd', 'insta', 'bats', 'cram', 'shelltestrunner', 'diffoscope', 'keploy', 'giflib-rs']) {
+    for (const name of ['uufuzz', 'flagdiff', 'coreutils-tracking', 'Babelmark', 'cargo-mutants', 'trycmd', 'insta', 'bats', 'cram', 'shelltestrunner', 'diffoscope', 'keploy', 'giflib-rs', 'A-Raphie/parity']) {
       expect(prior, name).toContain(name);
     }
   });
