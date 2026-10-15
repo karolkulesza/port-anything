@@ -227,6 +227,13 @@ options:
     expect(help.forms[0]!.args).toEqual([{ name: 'file', type: 'path', arity: '*' }]);
   });
 
+  it('reads `-kPOS1` and `-kKEY` without brackets as a flag and its value, not a cluster', () => {
+    const help = parseHelp('usage: frob [-ab] [-kPOS1] [-fKEY] [-xyz] [file ...]\n');
+    expect(help.flags.map((f) => f.names[0])).toEqual(['-a', '-b', '-k', '-f', '-x', '-y', '-z']);
+    expect(flag(help.flags, '-k').values).toEqual([{ name: 'POS1', type: 'int' }]);
+    expect(flag(help.flags, '-f').values).toEqual([{ name: 'KEY', type: 'string' }]);
+  });
+
   it('keeps a `+FORMAT` operand that has no `-` partner', () => {
     const help = parseHelp('usage: frob [-u] [+FORMAT]\n');
     expect(help.forms[0]!.args).toEqual([{ name: '+FORMAT', type: 'string', arity: '?' }]);

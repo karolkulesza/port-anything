@@ -184,14 +184,16 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
       const word = node.text;
       if (word === '--' || word === '-') continue;
       if (word.startsWith('-') && word.length > 1) {
-        const cluster = shortCluster(word);
+        // `-kPOS1[,POS2]`, `-kKEY`: a letter, then a placeholder of three or more capitals, is a
+        // flag with its value attached rather than a cluster of one-letter flags.
+        const placeholder = /^(-[a-z])([A-Z][A-Z0-9_]{2,})(?:\[[^\]]*\])?$/.exec(word);
+        const cluster = placeholder ? undefined : shortCluster(word);
         if (cluster) {
           for (const name of cluster) flags.push({ names: [name], values: [] });
           continue;
         }
-        // `-Olevel` and `-kPOS1[,POS2]`: a flag with its value attached; `-depth` (all lowercase)
-        // is a flag's name.
-        const attached = /^(-[A-Z])([a-z]{2,})$/.exec(word) ?? /^(-[a-z])([A-Z][A-Z0-9_]+)(?:\[[^\]]*\])?$/.exec(word);
+        // `-Olevel`: a flag with its value attached; `-depth` (all lowercase) is a flag's name.
+        const attached = placeholder ?? /^(-[A-Z])([a-z]{2,})$/.exec(word);
         const item = attached ? { name: attached[1]!, values: [valueFor(attached[2]!)] } : parseFlagItem(word, false);
         if (!item) continue;
         // `[-o FILE]`: words after the first flag of an optional group are its values.
