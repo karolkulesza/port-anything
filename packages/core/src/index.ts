@@ -27,10 +27,12 @@ export {
   SandboxUnavailableError,
   caseCommandOptions,
   chooseSandbox,
+  containerSandbox,
   localHost,
   probeSandbox,
   sandboxCommand,
   type LocalSandbox,
+  type LocalSetup,
   type SandboxAttempt,
   type SandboxChoice,
   type SandboxCommand,
@@ -41,6 +43,23 @@ export {
   type SandboxSetup,
   SEATBELT_PROFILE,
 } from './sandbox.js';
+export {
+  CONTAINER_ENGINES,
+  ContainerError,
+  ContainerPool,
+  ContainerSession,
+  DEFAULT_CONTAINER_IMAGE,
+  RUNNER_SCRIPT,
+  buildInImage,
+  caseScript,
+  ensureImage,
+  findContainerEngine,
+  imagePath,
+  shellQuote,
+  type ContainerPoolOptions,
+  type ContainerProcess,
+  type ContainerSetup,
+} from './container.js';
 export { checkLicense, findLicenseFiles, identifyLicenses, licenseCategory } from './license.js';
 export type { LicenseCategory, LicenseCheck } from './license.js';
 export { IMPORT_KINDS, ImportCollector, runImporter } from './import.js';

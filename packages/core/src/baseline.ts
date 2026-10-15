@@ -4,7 +4,7 @@ import type { Observation } from './model.js';
 import { normalizePair, type NormalizerName, type NormalizerSpec, type ScopeEntry, type SideContext } from './normalize.js';
 import { defaultConcurrency, mapPool } from './pool.js';
 import { pinPrograms } from './program.js';
-import { observeCase, sideContexts, type RunCasesOptions } from './run-cases.js';
+import { observeCase, openContainers, sideContexts, type RunCasesOptions } from './run-cases.js';
 
 /** Runs of each case against the reference, unless configured (`corpus.repeats`) or passed. */
 export const DEFAULT_REPEATS = 3;
@@ -84,6 +84,8 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), [options.reference], pinOptions);
   const context = await sideContexts(workDir, [options.reference], name, sides);
   const configured = options.normalizers ?? [];
+  const containers = openContainers(options, workDir);
+  const observeOptions = { ...options, ...(containers === undefined ? {} : { containers }) };
 
   const runs = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
     const observations: Observation[] = [];
@@ -91,7 +93,7 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
     for (let run = 0; run < repeats; run++) {
       // A different path each run, so output that includes it varies as it would between machines.
       const caseDir = join(workDir, `slot-${slot}`, `run-${run}`);
-      observations.push(await observeCase(c, caseDir, name, sides[0]!, options));
+      observations.push(await observeCase(c, caseDir, name, sides[0]!, observeOptions));
       contexts.push(context(0, caseDir));
     }
     const runs: Runs = { features: c.features, observations, contexts };
@@ -102,7 +104,7 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
       if (normalizers !== undefined) fixes.push({ field, normalizers });
     }
     return { caseId: c.id, features: c.features, runs, varied, fixes };
-  });
+  }).finally(() => containers?.close());
 
   const { proposals, withheld } = propose(runs, configured);
   const pipeline = [...configured, ...proposals.map((p) => p.spec)];
