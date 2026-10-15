@@ -39,6 +39,8 @@ export interface ReportCandidate {
   waivers: readonly WaiverCoverage[];
   /** Waived cases with the waivers (numbered from 1) that cover them. */
   waivedCases: readonly { case: string; waivers: readonly number[] }[];
+  /** Cases scored on the candidate's re-run, its first run having timed out where the reference finished. */
+  timeoutRecovered: readonly string[];
 }
 
 /** What `report.html` shows: one saved run of the whole corpus, and the cases it shows as repros. */
@@ -144,8 +146,10 @@ function headlineSection(input: ReportInput): string {
     ];
     const origins = Object.entries(s.origins).filter(([, o]) => o.cases > 0);
     if (origins.length > 0) lines.push(`<p>by origin: ${origins.map(([name, o]) => `${esc(name)} ${percentOrNa(o.parity)} (${count(o.cases, 'case')})`).join(' · ')}</p>`);
-    const { flakyReference, flakyCandidate, timeouts } = s.raw;
-    lines.push(`<p>${flakyReference} flaky-reference (not scored) · ${flakyCandidate} flaky-candidate (diverge) · ${timeouts} timed out (diverge)</p>`);
+    const { flakyReference, flakyCandidate, timeouts, timeoutRecovered } = s.raw;
+    lines.push(
+      `<p>${flakyReference} flaky-reference (not scored) · ${flakyCandidate} flaky-candidate (diverge) · ${timeouts} timed out (diverge) · ${timeoutRecovered ?? 0} timeout, recovered on re-run</p>`,
+    );
     return `<div class="card">\n${lines.join('\n')}\n</div>`;
   });
   return `<section id="headline">
@@ -324,6 +328,11 @@ ${input.waivers
   .join('\n')}
 </tbody>
 </table>`;
+  const recovered = input.candidates.flatMap((c, i) =>
+    c.timeoutRecovered.length === 0
+      ? []
+      : [`<li>candidate ${i + 1}: ${count(c.timeoutRecovered.length, 'case')} (the re-run was compared): ${c.timeoutRecovered.map((id) => `<code>${esc(shortCaseId(id))}</code>`).join(', ')}</li>`],
+  );
   const c = input.compare;
   const compare = c.stderr === undefined ? `${c.profile} (stderr ignored)` : `${c.profile} (stderr ${c.stderr.mode}${c.stderr.similarity === undefined ? '' : `, similarity ${c.stderr.similarity}`})`;
   return `<section id="integrity">
@@ -341,6 +350,8 @@ ${input.waivers
 ${normalizers}
 <h3>Waivers</h3>
 ${waivers}
+<h3>Timeout, recovered on re-run</h3>
+${recovered.length === 0 ? '<p>None: no candidate timed out on a first run and then finished on its re-run.</p>' : `<p class="note">A candidate's first run timed out where the reference finished, and its re-run finished; the re-run is what was compared and scored.</p>\n<ul>\n${recovered.join('\n')}\n</ul>`}
 </section>`;
 }
 
@@ -355,6 +366,7 @@ function rulesSection(input: ReportInput): string {
 <li>Features with fewer than ${min === undefined ? 'the minimum of scored cases' : count(min, 'scored case')} are under-sampled: shown, but left out of the headline.</li>
 <li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
 <li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+<li>A timeout isn't an answer: when a candidate's first run timed out but its re-run finished, the re-run is compared, and the case is listed as recovered. A candidate that times out on both runs diverges.</li>
 </ul>
 </section>`;
 }

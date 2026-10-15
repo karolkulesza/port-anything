@@ -20,9 +20,12 @@ export const WAIVERS: Waiver[] = [
   { match: { feature: 'base', field: 'exit', shape: 'exit-code' }, category: 'reference-bug', reason: 'the original exits 0 after "write error"' },
 ];
 
-/** One candidate: which cases diverge, and which of those a waiver covers (waiver index, from 0). */
-function candidate(command: string, diverging: readonly number[], waived: ReadonlyMap<number, number> = new Map()) {
-  const cases: ScoredCase[] = CORPUS.map((c, n) => ({ ...c, verdict: diverging.includes(n + 1) ? 'diverge' : 'match', waived: waived.has(n + 1) }));
+/**
+ * One candidate: which cases diverge, which of those a waiver covers (waiver index, from 0), and
+ * which were scored on a re-run after the first run timed out.
+ */
+function candidate(command: string, diverging: readonly number[], waived: ReadonlyMap<number, number> = new Map(), recovered: readonly number[] = []) {
+  const cases: ScoredCase[] = CORPUS.map((c, n) => ({ ...c, verdict: diverging.includes(n + 1) ? 'diverge' : 'match', waived: waived.has(n + 1), timeoutRecovered: recovered.includes(n + 1) }));
   const score = scoreCandidate(cases, { minCasesPerFeature: 20, features: SPEC_FEATURES });
   const matches = CORPUS.map((_, n) => (waived.has(n + 1) ? { fields: [[waived.get(n + 1)!]], waived: true, remaining: [] } : { fields: [[]], waived: false, remaining: [] }));
   return {
@@ -33,6 +36,7 @@ function candidate(command: string, diverging: readonly number[], waived: Readon
     score,
     waivers: waiverCoverage(WAIVERS, matches, CORPUS.length),
     waivedCases: [...waived].map(([n, w]) => ({ case: id(n), waivers: [w + 1] })),
+    timeoutRecovered: recovered.map(id),
   };
 }
 
@@ -48,7 +52,7 @@ export const INPUT: ReportInput = {
   waivers: WAIVERS,
   candidates: [
     candidate('./port-a/tool', []),
-    candidate('./port-b/tool', [2, 3, 30, 53, 54]),
+    candidate('./port-b/tool', [2, 3, 30, 53, 54], new Map(), [5, 30]),
     candidate("'./port c/tool' --strict", [1, 4, 26, 27, 28, 48, 49], new Map([[1, 1], [48, 0], [49, 0]])),
   ],
   clusters: [

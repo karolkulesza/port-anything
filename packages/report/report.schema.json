@@ -230,6 +230,11 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "timeout_recovered": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "parity": {
                 "anyOf": [
                   {
@@ -252,6 +257,7 @@
               "flaky_reference",
               "flaky_candidate",
               "timeouts",
+              "timeout_recovered",
               "parity"
             ],
             "additionalProperties": false
@@ -462,6 +468,11 @@
                   "minimum": 0,
                   "maximum": 9007199254740991
                 },
+                "timeout_recovered": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
                 "self_description": {
                   "type": "boolean"
                 },
@@ -483,6 +494,7 @@
                 "flaky_reference",
                 "flaky_candidate",
                 "timeouts",
+                "timeout_recovered",
                 "self_description",
                 "under_sampled",
                 "in_headline"
@@ -506,6 +518,13 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "timeout_recovered": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
             }
           },
           "waivers": {
@@ -554,6 +573,7 @@
           "self_description",
           "under_sampled",
           "untested",
+          "timeout_recovered",
           "waivers"
         ],
         "additionalProperties": false

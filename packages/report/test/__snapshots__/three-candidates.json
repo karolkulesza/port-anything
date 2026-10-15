@@ -61,6 +61,7 @@
         "flaky_reference": 0,
         "flaky_candidate": 0,
         "timeouts": 0,
+        "timeout_recovered": 0,
         "parity": 1
       },
       "origins": {
@@ -98,6 +99,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -113,6 +115,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": true,
           "under_sampled": false,
           "in_headline": false
@@ -128,6 +131,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -143,6 +147,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": true,
           "in_headline": false
@@ -157,6 +162,7 @@
       "untested": [
         "opt.z"
       ],
+      "timeout_recovered": [],
       "waivers": [
         {
           "waiver": 1,
@@ -190,6 +196,7 @@
         "flaky_reference": 0,
         "flaky_candidate": 0,
         "timeouts": 0,
+        "timeout_recovered": 2,
         "parity": 0.9090909090909091
       },
       "origins": {
@@ -227,6 +234,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 1,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -242,6 +250,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": true,
           "under_sampled": false,
           "in_headline": false
@@ -257,6 +266,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 1,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -272,6 +282,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": true,
           "in_headline": false
@@ -285,6 +296,10 @@
       ],
       "untested": [
         "opt.z"
+      ],
+      "timeout_recovered": [
+        "sha256:00000005aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:0000001eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       ],
       "waivers": [
         {
@@ -319,6 +334,7 @@
         "flaky_reference": 0,
         "flaky_candidate": 0,
         "timeouts": 0,
+        "timeout_recovered": 0,
         "parity": 0.9230769230769231
       },
       "origins": {
@@ -356,6 +372,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -371,6 +388,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": true,
           "under_sampled": false,
           "in_headline": false
@@ -386,6 +404,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": false,
           "in_headline": true
@@ -401,6 +420,7 @@
           "flaky_reference": 0,
           "flaky_candidate": 0,
           "timeouts": 0,
+          "timeout_recovered": 0,
           "self_description": false,
           "under_sampled": true,
           "in_headline": false
@@ -415,6 +435,7 @@
       "untested": [
         "opt.z"
       ],
+      "timeout_recovered": [],
       "waivers": [
         {
           "waiver": 1,
