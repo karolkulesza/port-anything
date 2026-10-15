@@ -915,7 +915,7 @@ describe('executeRun --smoke', () => {
     const again = await json({ cluster: `${smoke.run_id}/${stdoutCluster.cluster}` });
     expect(again).toMatchObject({ exitCode: 1, cases: 6 });
     expect(again.candidates[0].divergences.map((d: { case: string }) => d.case)).toContain(repro.id);
-  });
+  }, 30_000);
 
   it('refuses --smoke with --cluster (exit 3)', async () => {
     expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });

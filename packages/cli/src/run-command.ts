@@ -173,6 +173,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
   if (config.sandbox.mode === 'container') {
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
+  if (args.smoke === true && args.cluster !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
   const commands =
     args.candidates.length > 0 ? args.candidates : subset !== undefined ? [subset.run.candidate_commands[subset.cluster.candidate - 1]!] : configCandidates(config).map((c) => c.cmd);
@@ -180,7 +181,6 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl.');
-  if (args.smoke === true && subset !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
   else if (args.smoke === true) {

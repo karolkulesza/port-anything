@@ -430,7 +430,8 @@ const stripMeta = (word: string): string => word.replace(/^<([^<>]*)>$/, '$1').r
 /** A placeholder's type from its name: files and directories, counts, sizes, else text. */
 export function valueType(name: string): CliValue['type'] {
   const n = name.replace(/[<>[\]{}=.]/g, '');
-  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(n) || /(file|dir|path)s?$/i.test(n)) return 'path';
+  const base = n.replace(/\d+$/, ''); // FILE1 FILE2 (comm, join, diff)
+  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
   if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
   if (/^(size|bytes)$/i.test(n)) return 'size';
   return 'string';
