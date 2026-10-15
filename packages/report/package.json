@@ -1,6 +1,6 @@
 {
   "name": "@port-anything/report",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Port Anything static HTML report and badge.",
   "license": "Apache-2.0",
   "repository": {
@@ -15,7 +15,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "report.schema.json"],
   "engines": {
     "node": ">=22.15"
   },
@@ -26,5 +26,9 @@
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@port-anything/core": "workspace:*",
+    "zod": "4.6.5"
   }
 }
