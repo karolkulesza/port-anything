@@ -69,6 +69,19 @@ case "$1" in
 esac
 `;
 
+// A reference that stalls on its second run of each command (the first re-check), as a starved
+// machine can make it do, and otherwise answers like the reference tool.
+const RECHECK_STALL = `#!/bin/sh
+echo "recheck-stall $*" >> "$PA_TEST_LOG"
+state="$PA_TEST_STATE.recheck-stall.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+if [ "$n" = 1 ]; then exec sleep 10; fi
+case "$1" in
+  upper) tr 'a-z' 'A-Z' ;;
+esac
+`;
+
 describe('runCases', () => {
   let root: string;
   let store: BlobStore;
@@ -80,6 +93,7 @@ describe('runCases', () => {
   let lucky: ResolvedProgram;
   let stall: ResolvedProgram;
   let stallToo: ResolvedProgram;
+  let recheckStall: ResolvedProgram;
   let cases: CanonicalCase[];
   let scratch = 0;
 
@@ -93,6 +107,7 @@ describe('runCases', () => {
     writeFileSync(join(root, 'bin', 'tool-lucky'), LUCKY, { mode: 0o755 });
     writeFileSync(join(root, 'bin', 'tool-stall'), STALL('stall'), { mode: 0o755 });
     writeFileSync(join(root, 'bin', 'tool-stall-too'), STALL('stall-too'), { mode: 0o755 });
+    writeFileSync(join(root, 'bin', 'tool-recheck-stall'), RECHECK_STALL, { mode: 0o755 });
     log = join(root, 'runs.log');
     store = new BlobStore(join(root, 'cache'));
     ref = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool')));
@@ -102,6 +117,7 @@ describe('runCases', () => {
     lucky = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-lucky')));
     stall = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-stall')));
     stallToo = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-stall-too')));
+    recheckStall = await resolveProgram(parseProgramCommand(join(root, 'bin', 'tool-recheck-stall')));
     const input = await store.put('hello\n');
     const fixture = await store.put('fixture text\n');
     const doomed = await store.put('bye\n');
@@ -265,6 +281,17 @@ describe('runCases', () => {
     expect([runs('echo a'), runs('shuffle'), runs('upper')]).toEqual([1, 3, 5]);
     // The first observation is still the one compared.
     expect((await store.get(shuffle!.reference.stdout)).toString()).toBe('a\nb\n');
+  });
+
+  it('does not take a re-check of the reference that timed out for output that varies, so the divergence stays', { timeout: 60_000 }, async () => {
+    rmSync(log, { force: true });
+    const upper = [canonicalCase({ argv: ['upper'], stdin: cases[1]!.stdin, origin: 'recorded' })];
+    const result = await runCases(options([bad], { reference: recheckStall, cases: upper, recheckReference: 2, timeoutMs: 2000 }));
+    expect(result.cases[0]!.reference.timeout).toBe(false);
+    expect(result.cases[0]!.candidates[0]!.comparison.verdict).toBe('diverge');
+    expect(result.cases[0]!.referenceVaried).toBeUndefined();
+    // The first run, a re-check that timed out, and one that answered: no run beyond the 2 re-checks.
+    expect(logLines().filter((l) => l.startsWith('recheck-stall ')).length).toBe(3);
   });
 
   it('re-checks the reference after the normalizers, and not at all by default', async () => {

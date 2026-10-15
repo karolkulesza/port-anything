@@ -51,7 +51,8 @@ export interface RunCasesOptions {
    * On a case some candidate diverges on, run the reference up to this many more times, stopping at
    * the first run that observes something else than the first once both are normalized (see
    * `CaseRun.referenceVaried`). A baseline of a few runs can miss output that varies by chance, such
-   * as a random sort of two lines; this catches it where it would count. Defaults to 0 (off).
+   * as a random sort of two lines; this catches it where it would count. A re-check that times out
+   * where the first run didn't is no answer and doesn't count as varying. Defaults to 0 (off).
    */
   recheckReference?: number;
 }
@@ -112,11 +113,12 @@ export interface RunCasesResult {
 
 /**
  * Runs every case against the reference once, then against each candidate, and compares each
- * candidate's observation with the reference's under the strictness profile, once both have been normalized. A candidate
- * that diverges on a case runs it once more, to tell a racy port (`flaky`) from a steady divergence
- * or, when its first run timed out, to compare an answer instead (`timeoutRecovered`). Cases run
- * in a worker pool; within a case the sides run one after another, in the same working directory path (also HOME),
- * so a program that prints its directory doesn't diverge for that alone.
+ * candidate's observation with the reference's under the strictness profile, once both have been
+ * normalized. A candidate that diverges on a case runs it once more, to tell a racy port (`flaky`)
+ * from a steady divergence or, when its first run timed out, to compare an answer instead
+ * (`timeoutRecovered`). Cases run in a worker pool; within a case the sides run one after another,
+ * in the same working directory path (also HOME), so a program that prints its directory doesn't
+ * diverge for that alone.
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const runner = await openCaseRunner(options);
@@ -197,6 +199,8 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
     if (recheck > 0 && candidates.some((run) => run.comparison.verdict === 'diverge')) {
       for (let n = 0; n < recheck; n++) {
         const again = await observe(sides[0]!);
+        // A stall isn't an answer: a re-check that timed out where the first run finished says nothing.
+        if (again.timeout && !reference.timeout) continue;
         const pair = await normalizePair({
           normalizers: options.normalizers ?? [],
           features: c.features,
