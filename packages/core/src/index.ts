@@ -51,6 +51,7 @@ export {
   DEFAULT_CONTAINER_IMAGE,
   RUNNER_SCRIPT,
   RUNNER_TOOLS,
+  containerSpace,
   buildInImage,
   caseScript,
   engineCpus,

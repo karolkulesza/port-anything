@@ -28,8 +28,26 @@ export class ContainerError extends Error {
   override readonly name = 'ContainerError';
 }
 
-/** Where the runner keeps a case's script, stdin and output in its container (on the `/tmp` tmpfs). */
-const RUNNER_DIR = '/tmp/pa-runner';
+/** The runner's own tmpfs in its container, out of the places it empties after each case. */
+const RUNNER_MOUNT = '/pa-runner';
+/** Where the runner keeps a case's script, stdin and output. */
+const RUNNER_DIR = `${RUNNER_MOUNT}/case`;
+
+/** Files a case may make in each of its tmpfs mounts (its directory's parent, `/tmp`). */
+const CASE_INODES = 65_536;
+const MiB = 1024 * 1024;
+
+/**
+ * Sizes of a session's tmpfs mounts, from the output cap it runs with: what a case can leave in its
+ * directory (and in `/tmp`), and the runner's room for a case's archive in, its stdout and stderr
+ * and the archive of its directory. No answer of the runner can be larger than its room.
+ */
+export function containerSpace(outputCapBytes: number): { caseBytes: number; runnerBytes: number } {
+  const caseBytes = Math.max(256 * MiB, 8 * outputCapBytes);
+  // Tar takes up to 1 KiB per file beyond its bytes; out and err may go a block over the cap.
+  const archiveBytes = caseBytes + 1024 * CASE_INODES + MiB;
+  return { caseBytes, runnerBytes: 2 * archiveBytes + 2 * (outputCapBytes + MiB) };
+}
 
 /** What the runner uses from the image, beside `sh` and its built-ins. */
 export const RUNNER_TOOLS: readonly string[] = Object.freeze(['tar', 'dd', 'wc', 'cat', 'mkdir', 'rm', 'mv', 'chmod', 'setsid', 'sleep']);
@@ -45,7 +63,9 @@ export const RUNNER_TOOLS: readonly string[] = Object.freeze(['tar', 'dd', 'wc',
  * tmpfs), and runs the script in a session of its own with stdout and stderr in files and a watchdog
  * that sends SIGTERM to the case's process group at the timeout, then SIGKILL after the grace period.
  * Once the case has exited, it kills every process in the container but itself (anything the case
- * left behind, even in a session of its own), archives the case directory and answers `done <nonce>
+ * left behind, even in a session of its own), archives the case directory, empties the tmpfs
+ * mounts a case can write (the case directory's parent, `/tmp`, `/dev/shm`: the next case starts
+ * as clean as under bwrap) and answers `done <nonce>
  * <status> <1 if timed out> <stdout bytes> <stderr bytes> <archive bytes>`, followed by stdout,
  * stderr and the archive. As under bwrap, a signal death is the shell's exit status 128 + n. When it
  * can't unpack a case or archive its directory, it answers `error <nonce> <in|back> <bytes>` and
@@ -72,9 +92,11 @@ export const RUNNER_SCRIPT = [
   // fail <in|back>: what went wrong, from the error file.
   'fail() { echo "error $nonce $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
   `p=${RUNNER_DIR}`,
+  // wipe <dir>: empty it, dot files included (a pattern that matches nothing stays as it is).
+  'wipe() { rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null; }',
   'while read -r cmd nonce t g bytes; do',
   '  [ "$cmd" = run ] || exit 0',
-  '  rm -rf "$p" && mkdir "$p" && take "$bytes" "$p/in.tar" || exit 1',
+  `  wipe ${RUNNER_MOUNT} && mkdir "$p" && take "$bytes" "$p/in.tar" || exit 1`,
   '  if ! { tar -xf "$p/in.tar" -C "$p" && c=$(cat "$p/dir") && rm -rf "$c" && mv "$p/case" "$c"; } 2>"$p/error"; then fail in; continue; fi',
   '  setsid sh "$p/cmd" </dev/null >"$p/out" 2>"$p/err" &',
   '  pid=$!',
@@ -90,8 +112,9 @@ export const RUNNER_SCRIPT = [
   '  if [ -e "$p/timedout" ]; then to=1; else to=0; fi',
   // Files the case made unreadable are still the case's files (local mode reads them too).
   '  chmod -R u+rwX "$c" 2>/dev/null',
-  '  if ! tar -cf "$p/back.tar" -C "$c" . 2>"$p/error"; then rm -rf "$c"; fail back; continue; fi',
-  '  rm -rf "$c"',
+  '  if ! tar -cf "$p/back.tar" -C "$c" . 2>"$p/error"; then wipe "${c%/*}"; wipe /tmp; wipe /dev/shm; fail back; continue; fi',
+  // Nothing a case left in its tmpfs mounts reaches the next one.
+  '  wipe "${c%/*}"; wipe /tmp; wipe /dev/shm',
   '  echo "done $nonce $status $to $(wc -c <"$p/out") $(wc -c <"$p/err") $(wc -c <"$p/back.tar")"',
   '  cat "$p/out" "$p/err" "$p/back.tar"',
   'done',
@@ -406,13 +429,18 @@ export class ContainerSession {
     await mkdir(options.dir, { recursive: true });
     const name = `port-anything-${randomBytes(6).toString('hex')}`;
     const { engine, image } = options.setup;
+    const space = containerSpace(options.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES);
     const child = spawn(engine, [
       'run', '--rm', '-i', '--init', '--name', name, '--label', `port-anything=${options.label}`,
-      '--network', 'none', '--read-only', '--tmpfs', '/tmp', '--tmpfs', `${options.parent}:exec,mode=1777`,
+      '--network', 'none', '--read-only',
+      '--tmpfs', `/tmp:size=${space.caseBytes},nr_inodes=${CASE_INODES}`,
+      '--tmpfs', `${options.parent}:exec,mode=1777,size=${space.caseBytes},nr_inodes=${CASE_INODES}`,
+      '--tmpfs', `${RUNNER_MOUNT}:mode=1777,size=${space.runnerBytes}`,
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       ...userArgs(engine),
       ...options.side.readOnlyPaths.flatMap((p) => ['-v', `${p}:${p}:ro`]),
-      '-w', '/tmp', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT,
+      // Not -w on a tmpfs: Docker then mounts it with mode 755, which the caller's uid can't write.
+      '-w', '/', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
     const session = new ContainerSession(options, name, child);
     const ready = await session.reader.line(120_000);
@@ -477,6 +505,9 @@ export class ContainerSession {
     const match = line?.startsWith(`done ${nonce} `) ? /^done \S+ (\d+) ([01]) (\d+) (\d+) (\d+)$/.exec(line) : null;
     if (match === null) return broken('stopped answering');
     const [outBytes, errBytes, tarBytes] = match.slice(3).map(Number) as [number, number, number];
+    // All of it lived in the runner's tmpfs, so more than that is no answer of the runner.
+    const { runnerBytes } = containerSpace(this.options.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES);
+    if (outBytes + errBytes + tarBytes > runnerBytes) return broken(`announced an answer of ${outBytes + errBytes + tarBytes} bytes, more than its ${runnerBytes} bytes of room`);
     const payload = await this.reader.bytes(outBytes + errBytes + tarBytes, 60_000 + (outBytes + errBytes + tarBytes) / 1000);
     if (payload === undefined) return broken('stopped in the middle of an answer');
     const result = join(dir, 'result');

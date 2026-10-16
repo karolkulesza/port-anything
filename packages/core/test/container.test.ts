@@ -1,13 +1,14 @@
 import { execFile, spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, RUNNER_SCRIPT, RUNNER_TOOLS, shellQuote } from '../src/container.js';
+import { caseScript, ContainerError, ContainerPool, containerSpace, engineCpus, ensureImage, findContainerEngine, RUNNER_SCRIPT, RUNNER_TOOLS, shellQuote } from '../src/container.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
+import { DEFAULT_OUTPUT_CAP_BYTES } from '../src/process-runner.js';
 import { NormalizersSchema } from '../src/normalize.js';
 import { resolveProgram, type ResolvedProgram } from '../src/program.js';
 import { observeCase, runCases } from '../src/run-cases.js';
@@ -24,12 +25,12 @@ describe('container mode, without a container', () => {
   });
 
   it('writes a case script: its directory, a file size limit just over the cap, a clean environment, stdin', () => {
-    const script = caseScript({ argv: ['tool', '-x', "it's"], cwd: '/w/slot-0/case', env: { HOME: '/w/slot-0/case', PATH: '/bin' }, stdin: Buffer.from('in') }, 1024, '/tmp/pa-runner/stdin');
+    const script = caseScript({ argv: ['tool', '-x', "it's"], cwd: '/w/slot-0/case', env: { HOME: '/w/slot-0/case', PATH: '/bin' }, stdin: Buffer.from('in') }, 1024, '/pa-runner/case/stdin');
     expect(script).toBe(
       [
         "cd '/w/slot-0/case' || exit 126",
         'ulimit -f 3',
-        "exec env -i 'HOME=/w/slot-0/case' 'PATH=/bin' 'PWD=/w/slot-0/case' 'tool' '-x' 'it'\\''s' <'/tmp/pa-runner/stdin'",
+        "exec env -i 'HOME=/w/slot-0/case' 'PATH=/bin' 'PWD=/w/slot-0/case' 'tool' '-x' 'it'\\''s' <'/pa-runner/case/stdin'",
         '',
       ].join('\n'),
     );
@@ -93,6 +94,12 @@ case "$1" in
     setsid sh -c 'sleep 2; touch /tmp/pa-late' plant >/dev/null 2>&1 &
     ;;
   late) ls /tmp/pa-late ;;
+  stash)
+    # State for whichever case comes next: in /tmp, /dev/shm, next to the case directory, the runner's tmpfs.
+    echo s >/tmp/state; echo s >/tmp/.hidden; echo s >/dev/shm/state; echo s >../stash; echo s >/pa-runner/state
+    ;;
+  peek) cat /tmp/state /tmp/.hidden /dev/shm/state ../stash /pa-runner/state 2>&1; ls -A /tmp /dev/shm .. ;;
+  mounts) grep -E " (/tmp|$(dirname "$PWD")|/pa-runner) " /proc/mounts ;;
   forge)
     # An answer of its own on the runner's stdout, with an archive that climbs out of the directory.
     printf 'done %s 0 0 0 0 %s\n' "$3" "$(wc -c <"$2")" >"/proc/$PPID/fd/1"
@@ -263,6 +270,53 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     }
   }, 60_000);
 
+  it('starts each case of a session as clean as the first: nothing left in /tmp, /dev/shm or beside its directory', async () => {
+    const { pool, caseDir, proc, session } = await single('clean');
+    try {
+      const s = await session();
+      const stash = await s.prepare(caseDir);
+      expect((await stash.run(proc('stash'))).exit).toBe(0);
+      await stash.dispose();
+      const peek = await s.prepare(caseDir);
+      const seen = await peek.run(proc('peek'));
+      await peek.dispose();
+      // Every cat fails; the listings show only the case directory itself.
+      expect(seen.stdout.toString().match(/No such file/g)).toHaveLength(5);
+      expect(seen.stdout.toString()).not.toMatch(/^s$/m);
+      expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l))).toEqual(['case']);
+    } finally {
+      await pool.close();
+    }
+  }, 60_000);
+
+  it('limits the tmpfs mounts, and refuses an answer larger than the room the runner has', async () => {
+    const { pool, caseDir, proc, session } = await single('space');
+    const { caseBytes, runnerBytes } = containerSpace(DEFAULT_OUTPUT_CAP_BYTES);
+    try {
+      const s = await session();
+      const mounts = await s.prepare(caseDir);
+      const lines = (await mounts.run(proc('mounts'))).stdout.toString().trim().split('\n');
+      await mounts.dispose();
+      const size = (mount: string) => lines.find((l) => l.split(' ')[1] === mount)?.match(/size=(\d+)k/)?.[1];
+      expect([size('/tmp'), size(dirname(caseDir)), size('/pa-runner')].map(Number)).toEqual([caseBytes / 1024, caseBytes / 1024, Math.ceil(runnerBytes / 4096) * 4]);
+    } finally {
+      await pool.close();
+    }
+    // An engine whose runner announces more than that.
+    const fake = join(dir, 'fake-engine');
+    writeFileSync(fake, `#!/bin/sh\n[ "$1" = run ] || exit 0\necho ready\nread -r cmd nonce rest\necho "done $nonce 0 0 ${runnerBytes} 1 0"\nsleep 30\n`);
+    chmodSync(fake, 0o755);
+    const faked = new ContainerPool({ setup: { kind: 'container', engine: fake, image: IMAGE }, dir: join(dir, 'fake') });
+    try {
+      const s = await faked.session({ binDir: dir, args: [], readOnlyPaths: [] }, caseDir);
+      const big = await s.prepare(caseDir);
+      await expect(big.run(proc('echo', 'x'))).rejects.toThrow(new RegExp(`announced an answer of ${runnerBytes + 1} bytes, more than its ${runnerBytes} bytes of room`));
+      await big.dispose();
+    } finally {
+      await faked.close();
+    }
+  }, 60_000);
+
   it('ends a session whose case wrote an answer of its own, and writes nothing outside its directory', async () => {
     const { pool, caseDir, proc, session } = await single('forge');
     try {
@@ -284,7 +338,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
   // BusyBox's tools differ from GNU's (its head reads ahead, for one).
   it.each([IMAGE, 'alpine:3'])('runs the protocol in %s: one archive in, stdout, stderr and the case directory out, or what went wrong', async (image) => {
     await ensureImage(engine!, image);
-    const child = spawn(engine!, ['run', '--rm', '-i', '--tmpfs', '/w', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT]);
+    const child = spawn(engine!, ['run', '--rm', '-i', '--tmpfs', '/w', '--tmpfs', '/pa-runner', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT]);
     const out: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
     const received = async (bytes: number) => {
@@ -303,7 +357,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       expect((await received(6)).toString()).toBe('ready\n');
       // 200 kB of stdin, more than one read of a pipe.
       const big = Buffer.alloc(200_000, 'y');
-      send([f('dir', '/w/case'), f('cmd', 'cd /w/case && wc -c </tmp/pa-runner/stdin && printf oops >&2 && echo made >sub/out.txt\n'), f('stdin', big), { type: 'dir', name: Buffer.from('case') }, { type: 'dir', name: Buffer.from('case/sub') }, f('case/sub/in.txt', 'in')]);
+      send([f('dir', '/w/case'), f('cmd', 'cd /w/case && wc -c </pa-runner/case/stdin && printf oops >&2 && echo made >sub/out.txt\n'), f('stdin', big), { type: 'dir', name: Buffer.from('case') }, { type: 'dir', name: Buffer.from('case/sub') }, f('case/sub/in.txt', 'in')]);
       const head = 'done n0nce 0 0 7 4 ';
       let answer = await received(head.length + 11);
       const line = answer.subarray(0, answer.indexOf(0x0a)).toString();
