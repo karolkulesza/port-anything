@@ -164,10 +164,13 @@ export {
   DEFAULT_FRESH_CASES,
   DEFAULT_GAP_ALPHA,
   freshHoldoutSeed,
+  generateFreshHoldout,
   holdoutGap,
   holdoutSettings,
   normalCdf,
+  type FreshHoldout,
   type GapFeature,
+  type GenerateHoldoutOptions,
   type HoldoutGap,
   type HoldoutSettings,
 } from './holdout.js';

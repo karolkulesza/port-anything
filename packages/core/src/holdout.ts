@@ -1,5 +1,8 @@
 import { randomInt } from 'node:crypto';
+import type { CliSpec } from './cli-spec.js';
 import type { Config } from './config.js';
+import { generateCorpus, type GenerateCorpusOptions } from './corpus-generator.js';
+import type { CanonicalCase, Observation } from './model.js';
 import type { Score } from './score.js';
 
 /** Cases in a fresh holdout when `holdout.fresh_cases` isn't set. */
@@ -24,6 +27,43 @@ export function holdoutSettings(config: Config): HoldoutSettings {
  */
 export function freshHoldoutSeed(): number {
   return randomInt(2 ** 47);
+}
+
+export interface GenerateHoldoutOptions extends Omit<GenerateCorpusOptions, 'seed' | 'budget' | 'timeMs'> {
+  /** From `freshHoldoutSeed`, so that it isn't stored anywhere. */
+  seed: number;
+  /** Cases to generate, the ones the corpus already has included. */
+  cases: number;
+  /** IDs of the corpus's cases, left out of the holdout. */
+  corpus: ReadonlySet<string>;
+}
+
+export interface FreshHoldout {
+  /** The new cases, in the order they were generated. */
+  cases: CanonicalCase[];
+  /** The reference's behavior on each case while it was generated. */
+  observations: Observation[];
+  /** Contents of every stdin and fixture blob the cases reference, by blob ref. */
+  blobs: Map<string, Uint8Array>;
+  /** Generated cases the corpus already has, left out. */
+  inCorpus: number;
+}
+
+/**
+ * A fresh holdout: cases generated the way the corpus is (same CLI spec, generator, error-path
+ * cap and per-feature minimum, so they are spread over the features the same way, round-robin and
+ * topped up per feature), from a new seed, minus the cases the corpus already has. Argv cases
+ * repeat across seeds often; byte mutants of their inputs rarely do.
+ */
+export async function generateFreshHoldout(spec: CliSpec, options: GenerateHoldoutOptions): Promise<FreshHoldout> {
+  const { seed, cases: budget, corpus, ...rest } = options;
+  const generated = await generateCorpus(spec, { ...rest, seed, budget });
+  const fresh = generated.cases.filter((c) => !corpus.has(c.case.id));
+  const blobs = new Map<string, Uint8Array>();
+  for (const { case: c } of fresh) {
+    for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) blobs.set(ref, generated.blobs.get(ref)!);
+  }
+  return { cases: fresh.map((c) => c.case), observations: fresh.map((c) => c.observation), blobs, inCorpus: generated.cases.length - fresh.length };
 }
 
 /** One feature's counts on both sides of the gap. */
