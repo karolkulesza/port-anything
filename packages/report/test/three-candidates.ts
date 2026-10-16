@@ -46,10 +46,15 @@ export const INPUT: ReportInput = {
   cases: CORPUS.length,
   normalizers: [{ normalizer: 'tmp-paths', cases: 4 }],
   waivers: WAIVERS,
+  holdout: { ran: true, cases: 180, inCorpus: 20, flakyReference: 1, alpha: 0.01, saved: 61 },
   candidates: [
-    candidate('./port-a/tool', []),
-    candidate('./port-b/tool', [2, 3, 30, 53, 54]),
-    candidate("'./port c/tool' --strict", [1, 4, 26, 27, 28, 48, 49], new Map([[1, 1], [48, 0], [49, 0]])),
+    { ...candidate('./port-a/tool', []), holdout: { match: 179, diverge: 0, parity: 1, ci95: [0.979, 1], corpus: 1, gap: 0, pValue: 1, significant: false, features: 2 } },
+    { ...candidate('./port-b/tool', [2, 3, 30, 53, 54]), holdout: { match: 168, diverge: 11, parity: 0.94, ci95: [0.902, 0.977], corpus: 0.937, gap: -0.003, pValue: 0.55, significant: false, features: 2 } },
+    {
+      ...candidate("'./port c/tool' --strict", [1, 4, 26, 27, 28, 48, 49], new Map([[1, 1], [48, 0], [49, 0]])),
+      // Fitted to the corpus: a lookup table of its expected outputs.
+      holdout: { match: 118, diverge: 61, parity: 0.66, ci95: [0.591, 0.728], corpus: 0.958, gap: 0.298, pValue: 0.00000012, significant: true, features: 2 },
+    },
   ],
   clusters: [
     { cluster: 1, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'number-value' }] }, features: [{ feature: 'base', cases: 2 }, { feature: 'opt.n', cases: 1 }], size: 3, weight: 0.12, cases: [id(2), id(3), id(30)], repro: id(3) },

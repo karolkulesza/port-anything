@@ -39,7 +39,29 @@ export interface ReportCandidate {
   waivers: readonly WaiverCoverage[];
   /** Waived cases with the waivers (numbered from 1) that cover them. */
   waivedCases: readonly { case: string; waivers: readonly number[] }[];
+  /** Its fresh holdout, when the run had one. */
+  holdout?: ReportCandidateHoldout;
 }
+
+/** A candidate's fresh-holdout parity and its gap to the corpus parity over the same features. */
+export interface ReportCandidateHoldout {
+  match: number;
+  diverge: number;
+  /** Mean of per-feature parity over the features compared; null when there are none. */
+  parity: number | null;
+  ci95: readonly [number, number] | null;
+  corpus: number | null;
+  gap: number | null;
+  pValue: number | null;
+  significant: boolean;
+  /** Features compared. */
+  features: number;
+}
+
+/** Whether the run had a fresh holdout, and if it did, what it ran. */
+export type ReportHoldout =
+  | { ran: false; reason: string }
+  | { ran: true; cases: number; inCorpus: number; flakyReference: number; alpha: number; saved: number };
 
 /** What `report.html` shows: one saved run of the whole corpus, and the cases it shows as repros. */
 export interface ReportInput {
@@ -55,6 +77,8 @@ export interface ReportInput {
   /** Per normalizer, the cases where it changed either side of a comparison (any candidate). */
   normalizers: readonly { normalizer: string; cases: number }[];
   waivers: readonly Waiver[];
+  /** Absent for a run saved by a version without the fresh holdout. */
+  holdout?: ReportHoldout;
   candidates: readonly ReportCandidate[];
   /** Ranked, numbered through the run; `repro` names the case shown for it. */
   clusters: readonly (SavedCluster & { repro?: string })[];
@@ -146,6 +170,7 @@ function headlineSection(input: ReportInput): string {
     if (origins.length > 0) lines.push(`<p>by origin: ${origins.map(([name, o]) => `${esc(name)} ${percentOrNa(o.parity)} (${count(o.cases, 'case')})`).join(' · ')}</p>`);
     const { flakyReference, flakyCandidate, timeouts } = s.raw;
     lines.push(`<p>${flakyReference} flaky-reference (not scored) · ${flakyCandidate} flaky-candidate (diverge) · ${timeouts} timed out (diverge)</p>`);
+    if (c.holdout !== undefined) lines.push(holdoutLine(c.holdout));
     return `<div class="card">\n${lines.join('\n')}\n</div>`;
   });
   return `<section id="headline">
@@ -154,6 +179,15 @@ function headlineSection(input: ReportInput): string {
 ${cards.join('\n')}
 </div>
 </section>`;
+}
+
+/** A candidate's fresh-holdout parity, and whether its gap to the corpus is significant. */
+function holdoutLine(h: ReportCandidateHoldout): string {
+  if (h.parity === null || h.corpus === null || h.gap === null || h.pValue === null) return '<p>fresh holdout: no new case of the headline\'s features, so no gap</p>';
+  const ci = h.ci95 === null ? '' : ` (95% CI ${percent(h.ci95[0])}–${percent(h.ci95[1])})`;
+  const p = h.pValue < 0.0001 ? 'p &lt; 0.0001' : `p = ${h.pValue.toPrecision(2)}`;
+  const verdict = h.significant ? '<span class="flag">significant: better on the corpus than on new cases</span>' : 'not significant';
+  return `<p>fresh holdout ${percent(h.parity)}${ci} vs corpus ${percent(h.corpus)} over the same ${count(h.features, 'feature')}: gap ${(h.gap * 100).toFixed(1)} points, ${verdict} (${p})</p>`;
 }
 
 /** Every feature some candidate's cases carry: the headline's first, then under-sampled, then self-description. */
@@ -334,7 +368,7 @@ ${input.waivers
 <li>compared under: ${esc(compare)}</li>
 <li>manifest verification: not part of the report; run <code>port-anything verify</code></li>
 <li>environment fingerprint: recorded in <code>.port-anything/MANIFEST.json</code> by <code>port-anything baseline</code>, checked by <code>port-anything verify</code></li>
-<li>fresh holdout: not run by this version</li>
+<li>${holdoutItem(input.holdout)}</li>
 <li>candidate language composition: not measured by this version</li>
 </ul>
 <h3>Normalizers</h3>
@@ -382,6 +416,16 @@ function contentBlock(c: ReproContent): string {
 /** A word quoted for a POSIX shell when it needs it. */
 function shellWord(w: string): string {
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : `'${w.replaceAll("'", `'\\''`)}'`;
+}
+
+/** The integrity panel's line on the fresh holdout. */
+function holdoutItem(h: ReportHoldout | undefined): string {
+  if (h === undefined) return 'fresh holdout: not recorded by the version that saved this run';
+  if (!h.ran) return `fresh holdout: not run, ${esc(h.reason)}`;
+  const parts = [`fresh holdout: ${count(h.cases, 'new case')} from a seed that is not stored, gap to the corpus tested at <code>holdout.gap_alpha</code> ${h.alpha}`];
+  if (h.flakyReference > 0) parts.push(`${h.flakyReference} left out as flaky-reference`);
+  if (h.saved > 0) parts.push(`${count(h.saved, 'diverging case')} saved with the run`);
+  return parts.join(' · ');
 }
 
 function esc(text: string): string {

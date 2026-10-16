@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, latestRun, loadCommittedCases, readConfigFile, type CanonicalCase, type RunRecord } from '@port-anything/core';
 import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
 import { loadCorpus } from './corpus.js';
-import type { CliResult } from './run-command.js';
+import type { CandidateHoldout, CliResult, HoldoutSummary } from './run-command.js';
 
 /** Where `report` writes, in the project directory (the HTML under the name `compare` uses too). */
 export const REPORT_HTML_FILE = 'port-anything-report.html';
@@ -78,7 +78,9 @@ interface SavedReport {
   cases: number;
   normalizers: ReportInput['normalizers'];
   waivers: ReportInput['waivers'];
-  candidates: (Omit<ReportCandidate, 'waivedCases'> & { waived_cases: ReportCandidate['waivedCases'] })[];
+  /** Absent in a run saved before the fresh holdout. */
+  holdout?: HoldoutSummary;
+  candidates: (Omit<ReportCandidate, 'waivedCases' | 'holdout'> & { waived_cases: ReportCandidate['waivedCases']; holdout?: CandidateHoldout })[];
 }
 
 /**
@@ -138,7 +140,37 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
     cases: s.cases,
     normalizers: s.normalizers,
     waivers: s.waivers,
-    candidates: s.candidates.map(({ waived_cases, ...c }) => ({ command: c.command, match: c.match, diverge: c.diverge, waived: c.waived, score: c.score, waivers: c.waivers, waivedCases: waived_cases })),
+    ...(s.holdout === undefined
+      ? {}
+      : {
+          holdout: s.holdout.ran
+            ? { ran: true, cases: s.holdout.cases, inCorpus: s.holdout.in_corpus, flakyReference: s.holdout.flaky_reference, alpha: s.holdout.alpha, saved: s.holdout.saved }
+            : { ran: false, reason: s.holdout.reason },
+        }),
+    candidates: s.candidates.map(({ waived_cases, holdout, ...c }) => ({
+      command: c.command,
+      match: c.match,
+      diverge: c.diverge,
+      waived: c.waived,
+      score: c.score,
+      waivers: c.waivers,
+      waivedCases: waived_cases,
+      ...(holdout === undefined
+        ? {}
+        : {
+            holdout: {
+              match: holdout.match,
+              diverge: holdout.diverge,
+              parity: holdout.parity,
+              ci95: holdout.ci95,
+              corpus: holdout.corpus,
+              gap: holdout.gap,
+              pValue: holdout.p_value,
+              significant: holdout.significant,
+              features: holdout.features.length,
+            },
+          }),
+    })),
     clusters,
     repros,
   };

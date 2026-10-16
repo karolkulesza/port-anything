@@ -24,6 +24,23 @@ const COUNTS = {
 
 const OriginSchema = z.strictObject({ cases: Count, scored: Count, match: Count, features: Count, parity: Parity });
 
+const HoldoutSchema = z.strictObject({
+  match: Count,
+  diverge: Count,
+  /** Mean of per-feature parity over the features compared with the corpus. */
+  parity: Parity,
+  ci95: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).nullable(),
+  /** The corpus parity over the same features. */
+  corpus: Parity,
+  /** corpus - parity. */
+  gap: z.number().min(-1).max(1).nullable(),
+  /** One-sided p-value of the gap, stratified by feature. */
+  p_value: z.number().min(0).max(1).nullable(),
+  /** p_value < holdout.alpha: the run failed on it. */
+  significant: z.boolean(),
+  features: Count,
+});
+
 const CandidateSchema = z.strictObject({
   /** Its number, from 1, as in the report and the clusters. */
   candidate: z.number().int().positive(),
@@ -44,6 +61,8 @@ const CandidateSchema = z.strictObject({
   untested: z.array(z.string()),
   /** Coverage of each waiver, numbered from 1 in file order; `large` above the report's threshold. */
   waivers: z.array(z.strictObject({ waiver: z.number().int().positive(), cases: Count, share: z.number().min(0).max(1), large: z.boolean() })),
+  /** Its fresh holdout; null when the run had none. */
+  holdout: HoldoutSchema.nullable(),
 });
 
 /** `report.json`: one saved run of the whole corpus, machine-readable, for CI. */
@@ -65,6 +84,13 @@ export const ReportJsonSchema = z.strictObject({
   normalizers: z.array(z.strictObject({ normalizer: z.string(), cases: Count })),
   /** As in `port-anything/waivers.yaml`, numbered from 1. */
   waivers: z.array(z.strictObject({ waiver: z.number().int().positive(), ...WaiverSchema.shape })),
+  /** The fresh holdout: whether it ran (and why not), the new cases and the gap's significance level; null when the run didn't record it. */
+  holdout: z
+    .union([
+      z.strictObject({ ran: z.literal(false), reason: z.string() }),
+      z.strictObject({ ran: z.literal(true), cases: Count, in_corpus: Count, flaky_reference: Count, alpha: z.number().gt(0).lt(1), saved: Count }),
+    ])
+    .nullable(),
   candidates: z.array(CandidateSchema).min(1),
   /** Ranked, numbered through the run; `repro` is the case the report shows for it. */
   clusters: z.array(
@@ -119,6 +145,12 @@ export function reportJson(input: ReportInput): ReportJson {
     min_cases_per_feature: input.candidates[0]?.score.minCasesPerFeature ?? DEFAULT_MIN_CASES_PER_FEATURE,
     normalizers: input.normalizers.map((n) => ({ normalizer: n.normalizer, cases: n.cases })),
     waivers: input.waivers.map((w, i) => ({ waiver: i + 1, ...w })),
+    holdout:
+      input.holdout === undefined
+        ? null
+        : input.holdout.ran
+          ? { ran: true, cases: input.holdout.cases, in_corpus: input.holdout.inCorpus, flaky_reference: input.holdout.flakyReference, alpha: input.holdout.alpha, saved: input.holdout.saved }
+          : { ran: false, reason: input.holdout.reason },
     candidates: input.candidates.map((c, i) => {
       const s = c.score;
       return {
@@ -141,6 +173,7 @@ export function reportJson(input: ReportInput): ReportJson {
         under_sampled: s.underSampled,
         untested: s.untested,
         waivers: c.waivers.map((w) => ({ waiver: w.waiver, cases: w.cases, share: w.share, large: w.large })),
+        holdout: c.holdout === undefined ? null : { match: c.holdout.match, diverge: c.holdout.diverge, parity: c.holdout.parity, ci95: c.holdout.ci95 === null ? null : [c.holdout.ci95[0], c.holdout.ci95[1]], corpus: c.holdout.corpus, gap: c.holdout.gap, p_value: c.holdout.pValue, significant: c.holdout.significant, features: c.holdout.features },
       };
     }),
     clusters: input.clusters.map((k) => ({

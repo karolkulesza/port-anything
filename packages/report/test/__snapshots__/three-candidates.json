@@ -42,6 +42,14 @@
       "reason": "the original exits 0 after \"write error\""
     }
   ],
+  "holdout": {
+    "ran": true,
+    "cases": 180,
+    "in_corpus": 20,
+    "flaky_reference": 1,
+    "alpha": 0.01,
+    "saved": 61
+  },
   "candidates": [
     {
       "candidate": 1,
@@ -170,7 +178,21 @@
           "share": 0,
           "large": false
         }
-      ]
+      ],
+      "holdout": {
+        "match": 179,
+        "diverge": 0,
+        "parity": 1,
+        "ci95": [
+          0.979,
+          1
+        ],
+        "corpus": 1,
+        "gap": 0,
+        "p_value": 1,
+        "significant": false,
+        "features": 2
+      }
     },
     {
       "candidate": 2,
@@ -299,7 +321,21 @@
           "share": 0,
           "large": false
         }
-      ]
+      ],
+      "holdout": {
+        "match": 168,
+        "diverge": 11,
+        "parity": 0.94,
+        "ci95": [
+          0.902,
+          0.977
+        ],
+        "corpus": 0.937,
+        "gap": -0.003,
+        "p_value": 0.55,
+        "significant": false,
+        "features": 2
+      }
     },
     {
       "candidate": 3,
@@ -428,7 +464,21 @@
           "share": 0.01818181818181818,
           "large": false
         }
-      ]
+      ],
+      "holdout": {
+        "match": 118,
+        "diverge": 61,
+        "parity": 0.66,
+        "ci95": [
+          0.591,
+          0.728
+        ],
+        "corpus": 0.958,
+        "gap": 0.298,
+        "p_value": 1.2e-7,
+        "significant": true,
+        "features": 2
+      }
     }
   ],
   "clusters": [

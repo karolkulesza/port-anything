@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BlobStore, cacheDir, loadCommittedCases, runsDir } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { REPORT_JSON_FILE } from '../src/report-command.js';
 import { HOLDOUT_FAILURES_FILE } from '../src/run-command.js';
 import { run } from '../src/run.js';
 
@@ -158,6 +159,13 @@ describe('run with a fresh holdout', () => {
     expect(lookup.stdout).toMatch(/beyond chance: it may be fitted to the corpus/);
     const runId = /^run (\S+)/m.exec(lookup.stdout)![1]!;
     expect(lookup.stdout).toContain(`fresh-holdout cases that diverge, saved for reproduction: .port-anything/runs/${runId}/${HOLDOUT_FAILURES_FILE}\n`);
+
+    // The report of that run carries the holdout and the gap, for CI.
+    expect((await cli(['report', '--json'])).exitCode).toBe(0);
+    const report = JSON.parse(readFileSync(join(dir, REPORT_JSON_FILE), 'utf8')) as { run_id: string; holdout: { ran: boolean }; candidates: { holdout: { significant: boolean; corpus: number } | null }[] };
+    expect(report.run_id).toBe(runId);
+    expect(report.holdout).toMatchObject({ ran: true, alpha: 0.01 });
+    expect(report.candidates[0]!.holdout).toMatchObject({ significant: true, corpus: 1 });
   });
 
   it('has no holdout with holdout.fresh_cases: 0 (unless --holdout asks for one), nor in a smoke run', { timeout: 120_000 }, async () => {

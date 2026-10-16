@@ -49,6 +49,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p>55 cases match · 0 diverge · 0 waived (not scored)</p>
 <p>by origin: recorded 100.0% (40 cases) · generated 100.0% (15 cases)</p>
 <p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>fresh holdout 100.0% (95% CI 97.9%–100.0%) vs corpus 100.0% over the same 2 features: gap 0.0 points, not significant (p = 1.0)</p>
 </div>
 <div class="card">
 <p class="meta">candidate 2</p>
@@ -57,6 +58,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p>50 cases match · 5 diverge · 0 waived (not scored)</p>
 <p>by origin: recorded 92.6% (40 cases) · generated 100.0% (15 cases)</p>
 <p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>fresh holdout 94.0% (95% CI 90.2%–97.7%) vs corpus 93.7% over the same 2 features: gap -0.3 points, not significant (p = 0.55)</p>
 </div>
 <div class="card">
 <p class="meta">candidate 3</p>
@@ -65,6 +67,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p>48 cases match · 4 diverge · 3 waived (not scored)</p>
 <p>by origin: recorded 87.9% (40 cases) · generated 100.0% (15 cases)</p>
 <p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>fresh holdout 66.0% (95% CI 59.1%–72.8%) vs corpus 95.8% over the same 2 features: gap 29.8 points, <span class="flag">significant: better on the corpus than on new cases</span> (p &lt; 0.0001)</p>
 </div>
 </div>
 </section>
@@ -166,7 +169,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <li>compared under: default (stderr loose, similarity 0.8)</li>
 <li>manifest verification: not part of the report; run <code>port-anything verify</code></li>
 <li>environment fingerprint: recorded in <code>.port-anything/MANIFEST.json</code> by <code>port-anything baseline</code>, checked by <code>port-anything verify</code></li>
-<li>fresh holdout: not run by this version</li>
+<li>fresh holdout: 180 new cases from a seed that is not stored, gap to the corpus tested at <code>holdout.gap_alpha</code> 0.01 · 1 left out as flaky-reference · 61 diverging cases saved with the run</li>
 <li>candidate language composition: not measured by this version</li>
 </ul>
 <h3>Normalizers</h3>

@@ -152,6 +152,77 @@
         "additionalProperties": false
       }
     },
+    "holdout": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "ran": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ran",
+                "reason"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ran": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "cases": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "in_corpus": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "flaky_reference": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "alpha": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "exclusiveMaximum": 1
+                },
+                "saved": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "ran",
+                "cases",
+                "in_corpus",
+                "flaky_reference",
+                "alpha",
+                "saved"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "candidates": {
       "minItems": 1,
       "type": "array",
@@ -540,6 +611,121 @@
               ],
               "additionalProperties": false
             }
+          },
+          "holdout": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "match": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "diverge": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "parity": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ci95": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "corpus": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gap": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": -1,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "p_value": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "significant": {
+                    "type": "boolean"
+                  },
+                  "features": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "match",
+                  "diverge",
+                  "parity",
+                  "ci95",
+                  "corpus",
+                  "gap",
+                  "p_value",
+                  "significant",
+                  "features"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -554,7 +740,8 @@
           "self_description",
           "under_sampled",
           "untested",
-          "waivers"
+          "waivers",
+          "holdout"
         ],
         "additionalProperties": false
       }
@@ -714,6 +901,7 @@
     "min_cases_per_feature",
     "normalizers",
     "waivers",
+    "holdout",
     "candidates",
     "clusters"
   ],
