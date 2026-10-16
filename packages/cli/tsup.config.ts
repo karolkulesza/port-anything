@@ -1,3 +1,4 @@
+import { cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsup';
 import { base } from '../../tsup.base.js';
@@ -16,5 +17,9 @@ export default defineConfig({
       '@port-anything/report': fileURLToPath(new URL('../report/src/index.ts', import.meta.url)),
       '@port-anything/mcp': fileURLToPath(new URL('../mcp/src/index.ts', import.meta.url)),
     };
+  },
+  // `port-anything setup` installs the agent skills from the package, so they ship in it.
+  async onSuccess() {
+    await cp(new URL('../../skills', import.meta.url), new URL('./dist/skills', import.meta.url), { recursive: true });
   },
 });
