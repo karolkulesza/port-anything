@@ -8,6 +8,7 @@ import {
   cacheDir,
   canonicalCase,
   describeSignature,
+  findContainerEngine,
   historyPath,
   inlineCase,
   latestRun,
@@ -25,6 +26,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
+const engine = await findContainerEngine().catch(() => undefined);
+
 const TOOL = (variant: 'ref' | 'good' | 'bad') => `#!/bin/sh
 case "$1" in
   echo) shift; echo "$@" ;;
@@ -371,6 +374,31 @@ describe('executeRun', () => {
     expect(noCases.exitCode).toBe(3);
     expect(noCases.stderr).toMatch(/No cases to run/);
   });
+
+  // Real containers: wherever Docker or Podman answers, and always in CI on Linux.
+  it.runIf(engine !== undefined || (process.env.CI !== undefined && process.platform === 'linux'))(
+    'in sandbox mode container, runs reference.build and the configured candidate.build in the image first, and exits 3 when one fails',
+    async () => {
+      // Each build leaves a file only the image has (/etc/debian_version), so a build on the host would fail.
+      const config = (referenceBuild: string) =>
+        parseConfig({
+          version: 1,
+          reference: { cmd: './bin/tool', build: referenceBuild },
+          candidate: { cmd: './bin/tool-copy', build: 'cp /etc/debian_version built-candidate' },
+          sandbox: { mode: 'container', image: 'debian:12-slim' },
+        });
+      const container = (referenceBuild: string) => executeRun(options({ config: config(referenceBuild), args: { candidates: [], json: false, noSandbox: false } }));
+      const built = await container('cp /etc/debian_version built-reference');
+      expect(built.stderr).toBe('');
+      expect(built.exitCode).toBe(0);
+      expect(built.stdout).toContain('sandbox: container (');
+      expect([existsSync(join(project, 'built-reference')), existsSync(join(project, 'built-candidate'))]).toEqual([true, true]);
+
+      const failed = await container('echo no compiler >&2; exit 1');
+      expect(failed).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/^port-anything run: reference\.build failed in the image debian:12-slim: echo no compiler >&2; exit 1\nno compiler/) });
+    },
+    120_000,
+  );
 });
 
 describe('executeRun waivers', () => {

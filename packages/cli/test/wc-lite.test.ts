@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -199,10 +199,17 @@ describe.runIf(enabled)(`examples/wc-lite (sandbox mode ${mode})`, () => {
       builds.push(`cargo build --release --manifest-path port/Cargo.toml --features ${feature} --target-dir port/target/${feature}`);
     }
     if (mode === 'container') {
-      // In the image, one after another (the bad ports have target dirs of their own).
+      // The bad ports in the image, one after another (each has a target dir of its own). The
+      // reference and the port are left to the first run, which builds what the config documents
+      // in the image.
       await ensureImage(engine!, IMAGE);
-      const built = await buildInImage({ kind: 'container', engine: engine!, image: IMAGE }, project, builds.join(' && '));
+      const built = await buildInImage({ kind: 'container', engine: engine!, image: IMAGE }, project, builds.slice(2).join(' && '));
       if (!built.ok) throw new Error(built.output);
+      const programs = ['ref/wc-lite', 'port/target/release/wc-lite'].map((p) => join(project, p));
+      expect(programs.filter((p) => existsSync(p))).toEqual([]);
+      const first = await port('--json');
+      expect(first.stderr).toBe('');
+      expect(programs.filter((p) => existsSync(p))).toEqual(programs);
     } else await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
     mkdirSync(join(project, 'copy'));
     copyFileSync(join(project, 'ref', 'wc-lite'), join(project, 'copy', 'wc-copy'));
@@ -288,7 +295,7 @@ describe.runIf(enabled)(`examples/wc-lite (sandbox mode ${mode})`, () => {
     expect(clusters.map((c) => BAD[c.candidate - 1])).toEqual(CLUSTERED);
     for (const [i, feature] of CLUSTERED.entries()) {
       const minimized = await minimize('--json', `${runId}/${i + 1}`);
-      expect(minimized.code).toBe(1);
+      expect(minimized.code, minimized.stderr).toBe(1);
       const repro = parse<{ reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } }>(minimized);
       const { id: _id, ...invocation } = repro.case;
       expect({ feature, ...invocation }).toEqual({ feature, ...BAD_PORTS[feature]!.repro });
