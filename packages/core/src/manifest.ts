@@ -5,14 +5,14 @@ import { z } from 'zod';
 import type { BlobStore } from './blob-store.js';
 import { canonicalJson } from './canonical-json.js';
 import { ConfigError } from './config.js';
-import { FingerprintSchema, fingerprintDifferences, type Fingerprint } from './fingerprint.js';
+import { FingerprintSchema, fingerprintDifferences, type Fingerprint, type FingerprintField } from './fingerprint.js';
 import type { GeneratedCorpusSettings } from './generated-corpus.js';
 import { CaseIdSchema, type CanonicalCase, type Observation } from './model.js';
 import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
-import { defaultConcurrency, mapPool } from './pool.js';
+import { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 import { pinPrograms } from './program.js';
 import { GENERATOR_VERSIONS } from './rng.js';
-import { observeCase, sideContexts, type RunCasesOptions } from './run-cases.js';
+import { observeCase, openContainers, sideContexts, type RunCasesOptions } from './run-cases.js';
 
 /** The frozen corpus, committed: `.port-anything/MANIFEST.json`. */
 export const MANIFEST_FILE = 'MANIFEST.json';
@@ -145,11 +145,15 @@ export async function referenceObservationHashes(options: ObserveReferenceOption
   const pinOptions = options.programName === undefined ? {} : { name: options.programName };
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), [options.reference], pinOptions);
   const context = await sideContexts(workDir, [options.reference], name, sides);
-  const hashes = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
-    const caseDir = join(workDir, `slot-${slot}`);
-    const observation = await observeCase(c, caseDir, name, sides[0]!, options);
+  const containers = openContainers(options, workDir);
+  const observeOptions = { ...options, ...(containers === undefined ? {} : { containers }) };
+  const concurrency = options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(1, options.sandbox.cpus) : defaultConcurrency());
+  const hashes = await mapPool(options.cases, concurrency, async (c, _index, slot) => {
+    // In container mode the case directory's parent is a tmpfs emptied after each case.
+    const caseDir = join(workDir, `slot-${slot}`, 'case');
+    const observation = await observeCase(c, caseDir, name, sides[0]!, observeOptions);
     return observationHash(observation, { normalizers: options.normalizers ?? [], features: c.features, context: context(0, caseDir), store: options.store });
-  });
+  }).finally(() => containers?.close());
   return new Map(options.cases.map((c, i) => [c.id, hashes[i]!]));
 }
 
@@ -172,7 +176,7 @@ export interface ManifestState {
 export interface ManifestCheck {
   problems: ManifestProblem[];
   /** Fingerprint fields that differ from the manifest's; none means the check is authoritative. */
-  fingerprint: (keyof Fingerprint)[];
+  fingerprint: FingerprintField[];
 }
 
 /**
