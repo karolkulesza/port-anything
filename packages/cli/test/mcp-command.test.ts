@@ -200,7 +200,7 @@ esac
     expect((await latestRun(project))!.run_id).toBe(run.run_id);
     const next = (await backend.next()) as Extract<NextReport, { kind: 'cluster' }>;
     const repro = JSON.parse(readFileSync(reproPath(project, run.run_id, 1), 'utf8')) as { case: { id: string } };
-    expect(await backend.case(shortCaseId(repro.case.id))).toMatchObject({ case: { stdin: next.repro.stdin }, diff: [{ field: 'stdout' }] });
+    expect(await backend.case(shortCaseId(repro.case.id))).toMatchObject({ case: { stdin: next.repro.stdin }, cluster: { cluster: 1 }, diff: [{ field: 'stdout' }] });
   });
 
   it('features: per-feature parity from the latest run, with the spec\'s features and marks', async () => {

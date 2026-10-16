@@ -381,7 +381,12 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     } finally {
       await removeScratch(projectDir, workDir);
     }
-    const k = latest?.clusters.find((x) => x.candidate === candidate && x.cases.includes(id));
+    // A cluster's case, or its saved repro.
+    let k = latest?.clusters.find((x) => x.candidate === candidate && x.cases.includes(id));
+    for (const x of latest?.clusters ?? []) {
+      if (k !== undefined) break;
+      if (x.candidate === candidate && (await loadRepro(projectDir, latest!.run_id, x.cluster).catch(() => undefined))?.case.id === id) k = x;
+    }
     const { id: _, ...inline } = await inlineCase(c, store);
     return {
       id,
