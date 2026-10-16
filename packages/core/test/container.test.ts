@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -85,6 +85,14 @@ case "$1" in
   big) head -c "$2" /dev/zero ;;
   status) exit "$2" ;;
   vanish) cd / && rm -rf "$OLDPWD" ;;
+  plant)
+    # Traps for the host in the shared directory: the next case's name as a link to $2, the one
+    # after as a directory holding such a link, and a process left behind to plant more later.
+    n=$(ls /pa-io | sort -n | tail -n 1)
+    ln -s "$2" "/pa-io/$((n + 1))"
+    mkdir "/pa-io/$((n + 2))" && ln -s "$2" "/pa-io/$((n + 2))/case"
+    setsid sh -c 'sleep 2; ln -s "$1" /pa-io/late' plant "$2" >/dev/null 2>&1 &
+    ;;
 esac
 `;
 
@@ -194,9 +202,9 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       const caseDir = join(dir, 'copies-work', 'slot-0', 'case');
       const session = await pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir);
       const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
-      // Its files went before it ran.
+      // Its directory can't be made where the case says it goes.
       const lost = await session.prepare(caseDir);
-      rmSync(lost.files, { recursive: true });
+      writeFileSync(join(dirname(lost.files), 'dir'), '/no-such-dir/case\n');
       const error = await lost.run(proc('echo', 'x')).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(ContainerError);
       expect((error as Error).message).toMatch(/could not copy in the files of a case [^\n]*:\n.*No such file/);
@@ -214,7 +222,38 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     }
   }, 60_000);
 
-  it('waits for a case script the share shows late, and reports the sizes of what the case printed', async () => {
+  it('writes nothing through what a case planted in the shared directory, and kills what it left running', async () => {
+    const bin = join(dir, 'plant-bin');
+    mkdirSync(bin);
+    const tool = join(bin, 'tool');
+    writeFileSync(tool, TOOL('ref'));
+    chmodSync(tool, 0o755);
+    const victim = join(dir, 'victim');
+    mkdirSync(victim);
+    const pool = new ContainerPool({ setup: { kind: 'container', engine: engine!, image: IMAGE }, dir: join(dir, 'plant') });
+    try {
+      const caseDir = join(dir, 'plant-work', 'slot-0', 'case');
+      const session = await pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir);
+      const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
+      const planter = await session.prepare(caseDir);
+      expect((await planter.run(proc('plant', victim))).exit).toBe(0);
+      await planter.dispose();
+      for (let i = 0; i < 2; i++) {
+        const next = await session.prepare(caseDir);
+        writeFileSync(join(next.files, 'payload.txt'), 'x');
+        await expect(next.run(proc('echo', 'x'))).rejects.toThrow(/took the name of the next case's directory/);
+        await next.dispose();
+      }
+      // What it left running is gone too.
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      expect(readdirSync(join(dir, 'plant', 'session-0', 'io')).filter((name) => name === 'late')).toEqual([]);
+      expect(readdirSync(victim)).toEqual([]);
+    } finally {
+      await pool.close();
+    }
+  }, 60_000);
+
+  it('waits for the files of a case the share shows late, and reports the sizes of what the case left', async () => {
     const io = join(dir, 'late-io');
     mkdirSync(join(io, '0', 'case'), { recursive: true });
     writeFileSync(join(io, '0', 'dir'), '/w/case\n');
@@ -222,18 +261,21 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
     try {
       expect((await lines.next()).value).toBe('ready');
-      const script = 'printf hello; printf oops >&2\n';
-      // The run line comes first; the script and stdin only show up half a second later.
-      child.stdin.write(`run 0 10 1 ${Buffer.byteLength(script)} 3\n`);
+      const script = 'cd /w/case && printf hello && printf oops >&2 && echo made >sub/out.txt\n';
+      // The run line comes first; the script, stdin and a file of the case only show up half a second later.
+      child.stdin.write(`run 0 10 1 ${Buffer.byteLength(script)} 3 3 2\n`);
       await new Promise((resolve) => setTimeout(resolve, 500));
       writeFileSync(join(io, '0', 'stdin'), 'abc');
       writeFileSync(join(io, '0', 'cmd'), script);
-      expect((await lines.next()).value).toBe('done 0 0 1 5 4');
+      mkdirSync(join(io, '0', 'case', 'sub'));
+      writeFileSync(join(io, '0', 'case', 'sub', 'in.txt'), 'in');
+      // stdout, stderr, then the case directory: itself, sub/, in.txt and out.txt, 2 + 5 bytes.
+      expect((await lines.next()).value).toBe('done 0 0 1 5 4 4 7');
       // A script that never shows up in full: the runner gives up after about 2 s.
       mkdirSync(join(io, '1', 'case'), { recursive: true });
       writeFileSync(join(io, '1', 'dir'), '/w/case\n');
       writeFileSync(join(io, '1', 'cmd'), 'true\n');
-      child.stdin.write('run 1 10 1 999 -\n');
+      child.stdin.write('run 1 10 1 999 - 1 0\n');
       expect((await lines.next()).value).toBe('error 1');
     } finally {
       child.stdin.end();
