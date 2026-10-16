@@ -130,7 +130,7 @@ export {
   type FsChangesOptions,
   type FsSnapshot,
 } from './fs-diff.js';
-export { defaultConcurrency, mapPool } from './pool.js';
+export { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 export {
   COMPARED_FIELDS,
   DEFAULT_STDERR_SIMILARITY,

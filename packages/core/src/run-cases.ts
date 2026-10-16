@@ -7,7 +7,7 @@ import { classifyDiff, type FieldShape } from './diff-shape.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
 import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
-import { defaultConcurrency, mapPool } from './pool.js';
+import { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 import { caseEnvironment, runProcess } from './process-runner.js';
 import { pinPrograms, pinnedProcess, type PinnedProgram, type ResolvedProgram } from './program.js';
 import type { SandboxSetup } from './sandbox.js';
@@ -27,7 +27,10 @@ export interface RunCasesOptions {
   workDir: string;
   /** The argv[0] every side runs as (`program_name`); see `defaultProgramName` for the default. */
   programName?: string;
-  /** Cases running at once. Defaults to the number of CPU cores. */
+  /**
+   * Cases running at once. Defaults to the number of CPU cores; in sandbox mode `container`, to
+   * fewer when there are many candidates (`defaultContainerConcurrency`).
+   */
   concurrency?: number;
   timeoutMs?: number;
   outputCapBytes?: number;
@@ -124,7 +127,9 @@ export interface RunCasesResult {
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const runner = await openCaseRunner(options);
   try {
-    const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
+    const sides = 1 + options.candidates.length;
+    const concurrency = options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(sides) : defaultConcurrency());
+    const cases = await mapPool(options.cases, concurrency, async (c, _index, slot) => {
       const result = await runner.run(c, slot);
       options.onCase?.(result);
       return result;

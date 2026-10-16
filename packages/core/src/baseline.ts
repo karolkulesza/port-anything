@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Observation } from './model.js';
 import { normalizePair, type NormalizerName, type NormalizerSpec, type ScopeEntry, type SideContext } from './normalize.js';
-import { defaultConcurrency, mapPool } from './pool.js';
+import { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 import { pinPrograms } from './program.js';
 import { observeCase, openContainers, sideContexts, type RunCasesOptions } from './run-cases.js';
 
@@ -87,7 +87,7 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
   const containers = openContainers(options, workDir);
   const observeOptions = { ...options, ...(containers === undefined ? {} : { containers }) };
 
-  const runs = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
+  const runs = await mapPool(options.cases, options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(1) : defaultConcurrency()), async (c, _index, slot) => {
     const observations: Observation[] = [];
     const contexts: SideContext[] = [];
     for (let run = 0; run < repeats; run++) {
