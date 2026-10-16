@@ -271,7 +271,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
       normalizer: normalizerLabel(spec),
       cases: result.cases.filter((c) => c.candidates.some((run, i) => (candidate === undefined || i === candidate) && run.normalizedBy.includes(n))).length,
     }));
-  const waived = await waiverMatches(result, cases, waivers, store);
+  const waived = await waiverMatches(result, cases, waivers, store, commands.length);
   // Each candidate's divergences in ranked clusters, numbered through the run, candidate by candidate;
   // a waived case is left out, and a case that still diverges is clustered on the fields no waiver covers.
   const weights = featureWeights(cases);
@@ -437,10 +437,10 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
 }
 
 /** Per candidate and case, the waivers covering its diverging fields; undefined for a match. */
-async function waiverMatches(result: RunCasesResult, cases: readonly CanonicalCase[], waivers: readonly Waiver[], store: BlobStore): Promise<(WaiverMatch | undefined)[][]> {
+async function waiverMatches(result: RunCasesResult, cases: readonly CanonicalCase[], waivers: readonly Waiver[], store: BlobStore, candidates: number): Promise<(WaiverMatch | undefined)[][]> {
   const regexes = waivers.some((w) => w.match.regex !== undefined);
   const waived: (WaiverMatch | undefined)[][] = [];
-  for (const i of result.cases[0]?.candidates.keys() ?? []) {
+  for (let i = 0; i < candidates; i++) {
     waived.push(
       await Promise.all(
         result.cases.map(async (c, n) => {
@@ -573,7 +573,7 @@ async function runFreshHoldout(options: {
     await removeScratch(projectDir, workDir);
   }
   const cases = fresh.cases;
-  const waived = await waiverMatches(result, cases, waivers, store);
+  const waived = await waiverMatches(result, cases, waivers, store, options.scores.length);
   const failing = new Set<string>();
   const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {
     const score = scoreCandidate(scoredCases(result, cases, waived[i]!, i, flaky), { minCasesPerFeature: 1 });

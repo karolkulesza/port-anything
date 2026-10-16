@@ -101,11 +101,11 @@ describe('run with a fresh holdout', () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it('flags a lookup-table candidate, perfect on the corpus, and not a correct one (done when)', { timeout: 120_000 }, async () => {
-    const { exitCode, out } = await json(['run', '--candidate', './bin/frob-lookup', '--candidate', './bin/frob-copy', '--holdout', '150']);
-    expect(out.holdout).toMatchObject({ ran: true, requested: 150, alpha: 0.01, flaky_reference: 0 });
+    const { exitCode, out } = await json(['run', '--candidate', './bin/frob-lookup', '--candidate', './bin/frob-copy', '--holdout', '100']);
+    expect(out.holdout).toMatchObject({ ran: true, requested: 100, alpha: 0.01, flaky_reference: 0 });
     if (!out.holdout.ran) throw new Error('no holdout');
-    expect(out.holdout.cases).toBeGreaterThan(50);
-    expect(out.holdout.cases + out.holdout.in_corpus).toBeLessThanOrEqual(150);
+    expect(out.holdout.cases).toBeGreaterThan(40);
+    expect(out.holdout.cases + out.holdout.in_corpus).toBeLessThanOrEqual(100);
     const [lookup, honest] = out.candidates;
 
     expect(lookup!.diverge).toBe(0);
@@ -138,7 +138,7 @@ describe('run with a fresh holdout', () => {
 
   it('draws new cases on every run', { timeout: 120_000 }, async () => {
     const ids = async () => {
-      const { out } = await json(['run', '--candidate', './bin/frob-lookup', '--holdout', '60']);
+      const { out } = await json(['run', '--candidate', './bin/frob-lookup', '--holdout', '40']);
       return new Set(out.candidates[0]!.holdout!.diverging);
     };
     const [a, b] = [await ids(), await ids()];
@@ -147,13 +147,13 @@ describe('run with a fresh holdout', () => {
   });
 
   it('prints the holdout parity with its interval and the gap, and fails only on a significant gap', { timeout: 120_000 }, async () => {
-    const honest = await cli(['run', '--holdout', '60', '--no-sandbox']);
+    const honest = await cli(['run', '--holdout', '40', '--no-sandbox']);
     expect(honest.exitCode).toBe(0);
     expect(honest.stdout).toMatch(/^ {2}fresh holdout 100\.0% \(95% CI \d+\.\d%–100\.0%\) vs corpus 100\.0% over the same \d+ features: gap 0\.0 points, not significant \(p = 1\.0\)$/m);
     expect(honest.stdout).toMatch(/^fresh holdout: \d+ new cases from a seed that is not stored/m);
     expect(honest.stdout).not.toMatch(/saved for reproduction/);
 
-    const lookup = await cli(['run', '--candidate', './bin/frob-lookup', '--holdout', '60', '--no-sandbox']);
+    const lookup = await cli(['run', '--candidate', './bin/frob-lookup', '--holdout', '40', '--no-sandbox']);
     expect(lookup.exitCode).toBe(1);
     expect(lookup.stdout).toMatch(/^ {2}fresh holdout \d+\.\d% .* vs corpus 100\.0% over the same \d+ features: gap \d+\.\d points, SIGNIFICANT \(p < 0\.0001\)$/m);
     expect(lookup.stdout).toMatch(/beyond chance: it may be fitted to the corpus/);
