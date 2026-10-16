@@ -160,6 +160,17 @@ export {
   type ScoreOptions,
   type ScoredCase,
 } from './score.js';
+export {
+  DEFAULT_FRESH_CASES,
+  DEFAULT_GAP_ALPHA,
+  freshHoldoutSeed,
+  holdoutGap,
+  holdoutSettings,
+  normalCdf,
+  type GapFeature,
+  type HoldoutGap,
+  type HoldoutSettings,
+} from './holdout.js';
 export { measureSlowdown, type Slowdown, type TimedCase } from './slowdown.js';
 export {
   DEFAULT_MINIMIZE_RUNS,
