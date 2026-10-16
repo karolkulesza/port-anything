@@ -165,6 +165,7 @@ export {
 export {
   DEFAULT_FRESH_CASES,
   DEFAULT_GAP_ALPHA,
+  MIN_GAP_CASES,
   freshHoldoutSeed,
   gapCluster,
   generateFreshHoldout,

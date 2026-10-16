@@ -54,8 +54,7 @@ export interface FreshHoldout {
 /**
  * A fresh holdout: cases generated the way the corpus is (same CLI spec, generator, error-path
  * cap and per-feature minimum, so they are spread over the features the same way, round-robin and
- * topped up per feature), from a new seed, minus the cases the corpus already has. Argv cases
- * repeat across seeds often; byte mutants of their inputs rarely do.
+ * topped up per feature), from a new seed, minus the few cases the corpus already has.
  */
 export async function generateFreshHoldout(spec: CliSpec, options: GenerateHoldoutOptions): Promise<FreshHoldout> {
   const { seed, cases: budget, corpus, ...rest } = options;
@@ -154,25 +153,32 @@ function clusteredVariance(cases: readonly GapCase[], counts: ReadonlyMap<string
   return { variance: g > 1 ? (g / (g - 1)) * (squares / (k * k)) : 0, clusters: g };
 }
 
+/** Scored cases a feature needs on each side to be compared: fewer say next to nothing about its parity. */
+export const MIN_GAP_CASES = 5;
+
 /**
  * The gap between a candidate's corpus parity and its fresh-holdout parity, tested one-sided: is
  * the corpus better than chance allows? Both sides are cases generated the same way (the caller
- * passes byte mutants only: argv cases repeat across seeds and their share depends on the budget,
- * so they aren't comparable). The gap is the mean over features of (corpus parity - holdout
- * parity), the same mean of per-feature parity the headline takes, over the features asked for
- * that both sides have a scored case of; comparing feature by feature means a holdout that hits
- * the features in other proportions doesn't move it. Its variance under the null hypothesis (each
- * feature's parity the same on both sides) is cluster-robust: cases deviate from the feature's
- * pooled parity, and deviations add up within a cluster (see `gapCluster`), since cases of one
- * parent fail together; the p-value comes from Student's t with one degree of freedom less than the
- * smaller side's clusters. With every case its own cluster this is the pooled two-proportion test.
+ * passes byte mutants only: argv cases take a share of a corpus that depends on its budget, so
+ * they aren't comparable). The gap is the mean over features of (corpus parity - holdout parity),
+ * the same mean of per-feature parity the headline takes, over the features asked for that have
+ * at least `minCases` (default `MIN_GAP_CASES`) scored cases on each side;
+ * comparing feature by feature means a holdout that hits the features in other proportions doesn't
+ * move it. Its variance under the null hypothesis (each feature's parity the same on both sides)
+ * is cluster-robust: cases deviate from the feature's pooled parity, and deviations add up within a
+ * cluster (see `gapCluster`), since cases of one parent fail together. The gap is reduced by a
+ * continuity correction (half a case per side and feature) and the p-value comes from Student's t
+ * with one degree of freedom less than the smaller side's clusters. With every case its own
+ * cluster this is the pooled two-proportion test with Yates's correction.
  */
-export function holdoutGap(corpus: readonly GapCase[], holdout: readonly GapCase[], options: { alpha: number; features: ReadonlySet<string> }): HoldoutGap {
+export function holdoutGap(corpus: readonly GapCase[], holdout: readonly GapCase[], options: { alpha: number; features: ReadonlySet<string>; minCases?: number }): HoldoutGap {
   const { alpha } = options;
   if (!(alpha > 0 && alpha < 1)) throw new RangeError(`alpha must be between 0 and 1, not ${alpha}`);
   const c = tally(corpus, options.features);
   const h = tally(holdout, options.features);
-  const names = [...c.keys()].filter((f) => h.has(f)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const minCases = options.minCases ?? MIN_GAP_CASES;
+  const enough = (t: { scored: number } | undefined) => t !== undefined && t.scored >= minCases;
+  const names = [...c.keys()].filter((f) => enough(c.get(f)) && enough(h.get(f))).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const features: GapFeature[] = names.map((feature) => ({ feature, corpus: c.get(feature)!, holdout: h.get(feature)! }));
   const k = features.length;
   if (k === 0) return { features, corpus: null, holdout: null, gap: null, pValue: null, alpha, significant: false, clusters: { corpus: 0, holdout: 0 } };
@@ -189,8 +195,15 @@ export function holdoutGap(corpus: readonly GapCase[], holdout: readonly GapCase
   const b = clusteredVariance(holdout, hh, pooled);
   const se = Math.sqrt(a.variance + b.variance);
   const df = Math.max(1, Math.min(a.clusters, b.clusters) - 1);
-  // With no variance, every feature is at 0% or 100% on both sides alike, so the gap is 0.
-  const pValue = se > 0 ? 1 - studentTCdf(gap / se, df) : gap > 0 ? 0 : 1;
+  // Continuity correction (Yates), per feature: half a case on each side. Without it, a gap of a
+  // fraction of a case reads as significant when parity is near 0% or 100% on both sides, and a
+  // small holdout of a large CLI, whose few mutants count in a feature mostly through parents that
+  // carry dozens of features, reads a difference in that mix as a gap. It makes the test
+  // conservative when cases are independent.
+  const correction = features.reduce((sum, f) => sum + 0.5 * (1 / f.corpus.scored + 1 / f.holdout.scored), 0) / k;
+  const corrected = gap > 0 ? Math.max(0, gap - correction) : gap;
+  // With no variance, every feature is at 0% or 100% on both sides alike.
+  const pValue = se > 0 ? 1 - studentTCdf(corrected / se, df) : corrected > 0 ? 0 : 1;
   return { features, corpus: corpusParity, holdout: holdoutParity, gap, pValue, alpha, significant: pValue < alpha, clusters: { corpus: a.clusters, holdout: b.clusters } };
 }
 

@@ -6,6 +6,7 @@ import { generateCorpus, type ObserveReference } from '../src/corpus-generator.j
 import {
   DEFAULT_FRESH_CASES,
   DEFAULT_GAP_ALPHA,
+  MIN_GAP_CASES,
   freshHoldoutSeed,
   gapCluster,
   generateFreshHoldout,
@@ -109,6 +110,27 @@ describe('holdoutGap', () => {
     expect(holdoutGap(side({ 'opt.a': { n: 20, match: 20 } }), excluded, { alpha: 0.01, features: all('opt.a') }).features).toEqual([]);
   });
 
+  it(`needs ${MIN_GAP_CASES} scored cases per feature on each side`, () => {
+    const corpus = side({ 'opt.a': { n: 40, match: 40 }, 'opt.b': { n: 4, match: 4 } });
+    const compared = holdoutGap(corpus, side({ 'opt.a': { n: 4, match: 0 }, 'opt.b': { n: 40, match: 0 } }), { alpha: 0.01, features: all('opt.a', 'opt.b') });
+    expect(compared).toMatchObject({ features: [], gap: null, significant: false });
+    expect(holdoutGap(corpus, side({ 'opt.a': { n: 4, match: 0 } }), { alpha: 0.01, features: all('opt.a'), minCases: 4 }).features.map((f) => f.feature)).toEqual(['opt.a']);
+  });
+
+  it('does not read a gap of a fraction of a case as significant when parity is near 0% on both sides', () => {
+    // 1 match in 500 on the corpus, none of 40 in the holdout, in each of 30 features, the
+    // corpus's match being the same case: without the continuity correction p is about 0.003.
+    const features = Array.from({ length: 30 }, (_, f) => `opt.f${f}`);
+    const corpus: GapCase[] = [
+      { features, cluster: 'lucky', outcome: 'match' },
+      ...features.flatMap((f) => Array.from({ length: 499 }, (_, i): GapCase => ({ features: [f], cluster: `c${f}-${i % 100}`, outcome: 'diverge' }))),
+    ];
+    const holdout = features.flatMap((f) => Array.from({ length: 40 }, (_, i): GapCase => ({ features: [f], cluster: `h${f}-${i % 20}`, outcome: 'diverge' })));
+    const gap = holdoutGap(corpus, holdout, { alpha: 0.05, features: new Set(features) });
+    expect(gap.gap).toBeCloseTo(0.002);
+    expect(gap.significant).toBe(false);
+  });
+
   it('counts a case without tags in base, as scoring does', () => {
     const untagged: GapCase[] = Array.from({ length: 10 }, (_, i) => ({ features: [], cluster: `u${i}`, outcome: 'diverge' }));
     const gap = holdoutGap(side({ base: { n: 20, match: 20 } }), untagged, { alpha: 0.01, features: all('base') });
@@ -118,9 +140,9 @@ describe('holdoutGap', () => {
 
   it('weighs a cluster of cases that fail together as less evidence than as many independent cases', () => {
     const corpus = { 'opt.a': { n: 200, match: 190 } };
-    const fresh = { 'opt.a': { n: 100, match: 85 } };
+    const fresh = { 'opt.a': { n: 100, match: 75 } };
     const independent = holdoutGap(side(corpus), side(fresh), { alpha: 0.01, features: all('opt.a') });
-    // The same counts, the 15 failures being 3 parents' mutants of 5 each.
+    // The same counts, the cases being 20 parents' mutants of 5 each.
     const grouped = holdoutGap(side(corpus), side(fresh, 5), { alpha: 0.01, features: all('opt.a') });
     expect(independent.significant).toBe(true);
     expect(grouped.pValue!).toBeGreaterThan(independent.pValue!);
@@ -147,10 +169,9 @@ describe('holdoutGap', () => {
       }
       return alarms / trials;
     };
-    // Independent cases: the pooled two-proportion test, calibrated.
-    const independent = rate(1500, 0.05, 40, 1, 0);
-    expect(independent).toBeGreaterThan(0.025);
-    expect(independent).toBeLessThan(0.08);
+    // Independent cases: the pooled two-proportion test with Yates's correction, which errs on the
+    // side of not flagging.
+    expect(rate(1500, 0.05, 40, 1, 0)).toBeLessThan(0.06);
     // Clusters of 6 whose parity varies widely: still at most about alpha.
     expect(rate(1500, 0.05, 10, 6, 1)).toBeLessThan(0.08);
   }, 60_000);
@@ -294,6 +315,49 @@ describe('fresh holdout across 100 seeds', () => {
     expect(flagged.correct).toBe(0);
     // About 1 each at alpha 0.01; 5 or more would mean the test is not calibrated.
     for (const name of Object.keys(candidates).filter((n) => n !== 'lookup' && n !== 'correct')) expect(flagged[name], name).toBeLessThan(5);
+  });
+
+  // A large CLI: the generator spends most of a 700-case holdout on argv cases, leaving about one
+  // byte mutant per two features, and pairwise cases carry dozens of features each.
+  it('stays calibrated on a large CLI with few byte-mutated cases per feature', { timeout: 300_000 }, async () => {
+    const flags = [
+      ...Array.from({ length: 120 }, (_, j) => ({ names: [`--b${j}`], feature: `opt.b${j}`, arity: 0 as const })),
+      ...Array.from({ length: 40 }, (_, j) => ({ names: [`--i${j}`], feature: `opt.i${j}`, arity: 1 as const, values: [{ name: 'N', type: 'int' as const }] })),
+      ...Array.from({ length: 20 }, (_, j) => ({ names: [`--e${j}`], feature: `opt.e${j}`, arity: 1 as const, values: [{ name: 'W', type: 'enum' as const, choices: ['x', 'y', 'z'] }] })),
+    ];
+    const large = parseCliSpec({ version: 1, program: 'frob', flags, forms: [{ usage: 'frob [OPTION]... [FILE]...', args: [{ name: 'FILE', type: 'path', arity: '*' }] }] });
+    const corpus = await generateCorpus(large, { ...generator, seed: 42, budget: 1000 });
+    const blobs = new Map(corpus.blobs);
+    const ids = new Set(corpus.cases.map((c) => c.case.id));
+    const corpusMutants = corpus.cases.filter((c) => c.strategy === 'mutation').map((c) => c.case);
+    const features = new Set(corpus.cases.flatMap((c) => (c.case.features.length === 0 ? ['base'] : c.case.features)));
+    const input = (c: CanonicalCase) => [c.stdin, ...Object.values(c.fixtures)].flatMap((ref) => (ref === null ? [] : [blobs.get(ref)!]));
+    const candidates: Record<string, (c: CanonicalCase) => boolean> = {
+      lookup: (c) => ids.has(c.id),
+      'wrong with 5 or more arguments': (c) => c.argv.length < 5,
+      'wrong with 4 or more arguments': (c) => c.argv.length < 4,
+      'wrong with an int flag': (c) => !c.argv.some((a) => a.startsWith('--i')),
+      'wrong on inputs over 30 bytes': (c) => !input(c).some((b) => b.length > 30),
+      'wrong on 1 case in 8': (c) => Number.parseInt(c.id.slice(-2), 16) % 8 !== 0,
+    };
+    const flagged = Object.fromEntries(Object.keys(candidates).map((name) => [name, 0]));
+    let mutants = 0;
+    const trials = 30;
+    for (let seed = 2000; seed < 2000 + trials; seed++) {
+      const holdout = await generateFreshHoldout(large, { ...generator, seed, cases: 700, corpus: ids });
+      for (const [ref, bytes] of holdout.blobs) blobs.set(ref, bytes);
+      const fresh = holdout.cases.filter((_, i) => holdout.strategies[i] === 'mutation');
+      mutants += fresh.length;
+      for (const [name, right] of Object.entries(candidates)) {
+        // At alpha 0.05, so that a test running hot shows within 30 seeds.
+        if (holdoutGap(gapCases(corpusMutants, right), gapCases(fresh, right), { alpha: 0.05, features }).significant) flagged[name]!++;
+      }
+    }
+    expect(features.size).toBeGreaterThan(150);
+    expect(mutants / trials).toBeLessThan(features.size);
+    expect(flagged.lookup).toBeGreaterThanOrEqual(trials - 2);
+    // About 1.5 each at alpha 0.05; 5 or more of 30 would mean the test runs hot.
+    for (const name of Object.keys(candidates).filter((n) => n !== 'lookup')) expect(flagged[name], name).toBeLessThan(5);
   });
 
   it('spreads the holdout over every feature, like the corpus', async () => {
