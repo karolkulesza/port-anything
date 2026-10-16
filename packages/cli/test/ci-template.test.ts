@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BlobStore, cacheDir, findContainerEngine, readConfigFile } from '@port-anything/core';
+import { BlobStore, cacheDir, findContainerEngine, readConfigFile, writeManifest } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { CI_WORKFLOW_FILE, ciWorkflow, codeownersLines } from '../src/ci-template.js';
@@ -43,6 +43,7 @@ describe('ciWorkflow', () => {
 
     const nested = parse(ciWorkflow({ project: 'tools/port', version: TOOL_VERSION })) as Workflow;
     expect(nested.jobs.parity.defaults).toEqual({ run: { 'working-directory': 'tools/port' } });
+    expect((parse(ciWorkflow({ project: '.', version: TOOL_VERSION, runner: 'ubuntu-24.04-arm' })) as Workflow).jobs.parity['runs-on']).toBe('ubuntu-24.04-arm');
     expect(nested.jobs.parity.steps.at(-1)!.with!.path).toBe(
       'tools/port/port-anything-report.html\ntools/port/port-anything-report.json\ntools/port/port-anything-badge*.svg\ntools/port/.port-anything/runs/\n',
     );
@@ -74,12 +75,17 @@ const inLinuxCi = process.env.CI !== undefined && process.platform === 'linux';
 describe.runIf(actionlint !== undefined || inLinuxCi)('the workflow init --ci writes', () => {
   it('passes actionlint, at the root of the repository and for a project in a subdirectory (done when)', { timeout: 300_000 }, async () => {
     if (actionlint === undefined) throw new Error('actionlint needs actionlint on the PATH, or Docker or Podman for its image.');
-    for (const project of ['.', 'tools/port']) {
+    for (const [project, arch] of [['.', 'amd64'], ['tools/port', 'arm64']] as const) {
       const repo = realpathSync(mkdtempSync(join(tmpdir(), 'pa-ci-lint-')));
       try {
         mkdirSync(join(repo, '.git'));
-        const result = await run(['init', project, '--ref', 'sort', '--ci'], { cwd: repo });
+        const result = await run(['init', project, '--ref', 'sort'], { cwd: repo });
         expect(result.exitCode).toBe(0);
+        // The arm64 runner label too, which the workflow gets for a manifest frozen on arm64.
+        const fingerprint = { mode: 'container' as const, image: `sha256:${'a'.repeat(64)}`, arch, locale: null };
+        await writeManifest(join(repo, project), { version: 1, tool_version: TOOL_VERSION, generator: null, normalizers: [], fingerprint, cases: [] });
+        expect((await run(['init', project, '--ci'], { cwd: repo })).exitCode).toBe(0);
+        expect(readFileSync(join(repo, CI_WORKFLOW_FILE), 'utf8')).toContain(`runs-on: ${arch === 'arm64' ? 'ubuntu-24.04-arm' : 'ubuntu-latest'}\n`);
         const lint = actionlint(repo);
         expect(lint.output).toBe('');
         expect(lint.status).toBe(0);

@@ -126,6 +126,7 @@ describe('verifyCommand', () => {
 
   it('only warns when the environment fingerprint differs', async () => {
     await editManifest((m) => {
+      expect(m.fingerprint.mode).toBe('local');
       if (m.fingerprint.mode === 'local') m.fingerprint.os = 'linux some-other-distro 1';
       caseOf(m, 'stable').observation = `sha256:${'0'.repeat(64)}`;
     });

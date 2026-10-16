@@ -22,6 +22,19 @@ export function projectPath(root: string, projectDir: string): string {
   return path === '' ? '.' : path;
 }
 
+/** The GitHub-hosted runner the workflow runs on unless the manifest was frozen on arm64. */
+export const DEFAULT_CI_RUNNER = 'ubuntu-latest';
+
+/**
+ * The GitHub-hosted Linux runner of an architecture as the container engine names it, so that CI
+ * runs the image's same platform as the machine that froze the manifest; undefined when there is none.
+ */
+export function ciRunner(arch: string): string | undefined {
+  if (arch === 'amd64' || arch === 'x86_64') return DEFAULT_CI_RUNNER;
+  if (arch === 'arm64' || arch === 'aarch64') return 'ubuntu-24.04-arm';
+  return undefined;
+}
+
 /**
  * The GitHub Actions workflow `init --ci` writes. It recomputes the score from scratch on every
  * push and pull request, with this version of port-anything: `verify` (exit 2 when the cases or
@@ -30,8 +43,8 @@ export function projectPath(root: string, projectDir: string): string {
  * fails on parity below `compare.min_parity` or a significant holdout gap. The report is uploaded
  * whatever the outcome. The holdout's own parity is never held to a threshold: a new seed moves it.
  */
-export function ciWorkflow(options: { project: string; version: string }): string {
-  const { project, version } = options;
+export function ciWorkflow(options: { project: string; version: string; runner?: string }): string {
+  const { project, version, runner = DEFAULT_CI_RUNNER } = options;
   const npx = `npx --yes port-anything@${version}`;
   const inProject = project === '.' ? '' : `${project}/`;
   const defaults =
@@ -49,7 +62,8 @@ export function ciWorkflow(options: { project: string; version: string }): strin
 #   - a candidate does better on the corpus than on a fresh holdout generated from a seed that is
 #     never stored, by more than chance allows (holdout.gap_alpha).
 # Cases run in sandbox mode container, in the committed sandbox.image, so the environment
-# fingerprint is the one the manifest was frozen with.
+# fingerprint is the one the manifest was frozen with: same image digest, and a runner of the
+# same architecture.
 name: port-anything
 
 on:
@@ -63,7 +77,7 @@ permissions:
 jobs:
   parity:
     name: parity
-    runs-on: ubuntu-latest${defaults}
+    runs-on: ${runner}${defaults}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

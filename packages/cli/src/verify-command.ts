@@ -124,7 +124,11 @@ async function execute(args: VerifyArgs, { cwd, probe }: { cwd: string; probe?: 
   return {
     exitCode: 0,
     stdout: `${lines.join('\n')}\n`,
-    stderr: `port-anything verify: warning: ${plural} from the manifest, but the environment differs (${check.fingerprint.join(', ')}); re-baseline or use container mode.\n`,
+    stderr: `port-anything verify: warning: ${plural} from the manifest, but the environment differs (${check.fingerprint.join(', ')}); ${
+      manifest.fingerprint.mode === 'container' && fingerprint.mode === 'container'
+        ? 'run where the manifest was frozen (the same image digest and architecture; pin sandbox.image by digest), or re-baseline.'
+        : 're-baseline or use container mode.'
+    }\n`,
   };
 }
 
