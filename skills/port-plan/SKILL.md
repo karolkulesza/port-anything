@@ -82,7 +82,7 @@ Order the work so each step builds on the previous one and the parity rises stea
    per line with a `features` list), for example:
 
    ```sh
-   cat port-anything/recorded/*.jsonl | jq -r '.features[]' | sort | uniq -c | sort -rn
+   cat port-anything/recorded/*.jsonl | jq -r '.features[]?' | sort | uniq -c | sort -rn
    ```
 
    Without recorded cases, use the generated corpus: the per-feature case counts of a run
