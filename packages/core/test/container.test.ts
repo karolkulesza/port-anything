@@ -1,11 +1,12 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, shellQuote } from '../src/container.js';
+import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, RUNNER_SCRIPT, shellQuote } from '../src/container.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { NormalizersSchema } from '../src/normalize.js';
 import { resolveProgram, type ResolvedProgram } from '../src/program.js';
@@ -210,6 +211,33 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       await fine.dispose();
     } finally {
       await pool.close();
+    }
+  }, 60_000);
+
+  it('waits for a case script the share shows late, and reports the sizes of what the case printed', async () => {
+    const io = join(dir, 'late-io');
+    mkdirSync(join(io, '0', 'case'), { recursive: true });
+    writeFileSync(join(io, '0', 'dir'), '/w/case\n');
+    const child = spawn(engine!, ['run', '--rm', '-i', '--tmpfs', '/w', '-v', `${io}:/pa-io`, '--entrypoint', '/bin/sh', IMAGE, '-c', RUNNER_SCRIPT]);
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    try {
+      expect((await lines.next()).value).toBe('ready');
+      const script = 'printf hello; printf oops >&2\n';
+      // The run line comes first; the script and stdin only show up half a second later.
+      child.stdin.write(`run 0 10 1 ${Buffer.byteLength(script)} 3\n`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      writeFileSync(join(io, '0', 'stdin'), 'abc');
+      writeFileSync(join(io, '0', 'cmd'), script);
+      expect((await lines.next()).value).toBe('done 0 0 1 5 4');
+      // A script that never shows up in full: the runner gives up after about 2 s.
+      mkdirSync(join(io, '1', 'case'), { recursive: true });
+      writeFileSync(join(io, '1', 'dir'), '/w/case\n');
+      writeFileSync(join(io, '1', 'cmd'), 'true\n');
+      child.stdin.write('run 1 10 1 999 -\n');
+      expect((await lines.next()).value).toBe('error 1');
+    } finally {
+      child.stdin.end();
+      child.kill();
     }
   }, 60_000);
 });

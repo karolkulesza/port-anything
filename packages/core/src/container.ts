@@ -36,20 +36,28 @@ const IO_DIR = '/pa-io';
  * The host prepares each case in a new directory `<IO_DIR>/<n>`: the case directory's path (`dir`),
  * its files (`case/`), the script to run (`cmd`) and maybe `stdin`. Only new names cross the mount
  * from the host: Docker Desktop's file sharing may show a container the old content of a path the
- * host rewrote. For each `run <n> <timeout s> <grace s>` line, the runner copies the files to the
- * case directory, on the tmpfs, runs the script in a session of its own with stdout and stderr in
- * files, and a watchdog that sends SIGTERM to the case's process group at the timeout, then SIGKILL
- * after the grace period. Once the case has exited and whatever it left running has been killed,
- * it copies the case directory back (`result/`) and answers `done <status> <1 if timed out>`. As
- * under bwrap, a signal death is the shell's exit status 128 + n. When it can't copy the case's files
- * in, it answers `error <n>` instead; either way, what `cp` said is in `cp-error`.
+ * host rewrote. For each `run <n> <timeout s> <grace s> <cmd bytes> <stdin bytes or ->` line, the
+ * runner waits until it sees `cmd` and `stdin` in full (the share can lag behind the host on a busy
+ * machine; it tries for about 2 s), copies the files to the case directory, on the tmpfs, runs the
+ * script in a session of its own with stdout and stderr in files, and a watchdog that sends SIGTERM
+ * to the case's process group at the timeout, then SIGKILL after the grace period. Once the case has
+ * exited and whatever it left running has been killed, it copies the case directory back (`result/`)
+ * and answers `done <status> <1 if timed out> <1 if copied back> <stdout bytes> <stderr bytes>`, so
+ * the host can wait until it sees the same. As under bwrap, a signal death is the shell's exit
+ * status 128 + n. When it can't copy the case's files in, it answers `error <n>` instead; either
+ * way, what `cp` said is in `cp-error`.
  */
 export const RUNNER_SCRIPT = [
   'echo ready',
-  'while read -r cmd n t g; do',
+  'while read -r cmd n t g cs ss; do',
   '  [ "$cmd" = run ] || exit 0',
   `  i=${IO_DIR}/$n`,
-  '  if ! { IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c"; } 2>"$i/cp-error"; then echo "error $n"; continue; fi',
+  '  k=0',
+  '  until { [ "$(wc -c <"$i/cmd")" -eq "$cs" ] && { [ "$ss" = - ] || [ "$(wc -c <"$i/stdin")" -eq "$ss" ]; } &&',
+  '    IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c"; } 2>"$i/cp-error"; do',
+  '    k=$((k + 1)); [ "$k" -lt 20 ] || break; sleep 0.1',
+  '  done',
+  '  if [ "$k" -ge 20 ]; then echo "error $n"; continue; fi',
   '  setsid sh "$i/cmd" >"$i/out" 2>"$i/err" &',
   '  pid=$!',
   `  setsid sh -c 'sleep "$1"; : >"$4"; kill -15 "-$3"; sleep "$2"; kill -9 "-$3"' watchdog "$t" "$g" "$pid" "$i/timedout" >/dev/null 2>&1 &`,
@@ -59,11 +67,24 @@ export const RUNNER_SCRIPT = [
   '  kill -9 "-$wd" "-$pid" 2>/dev/null',
   '  wait "$wd" 2>/dev/null',
   '  if [ -e "$i/timedout" ]; then to=1; else to=0; fi',
-  '  cp -a "$c" "$i/result" 2>"$i/cp-error"',
+  '  if cp -a "$c" "$i/result" 2>"$i/cp-error"; then r=1; else r=0; fi',
   '  rm -rf "$c"',
-  '  echo "done $status $to"',
+  '  echo done "$status" "$to" "$r" $(wc -c <"$i/out") $(wc -c <"$i/err")',
   'done',
 ].join('\n');
+
+/** How long the host waits for the share to show it what a container wrote, in ms. */
+const SETTLE_MS = 10_000;
+
+/** Calls `get` until `done` accepts its value or `ms` have passed (then returns the last value). */
+async function settle<T>(get: () => Promise<T>, done: (value: T) => boolean, ms: number): Promise<T> {
+  const until = performance.now() + ms;
+  for (;;) {
+    const value = await get();
+    if (done(value) || performance.now() >= until) return value;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 
 /** Quotes a word for `sh`: single quotes, each `'` written as `'\''`. */
 export function shellQuote(word: string): string {
@@ -353,28 +374,46 @@ export class ContainerSession {
     const graceMs = limits.killGraceMs ?? this.options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
     const cap = limits.outputCapBytes ?? this.options.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES;
     const dir = join(this.io, String(n));
-    await writeFile(join(dir, 'cmd'), caseScript(proc, cap, `${IO_DIR}/${n}/stdin`));
-    if (proc.stdin !== undefined && proc.stdin !== null) await writeFile(join(dir, 'stdin'), proc.stdin);
+    const script = caseScript(proc, cap, `${IO_DIR}/${n}/stdin`);
+    await writeFile(join(dir, 'cmd'), script);
+    const hasStdin = proc.stdin !== undefined && proc.stdin !== null;
+    if (hasStdin) await writeFile(join(dir, 'stdin'), proc.stdin!);
+    const sizes = `${Buffer.byteLength(script)} ${hasStdin ? Buffer.byteLength(proc.stdin!) : '-'}`;
     const started = performance.now();
-    this.child.stdin.write(`run ${n} ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)}\n`);
+    this.child.stdin.write(`run ${n} ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)} ${sizes}\n`);
     // The watchdog in the container stops the case; this only guards against a stuck container.
     const line = await this.nextLine(timeoutMs + graceMs + 60_000);
     const wall = performance.now() - started;
-    const failed = async () => (await readFile(join(dir, 'cp-error'), 'utf8').catch(() => '')).trim() || 'no message';
+    const failed = async () => {
+      // What cp said, once the share shows it.
+      const message = await settle(async () => (await readFile(join(dir, 'cp-error'), 'utf8').catch(() => '')).trim(), (m) => m !== '', SETTLE_MS / 5);
+      return message || this.stderr.trim() || 'no message';
+    };
     if (line === `error ${n}`) throw new ContainerError(`The container ${this.name} could not copy in the files of a case (${this.options.setup.image}):\n${await failed()}`);
-    const match = line === undefined ? null : /^done (\d+) ([01])$/.exec(line);
+    const match = line === undefined ? null : /^done (\d+) ([01]) ([01]) (\d+) (\d+)$/.exec(line);
     if (match === null) {
       this.forceRemove();
       throw new ContainerError(`The container ${this.name} stopped answering (${this.options.setup.image}):\n${this.stderr.trim() || line || 'no output'}`);
     }
+    if (match[3] !== '1') {
+      throw new ContainerError(`The container ${this.name} could not copy back the directory of a case (${this.options.setup.image}):\n${await failed()}`);
+    }
+    // The share can lag behind the container: wait until the host sees what the runner reported.
+    const [outBytes, errBytes] = [Number(match[4]), Number(match[5])];
+    const size = (file: string) => stat(join(dir, file)).then((s) => s.size, () => -1);
+    const seen = await settle(
+      async () => (await size('out')) === outBytes && (await size('err')) === errBytes && (await stat(join(dir, 'result')).then((s) => s.isDirectory(), () => false)),
+      (ok) => ok,
+      SETTLE_MS,
+    );
+    if (!seen) {
+      throw new ContainerError(`The host did not see the output of a case in ${this.name} within ${SETTLE_MS / 1000} s (${outBytes} bytes of stdout, ${errBytes} of stderr, and its directory).`);
+    }
     const read = async (file: string) => {
-      const data = await readFile(join(dir, file)).catch(() => Buffer.alloc(0));
+      const data = await readFile(join(dir, file));
       return { data: data.length > cap ? data.subarray(0, cap) : data, truncated: data.length > cap };
     };
     const [stdout, stderr] = await Promise.all([read('out'), read('err')]);
-    if (!(await stat(join(dir, 'result')).then((s) => s.isDirectory(), () => false))) {
-      throw new ContainerError(`The container ${this.name} could not copy back the directory of a case (${this.options.setup.image}):\n${await failed()}`);
-    }
     return {
       exit: Number(match[1]),
       signal: null,
