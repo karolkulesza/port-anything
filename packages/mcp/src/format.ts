@@ -1,5 +1,5 @@
 import { LARGE_WAIVER_SHARE, type InlineContent } from '@port-anything/core';
-import type { ClusterSummary, FieldDiff, NextReport, RunDelta, StatusReport } from './types.js';
+import type { CaseReport, ClusterSummary, FeaturesReport, FieldDiff, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
 
 // The tools answer an agent, so their text is short and bounded: long commands, signatures and
 // feature lists are cut, and lists stop after a few items. `status` stays within a few hundred tokens.
@@ -105,6 +105,11 @@ function content(c: InlineContent): string {
   return text.length <= REPRO_CHARACTERS ? text : `${cut(text, REPRO_CHARACTERS)} (${c.length} chars)`;
 }
 
+/** A line as is, or as a JSON string when it holds a character that wouldn't show; cut. */
+function showLine(line: string): string {
+  return cut(/^[ -~]*$/.test(line) && !/\s$/.test(line) ? line : JSON.stringify(line), LINE_CHARACTERS);
+}
+
 /**
  * A compact line diff of two texts: the unchanged lines at the start and end are left out (but a
  * couple before the change, for context), then the reference's lines (`-`) and the candidate's
@@ -119,7 +124,7 @@ export function lineDiff(reference: string, candidate: string): string[] {
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let end = 0;
   while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
-  const show = (line: string) => cut(/^[ -~]*$/.test(line) && !/\s$/.test(line) ? line : JSON.stringify(line), LINE_CHARACTERS);
+  const show = showLine;
   const side = (lines: string[], mark: string) => {
     const shown = lines.slice(0, DIFF_LINES).map((l) => `${mark} ${show(l)}`);
     if (lines.length > DIFF_LINES) shown.push(`${mark} … ${lines.length - DIFF_LINES} more lines`);
@@ -127,6 +132,15 @@ export function lineDiff(reference: string, candidate: string): string[] {
   };
   const context = a.slice(Math.max(0, start - CONTEXT_LINES), start).map((l) => `  ${show(l)}`);
   return [`@@ line ${start + 1}`, ...context, ...side(a.slice(start, a.length - end), '-'), ...side(b.slice(start, b.length - end), '+')];
+}
+
+/** A case as a shell line, with its variables, files and stdin, indented. */
+function invocationLines(programName: string, c: ReproCase): string[] {
+  const lines = [`  $ ${[programName, ...c.argv].map(shellWord).join(' ')}`];
+  for (const [name, value] of Object.entries(c.env)) lines.push(`  env ${name}=${JSON.stringify(value)}`);
+  for (const [path, f] of Object.entries(c.fixtures)) lines.push(`  file ${path}: ${content(f)}`);
+  if (c.stdin !== null) lines.push(`  stdin: ${content(c.stdin)}`);
+  return lines;
 }
 
 function diffLines(d: FieldDiff): string[] {
@@ -145,11 +159,7 @@ export function formatNext(n: NextReport): string {
   const { cluster: k, repro } = n;
   const lines = [`cluster ${k.run}/${k.cluster} (highest priority of ${n.open} open): ${clusterLine(k).replace(/^#\d+ /, '')}`];
   const how = repro.minimized ? `minimized from ${repro.source}${repro.exhausted ? ', run budget used up, a smaller one may exist' : ''}` : `case ${repro.source}, not minimized`;
-  lines.push(`repro (${how}):`);
-  lines.push(`  $ ${[n.programName, ...repro.argv].map(shellWord).join(' ')}`);
-  for (const [name, value] of Object.entries(repro.env)) lines.push(`  env ${name}=${JSON.stringify(value)}`);
-  for (const [path, c] of Object.entries(repro.fixtures)) lines.push(`  file ${path}: ${content(c)}`);
-  if (repro.stdin !== null) lines.push(`  stdin: ${content(repro.stdin)}`);
+  lines.push(`repro (${how}):`, ...invocationLines(n.programName, repro));
   if (n.diff.length === 0) {
     lines.push(`The repro no longer diverges: fixed already? Call run with cluster "${k.run}/${k.cluster}".`);
   } else {
@@ -176,5 +186,94 @@ export function formatRun(r: RunDelta): string {
     if (r.clusters.total > RUN_CLUSTERS) lines.push(`  +${r.clusters.total - RUN_CLUSTERS} more`);
     lines.push(`cluster numbers belong to run ${r.run}: address them as "${r.run}/<n>"`);
   }
+  return `${lines.join('\n')}\n`;
+}
+
+/** Lines shown of a program's stdout or stderr, and of its changed files. */
+const OUTPUT_LINES = 20;
+
+/** An output as `stdout: 3 lines` and the lines under it, capped. */
+function outputLines(label: string, text: string): string[] {
+  if (text === '') return [`  ${label}: (empty)`];
+  const lines = text.split('\n');
+  const newline = lines[lines.length - 1] === '';
+  if (newline) lines.pop();
+  const shown = lines.slice(0, OUTPUT_LINES).map((l) => `    | ${showLine(l)}`);
+  if (lines.length > OUTPUT_LINES) shown.push(`    | … ${lines.length - OUTPUT_LINES} more lines`);
+  return [`  ${label}: ${count(lines.length, 'line')}${newline ? '' : ', no newline at the end'}`, ...shown];
+}
+
+/** What a program did: how it ended, its output and the files it changed. */
+function observedLines(o: ObservedText): string[] {
+  const ended = o.timeout ? 'timed out' : o.signal !== null ? `killed by ${o.signal}` : `exit ${o.exit}`;
+  const files = o.fs === '' ? ['  files: no changes'] : outputLines('files', o.fs);
+  return [`  ${ended}`, ...outputLines('stdout', o.stdout), ...outputLines('stderr', o.stderr), ...files];
+}
+
+const listFeatures = (features: readonly string[]) => (features.length === 0 ? 'no features' : `features ${features.slice(0, 6).join(', ')}${more(features.length, 6)}`);
+
+/** The `case` tool's answer: the case, both observations (before normalizers) and the diff (after). */
+export function formatCase(r: CaseReport): string {
+  const lines = [`case ${r.id.startsWith('sha256:') ? `c_${r.id.slice(7, 15)}` : r.id} · ${r.origin} · ${listFeatures(r.features)}`];
+  lines.push(r.cluster === null ? 'not in a cluster of the latest full run' : `in cluster ${r.cluster.run}/${r.cluster.cluster}: ${clusterLine(r.cluster).replace(/^#\d+ /, '')}`);
+  lines.push(...invocationLines(r.programName, r.case));
+  lines.push('reference:', ...observedLines(r.reference));
+  lines.push(`candidate c${r.candidate.candidate} ${cut(r.candidate.command, 60)}:`, ...observedLines(r.observed));
+  if (r.diff.length === 0) lines.push('match: the same after normalizers');
+  else {
+    lines.push('diff (reference -, candidate +, after normalizers):');
+    for (const d of r.diff) lines.push(...diffLines(d));
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** Features `features` lists; a prefix narrows the list. */
+export const FEATURE_ROWS = 60;
+
+/** The `features` tool's answer: the spec's features with how many cases test each and their parity. */
+export function formatFeatures(r: FeaturesReport): string {
+  const lines = [
+    r.spec === null
+      ? 'no CLI spec (port-anything spec infer writes port-anything/cli-spec.yaml); features from the cases only'
+      : `spec port-anything/cli-spec.yaml: program ${cut(r.spec.program, 30)}, ${count(r.spec.features, 'feature')}`,
+  ];
+  if (r.run === null) lines.push('no saved run of the whole corpus yet: run port-anything run for per-feature parity');
+  else {
+    const headline = r.candidates
+      .slice(0, LISTED_CANDIDATES)
+      .map((c) => `c${c.candidate} ${cut(c.command, 32)} ${c.parity === null ? 'n/a' : percent(c.parity)}`)
+      .join(', ');
+    lines.push(`parity from run ${r.run.id} (${r.run.created.slice(0, 16).replace('T', ' ')} UTC), headline: ${headline}${more(r.candidates.length, LISTED_CANDIDATES)}`);
+  }
+  const rows = r.features;
+  lines.push(`features${r.prefix === null ? '' : ` starting "${r.prefix}"`}: ${rows.length}${r.run === null ? '' : `; under-sampled = fewer than ${r.run.minCasesPerFeature} scored cases, not in the headline`}`);
+  const many = r.candidates.length > 1;
+  for (const f of rows.slice(0, FEATURE_ROWS)) {
+    const parts = [cut(f.feature, 40)];
+    if (f.spec !== null) parts.push(cut(f.spec, 40));
+    if (f.cases !== null) parts.push(count(f.cases, 'case'));
+    if (f.cases !== null && f.cases > 0) {
+      parts.push(
+        f.parity
+          .slice(0, LISTED_CANDIDATES)
+          .map((p, i) => `${many ? `c${i + 1} ` : ''}${p === null ? 'n/a' : percent(p)}`)
+          .join(' '),
+      );
+    }
+    const marks = [
+      ...(f.cases === 0 ? ['untested'] : []),
+      ...(f.selfDescription ? ['self-description'] : []),
+      ...(f.underSampled ? ['under-sampled'] : []),
+      ...(r.spec !== null && f.spec === null ? ['not in spec'] : []),
+    ];
+    lines.push(`  ${parts.join(' · ')}${marks.length > 0 ? ` [${marks.join(', ')}]` : ''}`);
+  }
+  if (rows.length > FEATURE_ROWS) lines.push(`  +${rows.length - FEATURE_ROWS} more: pass prefix to narrow`);
+  return `${lines.join('\n')}\n`;
+}
+
+/** The `probe` tool's answer: what the reference did, and where the probe was saved. */
+export function formatProbe(r: ProbeReport): string {
+  const lines = [`probe ${r.id}, reference only, saved to ${r.path} (not part of the corpus):`, ...invocationLines(r.programName, r.case), 'reference:', ...observedLines(r.observed)];
   return `${lines.join('\n')}\n`;
 }

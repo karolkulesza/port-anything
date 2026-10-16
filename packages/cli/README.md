@@ -48,7 +48,7 @@ npx port-anything report       # the latest run as port-anything-report.html (wi
 npx port-anything waive --from-cluster 1   # a waiver for an accepted difference, to paste into port-anything/waivers.yaml
 npx port-anything baseline     # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
 npx port-anything verify       # check the cases and the reference's output against the manifest
-npx port-anything mcp          # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas)
+npx port-anything mcp          # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas), case, features, probe
 ```
 
 [`examples/wc-lite`](https://github.com/karolkulesza/port-anything/tree/main/examples/wc-lite) in the repo is a complete project to try this on.

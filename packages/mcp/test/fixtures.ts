@@ -1,4 +1,4 @@
-import type { ClusterSummary, NextReport, RunDelta, StatusReport } from '../src/index.js';
+import type { CaseReport, ClusterSummary, FeaturesReport, NextReport, ProbeReport, RunDelta, StatusReport } from '../src/index.js';
 
 export const RUN = '20261016-083000-a1b2';
 
@@ -79,4 +79,43 @@ export const DELTA: RunDelta = {
   flakyReference: 0,
   candidates: [{ candidate: 1, command: './port/target/release/sort', match: 10, diverge: 2, waived: 0, fixed: 10, broke: 0, brokeCases: [] }],
   clusters: { total: 1, top: [cluster(1, { run: '20261016-090000-c3d4', size: 2 })] },
+};
+
+const CASE_ID = `sha256:9f2e1a4b${'0'.repeat(56)}`;
+
+export const CASE: CaseReport = {
+  id: CASE_ID,
+  origin: 'generated',
+  features: ['opt.n'],
+  case: { argv: ['-n', 'in.txt'], env: { LC_ALL: 'C' }, stdin: null, fixtures: { 'in.txt': '3\n1\n' } },
+  cluster: cluster(1),
+  programName: 'sort',
+  candidate: { candidate: 1, command: './port/target/release/sort' },
+  reference: { exit: 0, signal: null, timeout: false, stdout: '1\n3\n', stderr: '', fs: '' },
+  observed: { exit: 2, signal: null, timeout: false, stdout: '1\n3', stderr: 'sort: oops\n', fs: 'created out.txt 3f2a00000000\n' },
+  diff: [
+    { field: 'stdout', reference: '1\n3\n', candidate: '1\n3' },
+    { field: 'exit', reference: '0', candidate: '2' },
+  ],
+};
+
+export const FEATURES: FeaturesReport = {
+  spec: { program: 'sort', features: 3 },
+  run: { id: RUN, created: '2026-10-16T08:30:00.000Z', minCasesPerFeature: 20 },
+  candidates: [{ candidate: 1, command: './port/target/release/sort', parity: 0.9345 }],
+  prefix: null,
+  features: [
+    { feature: 'opt.n', spec: '-n, --numeric-sort', cases: 40, parity: [0.95], selfDescription: false, underSampled: false },
+    { feature: 'opt.help', spec: '--help', cases: 2, parity: [1], selfDescription: true, underSampled: false },
+    { feature: 'opt.k', spec: '-k, --key KEYDEF', cases: 0, parity: [null], selfDescription: false, underSampled: false },
+    { feature: 'base', spec: null, cases: 5, parity: [0.6], selfDescription: false, underSampled: true },
+  ],
+};
+
+export const PROBE: ProbeReport = {
+  id: '20261016-091500-e5f6',
+  path: '.port-anything/probes/20261016-091500-e5f6.json',
+  programName: 'sort',
+  case: { argv: ['-k', '2'], env: {}, stdin: 'b 2\na 1\n', fixtures: {} },
+  observed: { exit: 0, signal: null, timeout: false, stdout: 'a 1\nb 2\n', stderr: '', fs: '' },
 };

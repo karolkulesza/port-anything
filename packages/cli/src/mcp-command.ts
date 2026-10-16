@@ -1,9 +1,23 @@
 import type { Readable, Writable } from 'node:stream';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { access } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import {
   BlobStore,
+  CLI_SPEC_FILE,
+  CaseIdError,
   ConfigError,
+  DestructiveToolError,
+  assertNotDestructive,
   cacheDir,
+  canonicalCase,
+  configCandidates,
+  inlineCase,
+  inlineContent,
+  probePath,
+  readCliSpecFile,
+  resolveCaseId,
+  saveProbe,
   caseEnvironment,
   describeSignature,
   environmentFingerprint,
@@ -17,17 +31,37 @@ import {
   readWaiversFile,
   runsAfter,
   shortCaseId,
+  specFeatures,
+  type CanonicalCase,
   type CaseRun,
+  type CliSpec,
+  type FeatureScore,
   type Observation,
   type RunRecord,
   type SandboxProbe,
   type SavedCluster,
 } from '@port-anything/core';
-import { createServer, type Backend, type CandidateDelta, type ClusterSummary, type FieldDiff, type NextReport, type RunDelta, type RunSelection, type StatusReport } from '@port-anything/mcp';
+import {
+  createServer,
+  type Backend,
+  type CandidateDelta,
+  type CaseReport,
+  type ClusterSummary,
+  type FeatureRow,
+  type FeaturesReport,
+  type FieldDiff,
+  type NextReport,
+  type ObservedText,
+  type ProbeInput,
+  type ProbeReport,
+  type RunDelta,
+  type RunSelection,
+  type StatusReport,
+} from '@port-anything/mcp';
 import { resolveCommand, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 import { minimizeCommand } from './minimize-command.js';
-import { compareLabel, performRun, prepareSides, removeScratch, scratchDir, type RunArgs, type RunSummary } from './run-command.js';
+import { compareLabel, display, performRun, prepareSides, removeScratch, scratchDir, type RunArgs, type RunSummary } from './run-command.js';
 import { TOOL_VERSION } from './version.js';
 
 export const USAGE = 'Usage: port-anything mcp';
@@ -129,6 +163,33 @@ async function fieldDiffs(run: CaseRun, store: BlobStore): Promise<FieldDiff[]> 
   return Promise.all(
     c.comparison.fields.map(async (field) => ({ field, reference: await fieldText(c.normalized.reference, field, store), candidate: await fieldText(c.normalized.candidate, field, store) })),
   );
+}
+
+/** What a program did on a case, as text, before the normalizers. */
+async function observedText(o: Observation, store: BlobStore): Promise<ObservedText> {
+  const changed = Object.keys(o.fs.created).length + Object.keys(o.fs.modified).length + o.fs.deleted.length > 0;
+  return {
+    exit: o.exit,
+    signal: o.signal,
+    timeout: o.timeout,
+    stdout: await fieldText(o, 'stdout', store),
+    stderr: await fieldText(o, 'stderr', store),
+    fs: changed ? await fieldText(o, 'fs', store) : '',
+  };
+}
+
+/** Each spec feature with how the spec spells it: a flag's names and values, or a subcommand's path. */
+function specSpellings(spec: CliSpec): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (command: Pick<CliSpec, 'flags' | 'subcommands'>, path: readonly string[]) => {
+    for (const flag of command.flags) out.set(flag.feature, `${flag.names.join(', ')}${flag.values.map((v) => (v.optional === true ? ` [${v.name}]` : ` ${v.name}`)).join('')}`);
+    for (const sub of command.subcommands) {
+      out.set(sub.feature, `cmd ${[...path, sub.name].join(' ')}`);
+      walk(sub, [...path, sub.name]);
+    }
+  };
+  walk(spec, []);
+  return out;
 }
 
 /** The cases that diverged for a candidate in a run: steady and flaky-candidate ones. */
@@ -283,5 +344,142 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     };
   }
 
-  return { status, next, run };
+  /** The cases `case` can show: the corpus, and the repros and cases a smoke run takes for the latest run's clusters. */
+  async function knownCases(latest: RunRecord | undefined, config: Awaited<ReturnType<typeof readConfigFile>>, store: BlobStore): Promise<Map<string, CanonicalCase>> {
+    const corpus = await loadCorpus(projectDir, config, regenerate);
+    const byId = new Map(corpus.map((c) => [c.id, c]));
+    if (latest !== undefined) for (const c of await openClusterCases(projectDir, latest, corpus, store)) if (!byId.has(c.id)) byId.set(c.id, c);
+    return byId;
+  }
+
+  async function showCase(typed: string, candidate = 1): Promise<CaseReport> {
+    const config = await readConfigFile(projectDir);
+    const store = new BlobStore(cacheDir(projectDir));
+    const latest = await latestRun(projectDir);
+    // Candidates are numbered as in the latest full run (what status shows), else as in the config.
+    const commands = latest?.candidate_commands ?? configCandidates(config).map((c) => c.cmd);
+    if (commands.length === 0) throw new ConfigError('No candidate to run the case on: set candidate (or candidates) in port-anything.yaml.');
+    const command = commands[candidate - 1];
+    if (command === undefined) throw new ConfigError(`There is no candidate ${candidate}: ${commands.length === 1 ? 'there is 1 candidate' : `there are ${commands.length} candidates`}.`);
+    const byId = await knownCases(latest, config, store);
+    let id: string;
+    try {
+      id = resolveCaseId(typed, byId.keys());
+    } catch (e) {
+      if (e instanceof CaseIdError) throw new ConfigError(e.message);
+      throw e;
+    }
+    const c = byId.get(id)!;
+    const { runner: runnerOptions } = await prepareSides(projectDir, config, [command], regenerate);
+    const workDir = scratchDir(projectDir);
+    let programName: string;
+    let observed: CaseRun;
+    try {
+      const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
+      programName = runner.programName;
+      observed = await runner.run(c);
+    } finally {
+      await removeScratch(projectDir, workDir);
+    }
+    const k = latest?.clusters.find((x) => x.candidate === candidate && x.cases.includes(id));
+    const { id: _, ...inline } = await inlineCase(c, store);
+    return {
+      id,
+      origin: c.origin,
+      features: c.features,
+      case: inline,
+      cluster: k === undefined ? null : summary(latest!.run_id, k),
+      programName,
+      candidate: { candidate, command: display(command) },
+      reference: await observedText(observed.reference, store),
+      observed: await observedText(observed.candidates[0]!.observation, store),
+      diff: await fieldDiffs(observed, store),
+    };
+  }
+
+  async function features(prefix?: string): Promise<FeaturesReport> {
+    const hasSpec = await access(join(projectDir, CLI_SPEC_FILE)).then(
+      () => true,
+      () => false,
+    );
+    const spec = hasSpec ? await readCliSpecFile(projectDir) : undefined;
+    const spellings = spec === undefined ? new Map<string, string>() : specSpellings(spec);
+    const latest = await latestRun(projectDir);
+    const run = latest === undefined ? undefined : savedRun(latest);
+    const scores = (run?.candidates ?? []).map((c) => new Map<string, FeatureScore>(c.score.features.map((f) => [f.feature, f])));
+    const selfMarked = new Set(spec === undefined ? [] : specFeatures(spec).filter((f) => f.selfDescription).map((f) => f.name));
+    const scored = [...new Set(scores.flatMap((m) => [...m.keys()]))].filter((f) => !spellings.has(f)).sort();
+    const row = (feature: string): FeatureRow => {
+      const per = scores.map((m) => m.get(feature));
+      const any = per.find((f) => f !== undefined);
+      return {
+        feature,
+        spec: spellings.get(feature) ?? null,
+        cases: run === undefined ? null : (any?.cases ?? 0),
+        parity: per.map((f) => f?.parity ?? null),
+        selfDescription: selfMarked.has(feature) || any?.selfDescription === true,
+        underSampled: any?.underSampled === true,
+      };
+    };
+    const rows = [...spellings.keys(), ...scored].filter((f) => prefix === undefined || f.startsWith(prefix)).map(row);
+    return {
+      spec: spec === undefined ? null : { program: spec.program, features: spellings.size },
+      run: run === undefined ? null : { id: run.run_id, created: run.created, minCasesPerFeature: run.candidates[0]!.score.minCasesPerFeature },
+      candidates: (run?.candidates ?? []).map((c, i) => ({ candidate: i + 1, command: c.command, parity: c.score.headline })),
+      prefix: prefix ?? null,
+      features: rows,
+    };
+  }
+
+  async function probeReference(input: ProbeInput): Promise<ProbeReport> {
+    const config = await readConfigFile(projectDir);
+    const store = new BlobStore(cacheDir(projectDir));
+    const { runner: runnerOptions } = await prepareSides(projectDir, config, [], regenerate);
+    const { reference } = runnerOptions;
+    try {
+      assertNotDestructive([reference.path, ...(reference.tool === undefined ? [] : [reference.tool]), ...reference.args, ...input.argv]);
+    } catch (e) {
+      if (e instanceof DestructiveToolError) throw new ConfigError(`Refusing to probe "${e.command}": it is on the list of destructive tools and subcommands.`);
+      throw e;
+    }
+    let c: CanonicalCase;
+    try {
+      const fixtures: Record<string, string> = {};
+      for (const [path, text] of Object.entries(input.fixtures ?? {})) fixtures[path] = await store.put(text);
+      c = canonicalCase({ argv: [...input.argv], stdin: input.stdin === undefined ? null : await store.put(input.stdin), env: { ...input.env }, fixtures, origin: 'recorded' });
+    } catch (e) {
+      const issues = (e as { issues?: { path: PropertyKey[]; message: string }[] }).issues;
+      throw new ConfigError(`Not an invocation that can run: ${issues === undefined ? (e as Error).message : issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+    }
+    const workDir = scratchDir(projectDir);
+    let programName: string;
+    let observed: CaseRun;
+    try {
+      const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
+      programName = runner.programName;
+      observed = await runner.run(c);
+    } finally {
+      await removeScratch(projectDir, workDir);
+    }
+    const o = observed.reference;
+    const inline = async (refs: Record<string, string>) => Object.fromEntries(await Promise.all(Object.entries(refs).map(async ([path, ref]) => [path, inlineContent(await store.get(ref))] as const)));
+    const { id: _, ...invocation } = await inlineCase(c, store);
+    const saved = await saveProbe(projectDir, {
+      reference: display(config.reference.cmd),
+      program_name: programName,
+      case: { id: c.id, ...invocation },
+      observation: {
+        exit: o.exit,
+        signal: o.signal,
+        timeout: o.timeout,
+        wall_ms: o.time_ms.wall,
+        stdout: inlineContent(await store.get(o.stdout)),
+        stderr: inlineContent(await store.get(o.stderr)),
+        fs: { created: await inline(o.fs.created), modified: await inline(o.fs.modified), deleted: o.fs.deleted },
+      },
+    });
+    return { id: saved.probe_id, path: relative(projectDir, probePath(projectDir, saved.probe_id)), programName, case: invocation, observed: await observedText(o, store) };
+  }
+
+  return { status, next, run, case: showCase, features, probe: probeReference };
 }
