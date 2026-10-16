@@ -90,6 +90,9 @@ async function openClusters(projectDir: string, run: SavedRun): Promise<SavedClu
   return run.clusters.filter((k) => !fixed.has(k.cluster));
 }
 
+/** The first 12 hex digits of a blob's hash. */
+const shortHash = (ref: string) => ref.replace(/^blob:sha256:/, '').slice(0, 12);
+
 /** A field of an observation, as text for a diff. */
 async function fieldText(o: Observation, field: FieldDiff['field'], store: BlobStore): Promise<string> {
   switch (field) {
@@ -105,14 +108,13 @@ async function fieldText(o: Observation, field: FieldDiff['field'], store: BlobS
       try {
         return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
       } catch {
-        return `<${bytes.length} bytes, not UTF-8, sha256 ${o[field].slice('sha256:'.length, 'sha256:'.length + 12)}>`;
+        return `<${bytes.length} bytes, not UTF-8, sha256 ${shortHash(o[field])}>`;
       }
     }
     case 'fs': {
-      const hash = (ref: string) => ref.slice('sha256:'.length, 'sha256:'.length + 12);
       const lines = [
-        ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${hash(ref)}`),
-        ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${hash(ref)}`),
+        ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${shortHash(ref)}`),
+        ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${shortHash(ref)}`),
         ...o.fs.deleted.map((path) => `deleted ${path}`),
       ];
       return `${lines.sort().join('\n')}\n`;
