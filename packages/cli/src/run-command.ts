@@ -399,7 +399,15 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
     });
   }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
-  const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant)) ? 1 : 0;
+  // With compare.min_parity set, a full run fails on a candidate's parity below it rather than on
+  // any divergence; a smoke or cluster run's parity is of a subset, so it still fails on any.
+  const minParity = summary.subset === null ? config.compare.min_parity : undefined;
+  const belowMinParity = (score: Score) => minParity !== undefined && (score.headline === null || score.headline < minParity);
+  const exitCode = summary.candidates.some(
+    (c) => (minParity === undefined ? c.diverge > 0 : belowMinParity(c.score)) || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant),
+  )
+    ? 1
+    : 0;
   if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
@@ -425,6 +433,9 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
     const flaky = c.flaky_candidate.length > 0 ? ` (${c.flaky_candidate.length} flaky-candidate)` : '';
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge${flaky}` : ''}${c.waived > 0 ? `, ${c.waived} waived` : ''}`);
     lines.push(...scoreLines(c.score));
+    if (minParity !== undefined) {
+      lines.push(belowMinParity(c.score) ? `  BELOW compare.min_parity ${percent(minParity)}: the run fails` : `  compare.min_parity ${percent(minParity)}: met`);
+    }
     if (c.slowdown !== undefined) lines.push(slowdownLine(c.slowdown));
     if ('holdout' in c) lines.push(...candidateHoldoutLines(c.holdout));
     if (c.waivers.length > 0) lines.push(`  waivers (cases covered): ${c.waivers.map(coverageLabel).join(', ')}`);

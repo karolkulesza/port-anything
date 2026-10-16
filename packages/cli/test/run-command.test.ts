@@ -863,6 +863,51 @@ describe('executeRun slowdown gate', () => {
   });
 });
 
+describe('executeRun compare.min_parity gate', () => {
+  let project: string;
+  let cases: CanonicalCase[];
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-minparity-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), '#!/bin/sh\necho "$1"\n', { mode: 0o755 });
+    // Right on 9 of the 10 cases: parity 90%.
+    writeFileSync(join(project, 'bin', 'tool-port'), '#!/bin/sh\n[ "$1" = a9 ] && echo wrong || echo "$1"\n', { mode: 0o755 });
+    cases = Array.from({ length: 10 }, (_, n) => canonicalCase({ argv: [`a${n}`], features: ['f'], origin: 'recorded' }));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const run = async (compare: Record<string, unknown>, args: Partial<ExecuteRunOptions['args']> = {}) => {
+    const config = parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-port' }, compare, corpus: { min_cases_per_feature: 1 } });
+    return executeRun({ projectDir: project, config, cases, args: { candidates: [], json: false, noSandbox: true, ...args }, probe: NO_SANDBOX });
+  };
+
+  it('passes a full run whose parity meets compare.min_parity, though a case diverges', async () => {
+    const met = await run({ min_parity: 0.85 });
+    expect(met.stdout).toContain('candidate 1 ./bin/tool-port: 9 of 10 cases match, 1 diverge\n  parity 90.0%');
+    expect(met.stdout).toMatch(/^ {2}compare\.min_parity 85\.0%: met$/m);
+    expect(met.exitCode).toBe(0);
+  });
+
+  it('fails a full run whose parity is below it, and any run with a divergence without one', async () => {
+    const below = await run({ min_parity: 0.95 });
+    expect(below.stdout).toMatch(/^ {2}BELOW compare\.min_parity 95\.0%: the run fails$/m);
+    expect(below.exitCode).toBe(1);
+    const ungated = await run({});
+    expect(ungated.stdout).not.toContain('min_parity');
+    expect(ungated.exitCode).toBe(1);
+  });
+
+  it('leaves a smoke run, whose parity is of a subset, failing on any divergence', async () => {
+    const smoke = await run({ min_parity: 0.5 }, { smoke: true });
+    expect(smoke.stdout).not.toContain('min_parity');
+    expect(smoke.exitCode).toBe(1);
+  });
+
+  it('refuses a threshold outside 0 to 1', () => {
+    expect(() => parseConfig({ version: 1, reference: { cmd: './bin/tool' }, compare: { min_parity: 95 } })).toThrow(/min_parity/);
+  });
+});
+
 describe('runCommand', () => {
   it('reads port-anything.yaml and the committed cases from the project directory', async () => {
     const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-runcmd-')));

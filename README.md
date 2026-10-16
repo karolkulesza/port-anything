@@ -72,7 +72,7 @@ Name the binaries explicitly: on Ubuntu 25.10 and later, plain `sort` already *i
 
 - **Sandbox.** `compare` fuzzes a program it knows nothing about, so every case runs without network access, in a scratch directory with relative paths only: bubblewrap on Linux (`unshare` as a fallback), `sandbox-exec` on macOS. If no sandbox works, `compare` refuses to run and says how to fix it.
 - **Output.** Nothing is written unless you pass `--save`. Clusters of divergences, reproducers and the HTML report come with a project (below).
-- **Exit codes:** 0 = no divergences, 1 = divergences (or, in a project, a significant fresh-holdout gap), 2 = integrity broken (`verify`, in a project), 3 = usage or config error.
+- **Exit codes:** 0 = no divergences, 1 = divergences (in a project with `compare.min_parity` set, a full run's parity below it instead; and a significant fresh-holdout gap), 2 = integrity broken (`verify`, in a project), 3 = usage or config error.
 
 The score is the **mean of per-feature parity** (a feature is a flag, subcommand or input form), so a rarely used flag counts as much as the common path. Features with too few cases are shown but left out of the headline, and `--help`, `--version` and similar output, which differ between implementations by design, are reported on their own. Parity is evidence from the cases that ran, never a proof of equivalence.
 
