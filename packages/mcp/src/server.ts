@@ -58,7 +58,7 @@ export function createServer(backend: Backend, options: { version: string }): Mc
       title: 'Next cluster to fix',
       description:
         'The highest-priority open divergence cluster: signature, size, features, a minimized repro and the reference vs candidate diff. Minimizes the cluster on first call (runs both programs), then reuses the repro.',
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     () => answer(async () => formatNext(await backend.next())),
   );
