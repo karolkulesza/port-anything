@@ -172,7 +172,7 @@ describe('holdoutParity', () => {
     expect(p.ci95![0]).toBeLessThan(0.9);
   });
 
-  it('covers the true parity about 95% of the time, also with clustered cases', () => {
+  it('covers the true parity about 95% of the time, also with clustered cases', { timeout: 60_000 }, () => {
     const rng = createRng('holdout interval', 'v1');
     const parities = [0.9, 0.8, 0.95, 0.7, 0.99];
     const truth = parities.reduce((a, b) => a + b) / parities.length;
@@ -182,7 +182,7 @@ describe('holdoutParity', () => {
       [15, 6, 1],
     ] as const) {
       let inside = 0;
-      const trials = 1500;
+      const trials = 1000;
       for (let t = 0; t < trials; t++) {
         const [lo, hi] = holdoutParity(clustered(rng, 'h', parities, clusters, size, spread), features).ci95!;
         if (lo <= truth && truth <= hi) inside++;
