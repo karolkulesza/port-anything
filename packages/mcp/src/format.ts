@@ -234,7 +234,7 @@ export const FEATURE_ROWS = 60;
 export function formatFeatures(r: FeaturesReport): string {
   const lines = [
     r.spec === null
-      ? 'no CLI spec (port-anything spec infer writes port-anything/cli-spec.yaml); features from the cases only'
+      ? 'no CLI spec (port-anything spec infer writes port-anything/cli-spec.yaml); features from the latest full run\'s cases only'
       : `spec port-anything/cli-spec.yaml: program ${cut(r.spec.program, 30)}, ${count(r.spec.features, 'feature')}`,
   ];
   if (r.run === null) lines.push('no saved run of the whole corpus yet: run port-anything run for per-feature parity');
