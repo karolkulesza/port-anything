@@ -87,7 +87,10 @@ npx port-anything generate --budget 5000   # a bigger corpus; the budget and see
 npx port-anything baseline                 # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
 npx port-anything verify                   # check the cases and the reference's output against the manifest
 npx port-anything mcp                      # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas)
+npx port-anything setup                    # register that server and the skills (port-loop, port-plan, port-audit, port-report) with each agent installed: Claude Code, Codex, Cursor, Gemini CLI
 ```
+
+The repo is also a Claude Code plugin marketplace (`/plugin marketplace add karolkulesza/port-anything`, then `/plugin install port-anything@port-anything`) and a Gemini CLI extension (`gemini extensions install https://github.com/karolkulesza/port-anything`), with plugin manifests for Codex and Cursor; each brings the same skills and MCP server.
 
 [`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
 
