@@ -98,6 +98,14 @@ async function settle<T>(get: () => Promise<T>, done: (value: T) => boolean, ms:
   }
 }
 
+/**
+ * Removes a directory a container wrote: a file it made can show up on the host while the removal
+ * is under way (the share lags), which fails it with ENOTEMPTY, so this retries.
+ */
+export function removeShared(dir: string): Promise<void> {
+  return rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
 /** A regular file's content; refuses a symlink. */
 async function readRegular(path: string): Promise<Buffer> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -408,7 +416,7 @@ export class ContainerSession {
       },
       dispose: async () => {
         await rm(stage, { recursive: true, force: true });
-        await rm(join(this.io, String(n)), { recursive: true, force: true });
+        await removeShared(join(this.io, String(n)));
       },
     };
   }
@@ -512,7 +520,7 @@ export class ContainerSession {
       const timer = new Promise<'late'>((resolve) => setTimeout(() => resolve('late'), 10_000).unref());
       if ((await Promise.race([exited, timer])) === 'late') this.forceRemove();
     }
-    await rm(this.options.dir, { recursive: true, force: true });
+    await removeShared(this.options.dir);
   }
 
   /** Removes the container now, synchronously (also on process exit). */
