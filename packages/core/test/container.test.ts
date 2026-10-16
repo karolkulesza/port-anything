@@ -273,8 +273,9 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     }
   }, 60_000);
 
-  it('starts each case of a session as clean as the first: nothing left in /tmp, /dev/shm or beside its directory', async () => {
-    const { pool, caseDir, proc, session } = await single('clean');
+  it.each([IMAGE, 'alpine:3'])('starts each case of a session in %s as clean as the first: nothing left in /tmp, /dev/shm or beside its directory', async (image) => {
+    await ensureImage(engine!, image);
+    const { pool, caseDir, proc, session } = await single(`clean-${image.replace(/\W/g, '-')}`, image);
     try {
       const s = await session();
       const stash = await s.prepare(caseDir);

@@ -95,7 +95,8 @@ export const RUNNER_SCRIPT = [
   // wipe <dir>: empty it, dot files included (a pattern that matches nothing stays as it is), even
   // what a case made read-only or unreadable; a runner that can't stops, rather than leak a case's files.
   'wipe() {',
-  '  chmod -R u+rwX "$1" 2>/dev/null; rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null',
+  // The entries, not the mount itself: it is root's, and BusyBox's chmod -R stops where it fails.
+  '  chmod -R u+rwX "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null; rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null',
   '  for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do',
   '    if [ -e "$f" ] || [ -L "$f" ]; then echo "port-anything runner: cannot empty $1 after a case" >&2; exit 1; fi',
   '  done',
