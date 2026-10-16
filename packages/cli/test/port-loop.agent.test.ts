@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { probeSandbox } from '@port-anything/core';
+import { findContainerEngine, probeSandbox } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { portSource } from './wc-lite-source.js';
 
@@ -15,9 +15,11 @@ import { portSource } from './wc-lite-source.js';
 //
 // The project's setup (the planted port diverges, the clean one doesn't) is checked whenever the
 // toolchain is there. The agent run costs model usage and takes minutes, so it runs only with
-// PA_AGENT_E2E=1, and needs cc, cargo, a sandbox (the MCP server always uses one) and a logged-in
-// `claude`. PA_AGENT_MODEL picks the model (default sonnet); PA_AGENT_KEEP=1 keeps the project
-// and the transcript.
+// PA_AGENT_E2E=1, and needs a logged-in `claude`. It runs once per sandbox mode: local needs cc,
+// cargo and a sandbox (the MCP server always uses one); container needs Docker or Podman, and
+// builds and runs everything in a Rust image. PA_AGENT_MODES picks the modes (default both, comma
+// separated), PA_AGENT_MODEL the model (default sonnet); PA_AGENT_KEEP=1 keeps the projects and
+// the transcripts.
 const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const skill = fileURLToPath(new URL('../../../skills/port-loop/SKILL.md', import.meta.url));
@@ -29,6 +31,10 @@ const PLANTED = ['bad-crlf', 'bad-exit-code', 'bad-no-total'];
 const has = (cmd: string) => exec(cmd, ['--version']).then(() => true, () => false);
 const toolchain = (await has('cc')) && (await has('cargo'));
 const agent = process.env.PA_AGENT_E2E === '1';
+const engine = agent ? await findContainerEngine().catch(() => undefined) : undefined;
+const IMAGE = 'rust:1-slim';
+type Mode = 'local' | 'container';
+const modes = (process.env.PA_AGENT_MODES ?? 'local,container').split(',').map((m) => m.trim()) as Mode[];
 
 interface Run {
   code: number;
@@ -43,10 +49,11 @@ const sh = (cmd: string, args: readonly string[], options: { cwd: string; env?: 
 
 /**
  * A copy of the example as a fresh project: the port's source with `features` compiled in, its
- * Cargo.toml without the bad ports' features, no README or mutation score (they list the bugs),
- * both sides built.
+ * Cargo.toml without the bad ports' features, no README or mutation score (they list the bugs).
+ * In sandbox mode local both sides are built here; in container mode the config names the image,
+ * and the first run builds both sides in it.
  */
-async function plantedProject(features: readonly string[]): Promise<string> {
+async function plantedProject(features: readonly string[], mode: Mode = 'local'): Promise<string> {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pa-port-loop-')));
   cpSync(example, dir, {
     recursive: true,
@@ -59,6 +66,13 @@ async function plantedProject(features: readonly string[]): Promise<string> {
   writeFileSync(main, portSource(readFileSync(main, 'utf8'), { features }));
   const cargo = join(dir, 'port', 'Cargo.toml');
   writeFileSync(cargo, readFileSync(cargo, 'utf8').replace(/\n# The port is correct[^]*?\n\[features\]\n(?:bad-[a-z-]+ = \[\]\n)+/, '\n'));
+  if (mode === 'container') {
+    const config = join(dir, 'port-anything.yaml');
+    const text = readFileSync(config, 'utf8');
+    if (!text.includes('\n  mode: local\n')) throw new Error('The example config no longer has sandbox mode local.');
+    writeFileSync(config, text.replace('\n  mode: local\n', `\n  mode: container\n  image: ${IMAGE}\n`));
+    return dir;
+  }
   for (const cmd of ['cc -O2 -o ref/wc-lite ref/wc-lite.c', 'cargo build --release --manifest-path port/Cargo.toml']) {
     const built = await sh('sh', ['-c', cmd], { cwd: dir });
     if (built.code !== 0) throw new Error(`${cmd} failed:\n${built.stderr}`);
@@ -67,6 +81,7 @@ async function plantedProject(features: readonly string[]): Promise<string> {
 }
 
 interface RunJson {
+  sandbox: string;
   candidates: { diverge: number }[];
   clusters: { candidate: number; signature: { fields: string[] } }[];
 }
@@ -119,7 +134,8 @@ Use the port-loop skill to bring the port to full parity with the reference: eve
 Work on your own until no divergence cluster is open; nobody can answer questions during this session.
 Commit your fixes as the skill says. Don't push.`;
 
-describe.runIf(toolchain && agent)('Claude Code drives port-loop on examples/wc-lite (done when)', () => {
+for (const mode of modes)
+describe.runIf(agent && (mode === 'container' || toolchain))(`Claude Code drives port-loop on examples/wc-lite (sandbox mode ${mode}, done when)`, () => {
   let project: string;
   let bin: string;
   let base: string;
@@ -129,9 +145,10 @@ describe.runIf(toolchain && agent)('Claude Code drives port-loop on examples/wc-
   const git = (...args: string[]) => sh('git', args, { cwd: project }).then((r) => r.stdout.trim());
 
   beforeAll(async () => {
-    if ((await probeSandbox()).usable === undefined) throw new Error('The MCP server runs cases in a sandbox, and there is none here.');
+    if (mode === 'local' && (await probeSandbox()).usable === undefined) throw new Error('The MCP server runs cases in a sandbox, and there is none here.');
+    if (mode === 'container' && engine === undefined) throw new Error('Sandbox mode container needs Docker or Podman running.');
     if (!(await has('claude'))) throw new Error('PA_AGENT_E2E needs Claude Code (claude) on the PATH, logged in.');
-    project = await plantedProject(PLANTED);
+    project = await plantedProject(PLANTED, mode);
     // The project as a user's repo: the skill where Claude Code finds project skills, the
     // per-machine parts of .port-anything/ ignored, everything committed.
     mkdirSync(join(project, '.claude', 'skills', 'port-loop'), { recursive: true });
@@ -176,7 +193,7 @@ describe.runIf(toolchain && agent)('Claude Code drives port-loop on examples/wc-
       child.on('close', (code) => resolve({ code: code ?? -1, stdout: transcript, stderr }));
     });
     writeFileSync(join(bin, 'transcript.jsonl'), transcript);
-    if (keep) console.log(`port-loop agent run: project ${project}, transcript ${join(bin, 'transcript.jsonl')}`);
+    if (keep) console.log(`port-loop agent run (${mode}): project ${project}, transcript ${join(bin, 'transcript.jsonl')}`);
   }, 3_600_000);
   afterAll(() => {
     if (keep) return;
@@ -196,6 +213,7 @@ describe.runIf(toolchain && agent)('Claude Code drives port-loop on examples/wc-
   it('leaves a port that matches the reference on every case', async () => {
     const after = await runJson(project);
     expect(after.code).toBe(0);
+    if (mode === 'container') expect(after.sandbox).toMatch(/container/);
     expect(after.candidates[0]!.diverge).toBe(0);
   }, 300_000);
 
