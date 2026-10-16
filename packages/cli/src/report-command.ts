@@ -78,7 +78,11 @@ interface SavedReport {
   cases: number;
   normalizers: ReportInput['normalizers'];
   waivers: ReportInput['waivers'];
-  candidates: (Omit<ReportCandidate, 'waivedCases'> & { waived_cases: ReportCandidate['waivedCases'] })[];
+  candidates: (Omit<ReportCandidate, 'waivedCases' | 'timeoutRecovered'> & {
+    waived_cases: ReportCandidate['waivedCases'];
+    /** Absent from runs saved before recovered timeouts were listed. */
+    timeout_recovered?: { case: string }[];
+  })[];
 }
 
 /**
@@ -138,7 +142,16 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
     cases: s.cases,
     normalizers: s.normalizers,
     waivers: s.waivers,
-    candidates: s.candidates.map(({ waived_cases, ...c }) => ({ command: c.command, match: c.match, diverge: c.diverge, waived: c.waived, score: c.score, waivers: c.waivers, waivedCases: waived_cases })),
+    candidates: s.candidates.map(({ waived_cases, timeout_recovered, ...c }) => ({
+      command: c.command,
+      match: c.match,
+      diverge: c.diverge,
+      waived: c.waived,
+      score: c.score,
+      waivers: c.waivers,
+      waivedCases: waived_cases,
+      timeoutRecovered: (timeout_recovered ?? []).map((r) => r.case),
+    })),
     clusters,
     repros,
   };

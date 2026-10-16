@@ -1,6 +1,6 @@
 import { availableParallelism } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { defaultConcurrency, mapPool } from '../src/pool.js';
+import { defaultConcurrency, defaultContainerConcurrency, mapPool } from '../src/pool.js';
 
 const tick = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -64,5 +64,22 @@ describe('mapPool', () => {
 describe('defaultConcurrency', () => {
   it('is the number of CPU cores', () => {
     expect(defaultConcurrency()).toBe(availableParallelism());
+  });
+});
+
+describe('defaultContainerConcurrency', () => {
+  it('keeps about two containers per core: one worker per core for a pair of sides, fewer for many candidates', () => {
+    expect(defaultContainerConcurrency(1, 10)).toBe(10);
+    expect(defaultContainerConcurrency(2, 10)).toBe(10);
+    expect(defaultContainerConcurrency(4, 10)).toBe(5);
+    // The wc-lite bad ports: a reference and 11 candidates.
+    expect(defaultContainerConcurrency(12, 10)).toBe(1);
+    expect(defaultContainerConcurrency(30, 4)).toBe(1);
+  });
+
+  it("counts the engine's CPUs when given: Docker Desktop's VM may have half the host's", () => {
+    expect(defaultContainerConcurrency(2, 5)).toBe(5);
+    expect(defaultContainerConcurrency(4, 5)).toBe(2);
+    expect(defaultContainerConcurrency(2, undefined)).toBe(defaultContainerConcurrency(2, availableParallelism()));
   });
 });

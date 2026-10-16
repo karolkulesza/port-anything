@@ -77,6 +77,7 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | `candidates[].per_feature[].selfDescription` | `--help` / `--version` style features: listed, never in the headline (help text is allowed to differ). |
 | `candidates[].per_feature[].underSampled` | Too few cases to count in the headline: report the numbers, don't conclude from them. |
 | `candidates[].divergences[]` | Every diverging case: `case` (its ID), `argv` (the arguments after the program name) and `fields` (what differed: `exit` code, `signal`, `timeout`, `stdout`, `stderr`, `fs` for files created, changed or deleted). |
+| `candidates[].timeout_recovered` | Cases where the candidate's first run timed out but its re-run finished (`case`, `argv`): a busy machine can stall any program, so the re-run is what was compared and scored. Usually empty; many entries mean the machine was overloaded or the candidate is often slow, so say so. A case that times out on both runs is a divergence (`timeout`). |
 | `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. Only step 4 uses `--save`. |
 | `duration_ms` | Wall time of the run. |
 

@@ -19,6 +19,7 @@ import {
   type SandboxProbe,
   type SpecProbeResult,
 } from '@port-anything/core';
+import { prepareContainer } from './common.js';
 import type { CliResult } from './run-command.js';
 
 export const USAGE = 'Usage: port-anything spec infer [--no-sandbox]';
@@ -53,16 +54,16 @@ async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; pro
   }
 
   const config = await readConfigFile(cwd);
-  if (config.sandbox.mode === 'container') throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   const target = join(cwd, CLI_SPEC_FILE);
   if (await exists(target)) throw new ConfigError(`${CLI_SPEC_FILE} already exists and may hold refinements; delete it to infer a new one.`);
+  const sandbox =
+    config.sandbox.mode === 'container' ? await prepareContainer(cwd, config, [], { noSandbox }) : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox });
   let reference;
   try {
     reference = await resolveProgram(parseProgramCommand(config.reference.cmd), { cwd });
   } catch (e) {
     throw new ConfigError((e as Error).message);
   }
-  const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox });
 
   const workDir = join(cwd, '.port-anything', 'tmp', `spec-${randomBytes(6).toString('hex')}`);
   let result;

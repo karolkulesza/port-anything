@@ -57,7 +57,7 @@ import {
   type WaiverCoverage,
   type WaiverMatch,
 } from '@port-anything/core';
-import { display, resolveCommand, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 
 export { display } from './common.js';
@@ -189,9 +189,6 @@ export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
  * way (the MCP server). Throws a `ConfigError` or `SandboxUnavailableError` when it can't start.
  */
 export async function performRun({ projectDir, config, cases, waivers = [], args, probe }: ExecuteRunOptions) {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   const subsets = [args.smoke === true, args.cluster !== undefined, args.feature !== undefined, args.caseIds !== undefined].filter(Boolean).length;
   if (subsets > 1) throw new ConfigError('--smoke, --cluster and --feature run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
@@ -315,6 +312,8 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
         const m = matches[n];
         return m === undefined || m.waived || !c.candidates[i]!.flaky ? [] : [{ case: c.caseId, fields: c.candidates[i]!.comparison.fields }];
       });
+      // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+      const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
       const score = scoreCandidate(
         result.cases.map((c, n) => ({
           caseId: c.caseId,
@@ -325,6 +324,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
           flakyCandidate: c.candidates[i]!.flaky,
           // A case the reference also times out on is compared like any other.
           candidateTimeout: timedOut(c, i),
+          timeoutRecovered: c.candidates[i]!.timeoutRecovered,
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
@@ -350,6 +350,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
         waivers: waiverCoverage(waivers, matches.filter((m) => m !== undefined), result.cases.length),
         divergences,
         flaky_candidate: flakyCandidate,
+        timeout_recovered: timeoutRecovered,
         waived_cases: waivedCases,
       };
     }),
@@ -416,20 +417,29 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     }
     if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
     for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    if (c.timeout_recovered.length > 0) lines.push('  timeout, recovered on re-run (the re-run was compared):');
+    for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
 
-/** What running cases needs besides the cases and a scratch directory, from the config. */
+/**
+ * What running cases needs besides the cases and a scratch directory, from the config. In sandbox
+ * mode `container`, the reference's and the configured candidates' builds run in the image first.
+ */
 export async function prepareSides(
   projectDir: string,
   config: Config,
   commands: readonly (string | readonly string[])[],
   options: { noSandbox: boolean; probe?: SandboxProbe },
 ): Promise<{ runner: Omit<RunCasesOptions, 'cases' | 'workDir'>; sandbox: SandboxChoice; compare: CompareOptions }> {
+  // In container mode the builds come first: they make the programs.
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, commands, options)
+      : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const reference = await resolveCommand(config.reference.cmd, projectDir);
   const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
-  const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
   const runner = {
     reference,
@@ -499,12 +509,13 @@ function scoreLines(score: Score): string[] {
   ];
   const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);
   if (origins.length > 1) lines.push(`  by origin: ${origins.map(([name, o]) => `${name} ${o.parity === null ? 'n/a' : percent(o.parity)} (${count(o.cases, 'case')})`).join(', ')}`);
-  const { waived, flakyReference, flakyCandidate, timeouts } = score.raw;
+  const { waived, flakyReference, flakyCandidate, timeouts, timeoutRecovered } = score.raw;
   const excluded = [
     [waived, 'waived (not scored)'],
     [flakyReference, 'flaky-reference (not scored)'],
     [flakyCandidate, 'flaky-candidate (diverge)'],
     [timeouts, 'timed out (diverge)'],
+    [timeoutRecovered, 'timeout, recovered on re-run'],
   ] as const;
   if (excluded.some(([n]) => n > 0)) lines.push(`  ${excluded.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(' · ')}`);
   const list = (names: readonly string[]) =>

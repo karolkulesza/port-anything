@@ -20,6 +20,8 @@ const COUNTS = {
   flaky_candidate: Count,
   /** Of the diverging cases, those where the candidate timed out. */
   timeouts: Count,
+  /** Cases, whatever their outcome, scored on a candidate re-run after its first run timed out. */
+  timeout_recovered: Count,
 };
 
 const OriginSchema = z.strictObject({ cases: Count, scored: Count, match: Count, features: Count, parity: Parity });
@@ -42,6 +44,8 @@ const CandidateSchema = z.strictObject({
   under_sampled: z.array(z.string()),
   /** Features the CLI spec defines that no case carries. */
   untested: z.array(z.string()),
+  /** The cases counted in `raw.timeout_recovered`: the re-run was compared, its first run having timed out where the reference finished. */
+  timeout_recovered: z.array(CaseIdSchema),
   /** Coverage of each waiver, numbered from 1 in file order; `large` above the report's threshold. */
   waivers: z.array(z.strictObject({ waiver: z.number().int().positive(), cases: Count, share: z.number().min(0).max(1), large: z.boolean() })),
 });
@@ -100,6 +104,8 @@ const counts = (c: CaseCounts) => ({
   flaky_reference: c.flakyReference,
   flaky_candidate: c.flakyCandidate,
   timeouts: c.timeouts,
+  // Absent from scores saved before it was counted.
+  timeout_recovered: c.timeoutRecovered ?? 0,
 });
 
 /**
@@ -140,6 +146,7 @@ export function reportJson(input: ReportInput): ReportJson {
         self_description: s.selfDescription,
         under_sampled: s.underSampled,
         untested: s.untested,
+        timeout_recovered: [...c.timeoutRecovered],
         waivers: c.waivers.map((w) => ({ waiver: w.waiver, cases: w.cases, share: w.share, large: w.large })),
       };
     }),
