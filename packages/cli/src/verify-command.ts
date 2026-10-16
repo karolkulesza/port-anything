@@ -8,7 +8,6 @@ import {
   caseEnvironment,
   checkManifest,
   chooseSandbox,
-  environmentFingerprint,
   generatedCorpusSettings,
   manifestCases,
   manifestGenerator,
@@ -18,12 +17,14 @@ import {
   readManifest,
   referenceObservationHashes,
   shortCaseId,
+  fingerprintField,
   type Fingerprint,
+  type FingerprintField,
   type Manifest,
   type ManifestProblem,
   type SandboxProbe,
 } from '@port-anything/core';
-import { resolveCommand, withScratchDir, type CliResult } from './common.js';
+import { prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
@@ -69,15 +70,15 @@ export async function verifyCommand(argv: readonly string[], options: { cwd: str
 
 async function execute(args: VerifyArgs, { cwd, probe }: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   const config = await readConfigFile(cwd);
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   const manifest = await readManifest(cwd);
   if (manifest === undefined) throw new ConfigError(`No .port-anything/${MANIFEST_FILE} to verify: freeze the corpus with port-anything baseline first.`);
-  const sandboxProbe = probe ?? (await probeSandbox());
-  const cases = await loadCorpus(cwd, config, { noSandbox: args.noSandbox, probe: sandboxProbe });
+  // In container mode the reference is built in the image first.
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(cwd, config, [], { noSandbox: args.noSandbox })
+      : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
+  const cases = await loadCorpus(cwd, config, { noSandbox: args.noSandbox, sandbox });
   const reference = await resolveCommand(config.reference.cmd, cwd);
-  const sandbox = chooseSandbox(sandboxProbe, { noSandbox: args.noSandbox });
 
   // Only cases with a frozen observation run: a flaky-reference case has nothing to compare with.
   const frozen = new Set(manifest.cases.filter((c) => c.observation !== null).map((c) => c.id));
@@ -97,7 +98,7 @@ async function execute(args: VerifyArgs, { cwd, probe }: { cwd: string; probe?: 
     }),
   );
   const caseEnv = caseEnvironment({ home: cwd, allowlist: config.sandbox.env_allowlist, env: config.sandbox.env });
-  const fingerprint = await environmentFingerprint({ reference, caseEnv });
+  const fingerprint = await sandboxFingerprint(sandbox, reference, caseEnv);
   const check = checkManifest(manifest, {
     generator: manifestGenerator(generatedCorpusSettings(config)),
     normalizers: manifestNormalizers(config.normalizers),
@@ -127,11 +128,11 @@ async function execute(args: VerifyArgs, { cwd, probe }: { cwd: string; probe?: 
   };
 }
 
-function environmentLines(frozen: Fingerprint, now: Fingerprint, fields: readonly (keyof Fingerprint)[]): string[] {
-  const show = (value: string | null) => (value === null ? 'none' : value);
+function environmentLines(frozen: Fingerprint, now: Fingerprint, fields: readonly FingerprintField[]): string[] {
+  const show = (fp: Fingerprint, field: FingerprintField) => fingerprintField(fp, field) ?? 'none';
   return [
     'environment differs from the one the corpus was frozen in, so this check is not authoritative here:',
-    ...fields.map((field) => `  ${field}: ${show(frozen[field])} then, ${show(now[field])} now`),
+    ...fields.map((field) => `  ${field}: ${show(frozen, field)} then, ${show(now, field)} now`),
   ];
 }
 

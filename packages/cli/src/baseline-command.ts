@@ -14,7 +14,6 @@ import {
   cacheDir,
   caseEnvironment,
   chooseSandbox,
-  environmentFingerprint,
   generatedCorpusSettings,
   manifestCases,
   manifestGenerator,
@@ -30,7 +29,7 @@ import {
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
-import { display, prepareContainer, resolveCommand, withScratchDir, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
@@ -158,7 +157,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     tool_version: TOOL_VERSION,
     generator: manifestGenerator(generatedCorpusSettings(config)),
     normalizers: manifestNormalizers(normalizers),
-    fingerprint: await environmentFingerprint({ reference, caseEnv }),
+    fingerprint: await sandboxFingerprint(sandbox, reference, caseEnv),
     cases: manifestCases(cases, new Map(result.cases.flatMap((c) => (c.observationHash === null ? [] : [[c.caseId, c.observationHash] as const])))),
   });
 

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cacheDir, manifestPath, readManifest, shortCaseId, type Manifest, type SandboxProbe } from '@port-anything/core';
+import { cacheDir, findContainerEngine, manifestPath, readManifest, shortCaseId, type Manifest, type SandboxProbe } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { baselineCommand } from '../src/baseline-command.js';
 import { run } from '../src/run.js';
@@ -126,7 +126,7 @@ describe('verifyCommand', () => {
 
   it('only warns when the environment fingerprint differs', async () => {
     await editManifest((m) => {
-      m.fingerprint.os = 'linux some-other-distro 1';
+      if (m.fingerprint.mode === 'local') m.fingerprint.os = 'linux some-other-distro 1';
       caseOf(m, 'stable').observation = `sha256:${'0'.repeat(64)}`;
     });
     const result = await verify();
@@ -200,5 +200,46 @@ describe('verify on a generated corpus', () => {
     const reseeded = await cli(['verify', '--no-sandbox']);
     expect(reseeded.exitCode).toBe(2);
     expect(reseeded.stdout).toContain('  generated corpus settings: v1, seed 42, budget 30, error path cap 0.3, min cases per feature 20 frozen, v1, seed 43, budget 30');
+  });
+});
+
+// Runs where Docker or Podman answers, and always in CI on Linux (where Docker is there).
+const engine = await findContainerEngine().catch(() => undefined);
+
+describe.runIf(engine !== undefined || (process.env.CI !== undefined && process.platform === 'linux'))('verify in sandbox mode container', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pa-cli-verify-container-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin', 'frob'), FROB, { mode: 0o755 });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("freezes the image's fingerprint, regenerates and checks the corpus in the image, and exits 2 on an edited observation", { timeout: 300_000 }, async () => {
+    const cli = (argv: string[]) => run(argv, { cwd: dir });
+    expect((await cli(['compare', './bin/frob', './bin/frob', '--budget', '30', '--save', '--no-sandbox'])).exitCode).toBe(0);
+    const config = join(dir, 'port-anything.yaml');
+    writeFileSync(config, readFileSync(config, 'utf8').replace(/\n {2}mode: local\n/, '\n  mode: container\n  image: debian:12-slim\n'));
+    expect(readFileSync(config, 'utf8')).toContain('mode: container');
+    rmSync(cacheDir(dir), { recursive: true }); // generated again, in the image
+    const baseline = await cli(['baseline']);
+    expect(baseline.stderr).toBe('');
+    expect(baseline.exitCode).toBe(0);
+    const m = (await readManifest(dir))!;
+    expect(m.fingerprint).toEqual({ mode: 'container', image: expect.stringMatching(/^(debian@)?sha256:[0-9a-f]{64}$/), arch: expect.any(String), locale: expect.anything() });
+
+    rmSync(cacheDir(dir), { recursive: true }); // a fresh clone has no cache
+    const verified = await cli(['verify']);
+    expect(verified.stderr).toBe('');
+    expect(verified.stdout).toMatch(/sandbox: container \(\w+, debian:12-slim\)/);
+    expect(verified.stdout).toContain('manifest intact\n');
+    expect(verified.exitCode).toBe(0);
+
+    const edited = (await readManifest(dir))!;
+    edited.cases.find((c) => c.observation !== null)!.observation = `sha256:${'0'.repeat(64)}`;
+    writeFileSync(manifestPath(dir), JSON.stringify(edited));
+    const broken = await cli(['verify']);
+    expect(broken.stdout).toContain('INTEGRITY BROKEN');
+    expect(broken.exitCode).toBe(2);
   });
 });
