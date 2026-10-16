@@ -41,17 +41,17 @@ const IO_DIR = '/pa-io';
  * show a container the old content of a path the host rewrote, and a rename fails if a case planted
  * something there. For each `run <n> <timeout s> <grace s> <cmd bytes> <stdin bytes or -> <entries>
  * <bytes>` line (the last two count the entries of `case/` and the bytes of its files), the runner
- * waits until it sees all of that (the share can lag behind the host on a busy machine; it tries
- * for about 2 s), copies the files to the case directory, on the tmpfs, runs the script in a session
- * of its own with stdout and stderr in files, and a watchdog that sends SIGTERM to the case's
- * process group at the timeout, then SIGKILL after the grace period. Once the case has exited, it
- * kills every process in the container but itself (anything the case left behind, even in a session
- * of its own, so nothing touches the shared directory while the host reads it), copies the case
- * directory back (`result/`) and answers `done <status> <1 if timed out> <1 if copied back> <stdout
- * bytes> <stderr bytes> <entries> <bytes>` (the last two for `result/`), so the host can wait until
- * it sees the same. As under bwrap, a signal death is the shell's exit status 128 + n. When it can't
- * copy the case's files in, it answers `error <n>` instead; either way, what went wrong is in
- * `cp-error`.
+ * copies the files to the case directory, on the tmpfs, and waits until it has seen all of that
+ * (the share can lag behind the host on a busy machine; it tries for about 2 s), runs the script in
+ * a session of its own with stdout and stderr in files, and a watchdog that sends SIGTERM to the
+ * case's process group at the timeout, then SIGKILL after the grace period. Once the case has
+ * exited, it kills every process in the container but itself (anything the case left behind, even
+ * in a session of its own, so nothing touches the shared directory while the host reads it), copies
+ * the case directory back (`result/`) and answers `done <status> <1 if timed out> <1 if copied
+ * back> <stdout bytes> <stderr bytes> <entries> <bytes>` (the last two for the case directory), so
+ * the host can wait until it sees the same. As under bwrap, a signal death is the shell's exit
+ * status 128 + n. When it can't copy the case's files in, it answers `error <n>` instead; either
+ * way, what went wrong is in `cp-error`.
  */
 export const RUNNER_SCRIPT = [
   'echo ready',
@@ -62,7 +62,7 @@ export const RUNNER_SCRIPT = [
   `  i=${IO_DIR}/$n`,
   '  k=0',
   '  until { [ "$(wc -c <"$i/cmd")" -eq "$cs" ] && { [ "$ss" = - ] || [ "$(wc -c <"$i/stdin")" -eq "$ss" ]; } &&',
-  '    [ "$(tree "$i/case")" = "$fe $fb" ] && IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c"; } 2>"$i/cp-error"; do',
+  '    IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c" && [ "$(tree "$c")" = "$fe $fb" ]; } 2>"$i/cp-error"; do',
   '    k=$((k + 1)); [ "$k" -lt 20 ] || break; sleep 0.1',
   '  done',
   '  if [ "$k" -ge 20 ]; then echo "error $n"; continue; fi',
@@ -77,10 +77,11 @@ export const RUNNER_SCRIPT = [
   // Every process but this one (and the init process): kill -1 never signals the caller.
   '  kill -9 -1 2>/dev/null',
   '  if [ -e "$i/timedout" ]; then to=1; else to=0; fi',
+  '  rt=$(tree "$c")',
   '  rm -rf "$i/result"',
   '  if cp -a "$c" "$i/result" 2>"$i/cp-error"; then r=1; else r=0; fi',
   '  rm -rf "$c"',
-  '  echo done "$status" "$to" "$r" $(wc -c <"$i/out") $(wc -c <"$i/err") $(tree "$i/result")',
+  '  echo done "$status" "$to" "$r" $(wc -c <"$i/out") $(wc -c <"$i/err") $rt',
   'done',
 ].join('\n');
 
