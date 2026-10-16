@@ -186,6 +186,7 @@ export {
   reproPath,
   parseClusterAddress,
   resolveCluster,
+  runsAfter,
   runsDir,
   saveRepro,
   saveRun,
