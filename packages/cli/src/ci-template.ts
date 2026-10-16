@@ -53,7 +53,7 @@ export function ciWorkflow(options: { project: string; version: string; runner?:
       : `
     defaults:
       run:
-        working-directory: ${project}`;
+        working-directory: ${JSON.stringify(project)}`; // quoted: a directory named 123 or null stays a string
   return `# Recomputes the parity score from the committed files on every push and pull request.
 # Written by port-anything init --ci. It fails when:
 #   - the cases or the reference's frozen output differ from .port-anything/${MANIFEST_FILE}

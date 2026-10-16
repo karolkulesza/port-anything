@@ -242,5 +242,15 @@ describe.runIf(engine !== undefined || (process.env.CI !== undefined && process.
     const broken = await cli(['verify']);
     expect(broken.stdout).toContain('INTEGRITY BROKEN');
     expect(broken.exitCode).toBe(2);
+
+    // Frozen on another architecture: only a warning, which says how to get an authoritative check.
+    edited.fingerprint = { ...edited.fingerprint, arch: 'some-other-arch' };
+    writeFileSync(manifestPath(dir), JSON.stringify(edited));
+    const elsewhere = await cli(['verify']);
+    expect(elsewhere.exitCode).toBe(0);
+    expect(elsewhere.stdout).toContain('  arch: some-other-arch then, ');
+    expect(elsewhere.stderr).toBe(
+      'port-anything verify: warning: 1 difference from the manifest, but the environment differs (arch); run where the manifest was frozen (the same image digest and architecture; pin sandbox.image by digest), or re-baseline.\n',
+    );
   });
 });

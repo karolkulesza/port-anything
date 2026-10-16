@@ -74,7 +74,7 @@ describe('port-anything init', () => {
       stderr: '',
     });
     const workflow = readFileSync(join(root, '.github', 'workflows', 'port-anything.yml'), 'utf8');
-    expect(workflow).toContain('        working-directory: tools/port\n');
+    expect(workflow).toContain('        working-directory: "tools/port"\n');
 
     // An edited workflow is kept; the notes on sandbox mode and min_parity go once the config has them.
     writeFileSync(join(root, '.github', 'workflows', 'port-anything.yml'), `${workflow}# edited\n`);
