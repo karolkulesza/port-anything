@@ -1,9 +1,10 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { BlobStore, ConfigError, cacheDir, latestRun, loadCommittedCases, type CanonicalCase, type RunRecord } from '@port-anything/core';
+import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, latestRun, loadCommittedCases, readConfigFile, type CanonicalCase, type RunRecord } from '@port-anything/core';
 import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
-import type { CliResult } from './run-command.js';
+import { loadCorpus } from './corpus.js';
+import type { CandidateHoldout, CliResult, HoldoutSummary } from './run-command.js';
 
 /** Where `report` writes, in the project directory (the HTML under the name `compare` uses too). */
 export const REPORT_HTML_FILE = 'port-anything-report.html';
@@ -14,7 +15,7 @@ export function badgeFile(n: number): string {
   return n === 1 ? 'port-anything-badge.svg' : `port-anything-badge-${n}.svg`;
 }
 
-const USAGE = 'Usage: port-anything report [--html] [--badge] [--json]';
+export const USAGE = 'Usage: port-anything report [--html] [--badge] [--json]';
 
 /**
  * `port-anything report [--html] [--badge] [--json]`: writes the latest saved run of the whole
@@ -36,7 +37,12 @@ export async function reportCommand(argv: readonly string[], options: { cwd: str
     const run = await latestRun(options.cwd);
     if (run === undefined) throw new ConfigError('No saved run of the whole corpus yet: run port-anything run first.');
     const store = new BlobStore(cacheDir(options.cwd));
-    const cases = await loadCommittedCases(options.cwd, store);
+    // Generated cases only from the cache, since the report runs no program; without a config, only the committed ones.
+    const config = await readConfigFile(options.cwd).catch((e: unknown) => {
+      if (e instanceof ConfigError && e.message.startsWith(`No ${CONFIG_FILE} `)) return undefined;
+      throw e;
+    });
+    const cases = config === undefined ? await loadCommittedCases(options.cwd, store) : await loadCorpus(options.cwd, config, 'cache-only');
     const input = await reportInput(run, cases, store);
     const files: [string, string][] = [];
     if (all || values.html === true) files.push([REPORT_HTML_FILE, renderReportHtml(input)]);
@@ -72,10 +78,13 @@ interface SavedReport {
   cases: number;
   normalizers: ReportInput['normalizers'];
   waivers: ReportInput['waivers'];
-  candidates: (Omit<ReportCandidate, 'waivedCases' | 'timeoutRecovered'> & {
+  /** Absent in a run saved before the fresh holdout. */
+  holdout?: HoldoutSummary;
+  candidates: (Omit<ReportCandidate, 'waivedCases' | 'timeoutRecovered' | 'holdout'> & {
     waived_cases: ReportCandidate['waivedCases'];
     /** Absent from runs saved before recovered timeouts were listed. */
     timeout_recovered?: { case: string }[];
+    holdout?: CandidateHoldout;
   })[];
 }
 
@@ -136,7 +145,14 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
     cases: s.cases,
     normalizers: s.normalizers,
     waivers: s.waivers,
-    candidates: s.candidates.map(({ waived_cases, timeout_recovered, ...c }) => ({
+    ...(s.holdout === undefined
+      ? {}
+      : {
+          holdout: s.holdout.ran
+            ? { ran: true, cases: s.holdout.cases, inCorpus: s.holdout.in_corpus, flakyReference: s.holdout.flaky_reference, alpha: s.holdout.alpha, saved: s.holdout.saved }
+            : { ran: false, reason: s.holdout.reason },
+        }),
+    candidates: s.candidates.map(({ waived_cases, timeout_recovered, holdout, ...c }) => ({
       command: c.command,
       match: c.match,
       diverge: c.diverge,
@@ -145,6 +161,20 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
       waivers: c.waivers,
       waivedCases: waived_cases,
       timeoutRecovered: (timeout_recovered ?? []).map((r) => r.case),
+      ...(holdout === undefined
+        ? {}
+        : {
+            holdout: {
+              match: holdout.match,
+              diverge: holdout.diverge,
+              parity: holdout.parity,
+              ci95: holdout.ci95,
+              features: holdout.features,
+              gap: holdout.gap === null ? null : { corpus: holdout.gap.corpus, holdout: holdout.gap.holdout, gap: holdout.gap.gap, pValue: holdout.gap.p_value, features: holdout.gap.features.length },
+              ...(holdout.no_gap === undefined ? {} : { noGap: holdout.no_gap }),
+              significant: holdout.significant,
+            },
+          }),
     })),
     clusters,
     repros,

@@ -14,8 +14,21 @@ describe('run', () => {
     }
   });
 
+  it('lists every command with the usage line the command itself prints', async () => {
+    const { stdout } = await run(['--help']);
+    const listed = stdout.split('\n').map((l) => l.replace(/^(Usage:| {6}) /, '')).filter((l) => l.startsWith('port-anything '));
+    // Every command the dispatcher has, from the message it gives for one it doesn't.
+    const known = [...(await run(['no-such-command'])).stderr.matchAll(/"([a-z]+)[^"]*"/g)].map((m) => m[1]!).filter((name) => name !== 'no');
+    expect(known.length).toBeGreaterThanOrEqual(10);
+    for (const sub of known) {
+      const own = (await run([sub, '--no-such-option'])).stderr.split('\n').find((l) => l.startsWith(`Usage: port-anything ${sub}`));
+      expect(own, sub).toBeDefined();
+      expect(listed, sub).toContain(own!.slice('Usage: '.length));
+    }
+  });
+
   it('exits 3 for a command this version does not have', async () => {
-    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are/) });
+    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify" and "strength" are/) });
   });
 
   it('routes spec to the spec command', async () => {

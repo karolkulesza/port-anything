@@ -173,8 +173,10 @@ export {
 export {
   DEFAULT_MIN_CASES_PER_FEATURE,
   isSelfDescriptionFeature,
+  outcome as caseOutcome,
   scoreCandidate,
   type CaseCounts,
+  type Outcome,
   type FeatureScore,
   type KnownFeature,
   type OriginScore,
@@ -182,6 +184,26 @@ export {
   type ScoreOptions,
   type ScoredCase,
 } from './score.js';
+export {
+  DEFAULT_FRESH_CASES,
+  DEFAULT_GAP_ALPHA,
+  MIN_GAP_CASES,
+  freshHoldoutSeed,
+  gapCluster,
+  generateFreshHoldout,
+  holdoutGap,
+  holdoutParity,
+  holdoutSettings,
+  normalCdf,
+  studentTCdf,
+  type FreshHoldout,
+  type GapCase,
+  type GapFeature,
+  type GenerateHoldoutOptions,
+  type HoldoutGap,
+  type HoldoutParity,
+  type HoldoutSettings,
+} from './holdout.js';
 export { measureSlowdown, type Slowdown, type TimedCase } from './slowdown.js';
 export {
   DEFAULT_MINIMIZE_RUNS,
@@ -292,8 +314,49 @@ export {
   type NormalizerProposal,
   type ProposableNormalizer,
 } from './baseline.js';
-export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { appendNormalizers, normalizerEntry, setCorpusSettings } from './config-edit.js';
+export {
+  DEFAULT_GENERATOR_SEED,
+  GENERATED_CORPUS_FILE,
+  SEEDS_DIR,
+  generatedCorpusKey,
+  generatedCorpusSettings,
+  readGeneratedCorpusCache,
+  readSeedFixtures,
+  writeGeneratedCorpusCache,
+  type GeneratedCorpusCache,
+  type GeneratedCorpusKeyInput,
+  type GeneratedCorpusSettings,
+} from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
+export {
+  FingerprintSchema,
+  environmentFingerprint,
+  fingerprintDifferences,
+  localFingerprintHost,
+  type Fingerprint,
+  type FingerprintHost,
+  type FingerprintOptions,
+} from './fingerprint.js';
+export {
+  MANIFEST_FILE,
+  checkManifest,
+  manifestCases,
+  manifestGenerator,
+  manifestNormalizers,
+  manifestPath,
+  observationHash,
+  readManifest,
+  referenceObservationHashes,
+  writeManifest,
+  type Manifest,
+  type ManifestCase,
+  type ManifestCheck,
+  type ManifestProblem,
+  type ManifestState,
+  type ObservationHashOptions,
+  type ObserveReferenceOptions,
+} from './manifest.js';
 export {
   LARGE_WAIVER_SHARE,
   WAIVERS_FILE,

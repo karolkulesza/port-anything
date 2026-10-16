@@ -111,14 +111,14 @@ export function isSelfDescriptionFeature(feature: string): boolean {
   return match !== null && SELF_DESCRIPTION_NAMES.has(match[1]!);
 }
 
-type Outcome = 'match' | 'diverge' | 'waived' | 'flaky-reference';
+export type Outcome = 'match' | 'diverge' | 'waived' | 'flaky-reference';
 
 /**
  * How a case counts. A flaky reference leaves it out. A flaky or timed-out candidate diverges, and
  * no waiver covers that: otherwise a port could answer randomly or hang on hard cases to have them
  * excluded. A waiver only covers a case that diverges.
  */
-function outcome(c: ScoredCase): Outcome {
+export function outcome(c: ScoredCase): Outcome {
   if (c.flakyReference === true) return 'flaky-reference';
   if (c.flakyCandidate === true || c.candidateTimeout === true) return 'diverge';
   if (c.verdict === 'match') return 'match';

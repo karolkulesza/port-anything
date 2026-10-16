@@ -12,21 +12,23 @@
 #
 # Environment:
 #   PA_DEV_IMAGE        image tag (default port-anything-dev)
+#   PA_DEV_DOCKERFILE   Dockerfile to build it from, relative to the repo (default Dockerfile.dev)
 #   PA_DEV_NO_INSTALL=1 skip `pnpm install` before the command
 #   PA_DEV_DOCKER_ARGS  extra `docker run` arguments (word-split)
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 image=${PA_DEV_IMAGE:-port-anything-dev}
+dockerfile=${PA_DEV_DOCKERFILE:-Dockerfile.dev}
 
 if ! docker info >/dev/null 2>&1; then
   echo "dev-linux: Docker is not running. Start Docker (Desktop) and try again." >&2
   exit 125
 fi
 
-if ! build_log=$(docker build -q -t "$image" - <"$root/Dockerfile.dev" 2>&1); then
+if ! build_log=$(docker build -q -t "$image" - <"$root/$dockerfile" 2>&1); then
   printf '%s\n' "$build_log" >&2
-  echo "dev-linux: building $image from Dockerfile.dev failed." >&2
+  echo "dev-linux: building $image from $dockerfile failed." >&2
   exit 125
 fi
 
