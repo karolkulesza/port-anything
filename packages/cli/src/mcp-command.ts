@@ -216,7 +216,11 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     try {
       const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
       programName = runner.programName;
-      observed = await runner.run(reproCase);
+      try {
+        observed = await runner.run(reproCase);
+      } finally {
+        await runner.close();
+      }
     } finally {
       await removeScratch(projectDir, workDir);
     }

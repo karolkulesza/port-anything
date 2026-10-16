@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { latestRun, reproPath, shortCaseId, type SandboxProbe } from '@port-anything/core';
+import { promisify } from 'node:util';
+import { findContainerEngine, latestRun, reproPath, shortCaseId, type SandboxProbe } from '@port-anything/core';
 import { formatNext, formatRun, formatStatus, type Backend, type NextReport } from '@port-anything/mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../mcp/test/tokens.js';
@@ -115,6 +117,38 @@ describe('projectBackend', () => {
     expect((await backend.status()).integrity.manifest).toEqual({ cases: 11, environment: 'same' });
     expect(formatStatus(await backend.status())).toContain('integrity: manifest frozen, 11 cases, same environment; port-anything verify checks it');
   });
+});
+
+const exec = promisify(execFile);
+const engine = await findContainerEngine().catch(() => undefined);
+
+// The server lives on between tool calls, so whatever a call starts must stop when it returns: in
+// sandbox mode container, a container left running keeps the host directory of a run that is gone
+// mounted, and the runs after it fail to start theirs.
+describe.runIf(engine !== undefined)('projectBackend (sandbox mode container)', () => {
+  let project: string;
+
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-mcp-container-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), TOOL(), { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-port'), TOOL({ upper: true }), { mode: 0o755 });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-port }\nsandbox: { mode: container, image: debian:12-slim }\ncorpus: { min_cases_per_feature: 1 }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    const cases = [{ argv: ['upper'], stdin: 'ab\n', features: ['opt.u'] }, { argv: ['echo', 'e'], features: ['opt.e'] }];
+    writeFileSync(join(project, 'port-anything', 'recorded', 'cases.jsonl'), cases.map((c) => `${JSON.stringify({ ...c, origin: 'recorded' })}\n`).join(''));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  it('next and run leave no container running, and a run after next starts', async () => {
+    const running = async () => (await exec(engine!, ['ps', '-a', '--filter', 'label=port-anything', '--format', '{{.Label "port-anything"}}'])).stdout.split('\n').filter((dir) => dir.startsWith(`${project}/`));
+    expect((await runCommand([], { cwd: project })).exitCode).toBe(1);
+    const backend = projectBackend(project);
+    expect(await backend.next()).toMatchObject({ kind: 'cluster', cluster: { cluster: 1 }, diff: [{ field: 'stdout' }] });
+    expect(await running()).toEqual([]);
+    expect(await backend.run({ cluster: '1' })).toMatchObject({ candidates: [{ diverge: 1 }] });
+    expect(await running()).toEqual([]);
+  }, 300_000);
 });
 
 describe('mcpCommand', () => {
