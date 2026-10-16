@@ -43,19 +43,19 @@ export interface ReportCandidate {
   holdout?: ReportCandidateHoldout;
 }
 
-/** A candidate's fresh-holdout parity and its gap to the corpus parity over the same features. */
+/** A candidate's fresh-holdout parity and the test of its gap to the corpus. */
 export interface ReportCandidateHoldout {
   match: number;
   diverge: number;
-  /** Mean of per-feature parity over the features compared; null when there are none. */
+  /** Mean of per-feature parity over the holdout's cases of the headline's features; null when it has none. */
   parity: number | null;
   ci95: readonly [number, number] | null;
-  corpus: number | null;
-  gap: number | null;
-  pValue: number | null;
-  significant: boolean;
-  /** Features compared. */
+  /** Features `parity` is the mean over. */
   features: number;
+  /** The gap test on the byte-mutated cases of both sides; null when it couldn't run (`noGap` says why). */
+  gap: { corpus: number; holdout: number; gap: number; pValue: number; features: number } | null;
+  noGap?: string;
+  significant: boolean;
 }
 
 /** Whether the run had a fresh holdout, and if it did, what it ran. */
@@ -183,11 +183,13 @@ ${cards.join('\n')}
 
 /** A candidate's fresh-holdout parity, and whether its gap to the corpus is significant. */
 function holdoutLine(h: ReportCandidateHoldout): string {
-  if (h.parity === null || h.corpus === null || h.gap === null || h.pValue === null) return '<p>fresh holdout: no new case of the headline\'s features, so no gap</p>';
   const ci = h.ci95 === null ? '' : ` (95% CI ${percent(h.ci95[0])}–${percent(h.ci95[1])})`;
-  const p = h.pValue < 0.0001 ? 'p &lt; 0.0001' : `p = ${h.pValue.toPrecision(2)}`;
+  const parity = h.parity === null ? "fresh holdout: no new case of the headline's features" : `fresh holdout ${percent(h.parity)}${ci}, mean of ${count(h.features, 'feature')}`;
+  if (h.gap === null) return `<p>${parity} · gap to the corpus not tested: ${esc(h.noGap ?? 'nothing to compare')}</p>`;
+  const g = h.gap;
+  const p = g.pValue < 0.0001 ? 'p &lt; 0.0001' : `p = ${g.pValue.toPrecision(2)}`;
   const verdict = h.significant ? '<span class="flag">significant: better on the corpus than on new cases</span>' : 'not significant';
-  return `<p>fresh holdout ${percent(h.parity)}${ci} vs corpus ${percent(h.corpus)} over the same ${count(h.features, 'feature')}: gap ${(h.gap * 100).toFixed(1)} points, ${verdict} (${p})</p>`;
+  return `<p>${parity} · gap to the corpus ${(g.gap * 100).toFixed(1)} points on byte-mutated cases of ${count(g.features, 'feature')} (corpus ${percent(g.corpus)}, holdout ${percent(g.holdout)}): ${verdict} (${p})</p>`;
 }
 
 /** Every feature some candidate's cases carry: the headline's first, then under-sampled, then self-description. */

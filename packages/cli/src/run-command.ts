@@ -21,11 +21,15 @@ import {
   describeSignature,
   describeWaiver,
   featureWeights,
+  caseOutcome,
   freshHoldoutSeed,
+  gapCluster,
+  generateArgvCases,
   generateFreshHoldout,
   generatedCorpusSettings,
   gitHead,
   holdoutGap,
+  holdoutParity,
   holdoutSettings,
   inlineCase,
   latestRun,
@@ -54,6 +58,7 @@ import {
   type CliSpec,
   type CompareOptions,
   type Config,
+  type GapCase,
   type GapFeature,
   type ResolvedCluster,
   type ResolvedProgram,
@@ -351,6 +356,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
               corpus: corpusIds,
               runner: runnerOptions,
               waivers,
+              corpusCases: cases,
+              corpusScored: commands.map((_, i) => scoredCases(result, cases, waived[i]!, i)),
               scores: corpusCandidates.map((c) => c.score),
             });
 
@@ -501,15 +508,19 @@ export interface CandidateHoldout {
   match: number;
   diverge: number;
   waived: number;
-  /** Mean of per-feature parity over the features compared with the corpus; null when there are none. */
+  /** Mean of per-feature parity over the holdout's cases of the corpus headline's features; null when it has none. */
   parity: number | null;
   ci95: [number, number] | null;
-  /** The corpus parity over the same features. */
-  corpus: number | null;
-  gap: number | null;
-  p_value: number | null;
+  /** Features `parity` is the mean over. */
+  features: number;
+  /**
+   * The gap test, on the byte-mutated cases of both sides (see `holdoutGap`); null when either
+   * side has none of the headline's features (`no_gap` says why).
+   */
+  gap: { corpus: number; holdout: number; gap: number; p_value: number; features: GapFeature[]; clusters: { corpus: number; holdout: number } } | null;
+  no_gap?: string;
+  /** The gap is significant at `holdout.gap_alpha`: the run fails. */
   significant: boolean;
-  features: GapFeature[];
   /** IDs of the holdout cases it diverged on. */
   diverging: string[];
 }
@@ -537,6 +548,9 @@ async function runFreshHoldout(options: {
   corpus: ReadonlySet<string>;
   runner: Omit<RunCasesOptions, 'cases' | 'workDir'>;
   waivers: readonly Waiver[];
+  /** The corpus as it ran (flaky-reference cases left out), and each candidate's outcomes on it. */
+  corpusCases: readonly CanonicalCase[];
+  corpusScored: readonly (readonly ScoredCase[])[];
   scores: readonly Score[];
 }): Promise<FreshHoldoutResult> {
   const { projectDir, config, inputs, runner, waivers } = options;
@@ -574,26 +588,54 @@ async function runFreshHoldout(options: {
   }
   const cases = fresh.cases;
   const waived = await waiverMatches(result, cases, waivers, store, options.scores.length);
+  // The gap compares byte mutants only: argv cases largely repeat across seeds (and are left out
+  // of the holdout as corpus cases), and their share of a corpus depends on its budget. The
+  // corpus's argv cases are the ones its seed generates; recorded and imported cases aren't
+  // generated at all.
+  const argvIds =
+    generated === undefined ? new Set<string>() : new Set(generateArgvCases(inputs.spec, { seed: generated.seed, generator: generated.generator, iKnow: false }).cases.map((c) => c.case.id));
+  const corpusMutant = options.corpusCases.map((c) => generated !== undefined && c.origin === 'generated' && !argvIds.has(c.id));
+  const holdoutMutant = fresh.strategies.map((s) => s === 'mutation');
+  const toGap = (c: CanonicalCase, scored: ScoredCase): GapCase => {
+    const o = caseOutcome(scored);
+    return { features: c.features, cluster: gapCluster(c), outcome: o === 'match' ? 'match' : o === 'diverge' ? 'diverge' : 'excluded' };
+  };
   const failing = new Set<string>();
   const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {
-    const score = scoreCandidate(scoredCases(result, cases, waived[i]!, i, flaky), { minCasesPerFeature: 1 });
-    const gap = holdoutGap(corpusScore, score, options.alpha);
-    const diverging = result.cases.flatMap((c, n) => {
-      const counted = !flaky.has(c.caseId) && waived[i]![n]?.waived !== true;
-      return counted && (c.candidates[i]!.comparison.verdict === 'diverge' || c.candidates[i]!.flaky || timedOut(c, i)) ? [c.caseId] : [];
-    });
+    const scored = scoredCases(result, cases, waived[i]!, i, flaky);
+    const score = scoreCandidate(scored, { minCasesPerFeature: 1 });
+    const headline = new Set(corpusScore.headlineFeatures);
+    const holdoutGapCases = cases.map((c, n) => toGap(c, scored[n]!));
+    const parity = holdoutParity(holdoutGapCases, headline);
+    const corpusGapCases = options.corpusCases.flatMap((c, n) => (corpusMutant[n] ? [toGap(c, options.corpusScored[i]![n]!)] : []));
+    const gap = holdoutGap(
+      corpusGapCases,
+      holdoutGapCases.filter((_, n) => holdoutMutant[n]),
+      { alpha: options.alpha, features: headline },
+    );
+    const noGap =
+      gap.gap !== null
+        ? undefined
+        : corpusGapCases.length === 0
+          ? 'the corpus has no generated byte-mutated cases to compare with (port-anything generate makes them)'
+          : !holdoutMutant.some(Boolean)
+            ? 'the holdout has no byte-mutated cases (raise holdout.fresh_cases)'
+            : 'no feature of the parity has byte-mutated cases on both sides';
+    const diverging = result.cases.flatMap((c, n) => (caseOutcome(scored[n]!) === 'diverge' ? [c.caseId] : []));
     for (const id of diverging) failing.add(id);
     return {
       match: score.raw.match,
       diverge: score.raw.diverge,
       waived: score.raw.waived,
-      parity: gap.holdout,
-      ci95: gap.holdoutCi95,
-      corpus: gap.corpus,
-      gap: gap.gap,
-      p_value: gap.pValue,
+      parity: parity.parity,
+      ci95: parity.ci95,
+      features: parity.features,
+      gap:
+        gap.gap === null
+          ? null
+          : { corpus: gap.corpus!, holdout: gap.holdout!, gap: gap.gap, p_value: gap.pValue!, features: gap.features, clusters: gap.clusters },
+      ...(noGap === undefined ? {} : { no_gap: noGap }),
       significant: gap.significant,
-      features: gap.features,
       diverging,
     };
   });
@@ -616,13 +658,17 @@ function holdoutLine(h: HoldoutSummary): string {
 
 /** A candidate's fresh-holdout parity and its gap to the corpus. */
 function candidateHoldoutLines(h: CandidateHoldout): string[] {
-  if (h.parity === null || h.corpus === null || h.gap === null || h.p_value === null) return ['  fresh holdout: no new case of the parity\'s features, so no gap to the corpus'];
   const ci = h.ci95 === null ? '' : ` (95% CI ${percent(h.ci95[0])}–${percent(h.ci95[1])})`;
-  const p = h.p_value < 0.0001 ? 'p < 0.0001' : `p = ${h.p_value.toPrecision(2)}`;
-  const features = h.features.length;
-  const lines = [
-    `  fresh holdout ${percent(h.parity)}${ci} vs corpus ${percent(h.corpus)} over the same ${count(features, 'feature')}: gap ${(h.gap * 100).toFixed(1)} points, ${h.significant ? 'SIGNIFICANT' : 'not significant'} (${p})`,
-  ];
+  const lines = [h.parity === null ? "  fresh holdout: no new case of the parity's features" : `  fresh holdout ${percent(h.parity)}${ci}, mean of ${count(h.features, 'feature')}`];
+  if (h.gap === null) {
+    lines.push(`  gap to the corpus not tested: ${h.no_gap}`);
+    return lines;
+  }
+  const g = h.gap;
+  const p = g.p_value < 0.0001 ? 'p < 0.0001' : `p = ${g.p_value.toPrecision(2)}`;
+  lines.push(
+    `  gap to the corpus ${(g.gap * 100).toFixed(1)} points on byte-mutated cases of ${count(g.features.length, 'feature')} (corpus ${percent(g.corpus)}, holdout ${percent(g.holdout)}): ${h.significant ? 'SIGNIFICANT' : 'not significant'} (${p})`,
+  );
   if (h.significant) lines.push('  the candidate does better on the corpus than on cases it has never seen, beyond chance: it may be fitted to the corpus (a lookup table of expected outputs)');
   return lines;
 }

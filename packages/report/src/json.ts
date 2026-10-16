@@ -27,18 +27,28 @@ const OriginSchema = z.strictObject({ cases: Count, scored: Count, match: Count,
 const HoldoutSchema = z.strictObject({
   match: Count,
   diverge: Count,
-  /** Mean of per-feature parity over the features compared with the corpus. */
+  /** Mean of per-feature parity over the holdout's cases of the headline's features. */
   parity: Parity,
   ci95: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).nullable(),
-  /** The corpus parity over the same features. */
-  corpus: Parity,
-  /** corpus - parity. */
-  gap: z.number().min(-1).max(1).nullable(),
-  /** One-sided p-value of the gap, stratified by feature. */
-  p_value: z.number().min(0).max(1).nullable(),
+  /** Features `parity` is the mean over. */
+  features: Count,
+  /** The gap test, on the byte-mutated cases of the corpus and the holdout; null when it couldn't run (`no_gap` says why). */
+  gap: z
+    .strictObject({
+      /** Mean of per-feature parity over the compared features, on each side. */
+      corpus: z.number().min(0).max(1),
+      holdout: z.number().min(0).max(1),
+      /** corpus - holdout. */
+      gap: z.number().min(-1).max(1),
+      /** One-sided p-value of the gap: stratified by feature, cluster-robust. */
+      p_value: z.number().min(0).max(1),
+      /** Features compared. */
+      features: Count,
+    })
+    .nullable(),
+  no_gap: z.string().nullable(),
   /** p_value < holdout.alpha: the run failed on it. */
   significant: z.boolean(),
-  features: Count,
 });
 
 const CandidateSchema = z.strictObject({
@@ -173,7 +183,19 @@ export function reportJson(input: ReportInput): ReportJson {
         under_sampled: s.underSampled,
         untested: s.untested,
         waivers: c.waivers.map((w) => ({ waiver: w.waiver, cases: w.cases, share: w.share, large: w.large })),
-        holdout: c.holdout === undefined ? null : { match: c.holdout.match, diverge: c.holdout.diverge, parity: c.holdout.parity, ci95: c.holdout.ci95 === null ? null : [c.holdout.ci95[0], c.holdout.ci95[1]], corpus: c.holdout.corpus, gap: c.holdout.gap, p_value: c.holdout.pValue, significant: c.holdout.significant, features: c.holdout.features },
+        holdout:
+          c.holdout === undefined
+            ? null
+            : {
+                match: c.holdout.match,
+                diverge: c.holdout.diverge,
+                parity: c.holdout.parity,
+                ci95: c.holdout.ci95 === null ? null : [c.holdout.ci95[0], c.holdout.ci95[1]],
+                features: c.holdout.features,
+                gap: c.holdout.gap === null ? null : { corpus: c.holdout.gap.corpus, holdout: c.holdout.gap.holdout, gap: c.holdout.gap.gap, p_value: c.holdout.gap.pValue, features: c.holdout.gap.features },
+                no_gap: c.holdout.noGap ?? null,
+                significant: c.holdout.significant,
+              },
       };
     }),
     clusters: input.clusters.map((k) => ({

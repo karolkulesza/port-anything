@@ -3,131 +3,200 @@ import { blobRef } from '../src/blob-store.js';
 import { parseCliSpec, type CliSpec } from '../src/cli-spec.js';
 import { parseConfig } from '../src/config.js';
 import { generateCorpus, type ObserveReference } from '../src/corpus-generator.js';
-import { DEFAULT_FRESH_CASES, DEFAULT_GAP_ALPHA, freshHoldoutSeed, generateFreshHoldout, holdoutGap, holdoutSettings, normalCdf } from '../src/holdout.js';
+import {
+  DEFAULT_FRESH_CASES,
+  DEFAULT_GAP_ALPHA,
+  freshHoldoutSeed,
+  gapCluster,
+  generateFreshHoldout,
+  holdoutGap,
+  holdoutParity,
+  holdoutSettings,
+  normalCdf,
+  studentTCdf,
+  type GapCase,
+} from '../src/holdout.js';
 import { canonicalObservation, type CanonicalCase } from '../src/model.js';
 import { createRng, type Rng } from '../src/rng.js';
-import { scoreCandidate, type Score, type ScoredCase } from '../src/score.js';
+
+type Counts = Record<string, { n: number; match: number }>;
 
 let next = 0;
-/** `n` cases of each feature, `match[f]` of them matching. */
-function cases(counts: Record<string, { n: number; match: number }>): ScoredCase[] {
-  return Object.entries(counts).flatMap(([feature, { n, match }]) =>
-    Array.from({ length: n }, (_, i): ScoredCase => ({ caseId: `c${next++}`, features: [feature], origin: 'generated', verdict: i < match ? 'match' : 'diverge' })),
+/** `n` cases of each feature, `match` of them matching, each its own cluster unless `clusterSize` groups them. */
+function side(counts: Counts, clusterSize = 1): GapCase[] {
+  return Object.entries(counts).flatMap(([feature, { n, match }]) => {
+    const base = next;
+    next += n;
+    return Array.from({ length: n }, (_, i): GapCase => ({ features: [feature], cluster: `k${base + Math.floor(i / clusterSize)}`, outcome: i < match ? 'match' : 'diverge' }));
+  });
+}
+const all = (...names: string[]) => new Set(names);
+const gapOf = (corpus: Counts, holdout: Counts, alpha = 0.01, features = all(...Object.keys(corpus))) => holdoutGap(side(corpus), side(holdout), { alpha, features });
+
+/** Bernoulli(p). */
+const draw = (rng: Rng, p: number) => rng.uint32() / 2 ** 32 < p;
+
+/**
+ * Cases of the given per-feature parities in `clusters` clusters of `size` each per feature. With
+ * `spread`, each cluster's own parity is p moved up or down by spread × (1 - p), at random, so the
+ * mean stays p: a parent and its mutants fail together.
+ */
+function clustered(rng: Rng, prefix: string, parities: readonly number[], clusters: number, size: number, spread: number): GapCase[] {
+  return parities.flatMap((p, f) =>
+    Array.from({ length: clusters }, (_, k) => {
+      const q = spread === 0 ? p : Math.min(1, Math.max(0, draw(rng, 0.5) ? p + spread * (1 - p) : p - spread * (1 - p)));
+      return Array.from({ length: size }, (): GapCase => ({ features: [`opt.f${f}`], cluster: `${prefix}${f}-${k}`, outcome: draw(rng, q) ? 'match' : 'diverge' }));
+    }).flat(),
   );
 }
-const score = (counts: Record<string, { n: number; match: number }>, minCasesPerFeature = 20) => scoreCandidate(cases(counts), { minCasesPerFeature });
-const holdout = (counts: Record<string, { n: number; match: number }>) => score(counts, 1);
 
-/** The per-feature part of a score, which is all the gap reads; scoring thousands of cases per trial is too slow. */
-const counts = (c: Record<string, { n: number; match: number }>, inHeadline: boolean) =>
-  ({
-    features: Object.entries(c).map(([feature, { n, match }]) => ({ feature, scored: n, match, inHeadline })),
-  }) as unknown as Score;
-
-/** Binomial(n, p) draw. */
-const binomial = (rng: Rng, n: number, p: number) => {
-  let x = 0;
-  for (let i = 0; i < n; i++) if (rng.uint32() / 2 ** 32 < p) x++;
-  return x;
-};
-
-describe('normalCdf', () => {
-  it('matches the standard normal table', () => {
+describe('distribution functions', () => {
+  it('match the standard normal and Student t tables', () => {
     expect(normalCdf(0)).toBeCloseTo(0.5, 7);
     expect(normalCdf(1.959963984540054)).toBeCloseTo(0.975, 6);
     expect(normalCdf(-2.326347874)).toBeCloseTo(0.01, 6);
-    expect(normalCdf(-6)).toBeGreaterThan(0);
     expect(normalCdf(-6)).toBeLessThan(1e-8);
+    expect(studentTCdf(0, 5)).toBeCloseTo(0.5, 10);
+    expect(studentTCdf(12.706, 1)).toBeCloseTo(0.975, 4);
+    expect(studentTCdf(2.228, 10)).toBeCloseTo(0.975, 4);
+    expect(studentTCdf(-2.508, 22)).toBeCloseTo(0.01, 4);
+    expect(studentTCdf(1.96, 1e6)).toBeCloseTo(normalCdf(1.96), 5);
+    expect(studentTCdf(Infinity, 3)).toBe(1);
   });
 });
 
 describe('holdoutGap', () => {
   it('flags a lookup table: perfect on the corpus, wrong on almost every fresh case', () => {
-    const features = Object.fromEntries(['opt.c', 'opt.l', 'opt.w', 'base'].map((f) => [f, { n: 30, match: 30 }]));
-    const fresh = Object.fromEntries(['opt.c', 'opt.l', 'opt.w', 'base'].map((f) => [f, { n: 25, match: 3 }]));
-    const gap = holdoutGap(score(features), holdout(fresh), 0.01);
+    const features = ['opt.c', 'opt.l', 'opt.w', 'base'];
+    const gap = gapOf(Object.fromEntries(features.map((f) => [f, { n: 30, match: 30 }])), Object.fromEntries(features.map((f) => [f, { n: 25, match: 3 }])));
     expect(gap.corpus).toBe(1);
     expect(gap.holdout).toBeCloseTo(0.12);
     expect(gap.gap).toBeCloseTo(0.88);
     expect(gap.pValue).toBeLessThan(1e-10);
     expect(gap.significant).toBe(true);
     expect(gap.features.map((f) => f.feature)).toEqual(['base', 'opt.c', 'opt.l', 'opt.w']);
+    expect(gap.clusters).toEqual({ corpus: 120, holdout: 100 });
   });
 
   it('does not flag a gap of a few cases, nor a holdout that does better than the corpus', () => {
-    const corpus = score({ 'opt.a': { n: 100, match: 90 }, 'opt.b': { n: 100, match: 80 } });
-    expect(holdoutGap(corpus, holdout({ 'opt.a': { n: 50, match: 44 }, 'opt.b': { n: 50, match: 39 } }), 0.01)).toMatchObject({ significant: false });
-    const better = holdoutGap(corpus, holdout({ 'opt.a': { n: 50, match: 50 }, 'opt.b': { n: 50, match: 50 } }), 0.01);
+    const corpus = { 'opt.a': { n: 100, match: 90 }, 'opt.b': { n: 100, match: 80 } };
+    expect(gapOf(corpus, { 'opt.a': { n: 50, match: 44 }, 'opt.b': { n: 50, match: 39 } }).significant).toBe(false);
+    const better = gapOf(corpus, { 'opt.a': { n: 50, match: 50 }, 'opt.b': { n: 50, match: 50 } });
     expect(better.gap).toBeLessThan(0);
     expect(better.pValue).toBeGreaterThan(0.99);
     expect(better.significant).toBe(false);
   });
 
   it('gives no gap, and never flags, a candidate that matches everything on both sides', () => {
-    const gap = holdoutGap(score({ 'opt.a': { n: 40, match: 40 } }), holdout({ 'opt.a': { n: 7, match: 7 } }), 0.01);
-    expect(gap).toMatchObject({ corpus: 1, holdout: 1, gap: 0, pValue: 1, significant: false });
-    expect(gap.holdoutCi95![1]).toBe(1);
-    expect(gap.holdoutCi95![0]).toBeLessThan(1); // 7 cases don't prove 100%
+    expect(gapOf({ 'opt.a': { n: 40, match: 40 } }, { 'opt.a': { n: 7, match: 7 } })).toMatchObject({ corpus: 1, holdout: 1, gap: 0, pValue: 1, significant: false });
   });
 
   it('compares feature by feature, so a holdout that hits the features in other proportions has no gap', () => {
     // 95% on opt.a and 50% on opt.b on both sides, but the holdout is mostly opt.b: pooled over
     // cases, the holdout would look 30 points worse.
-    const corpus = score({ 'opt.a': { n: 200, match: 190 }, 'opt.b': { n: 20, match: 10 } });
-    const gap = holdoutGap(corpus, holdout({ 'opt.a': { n: 20, match: 19 }, 'opt.b': { n: 200, match: 100 } }), 0.01);
+    const gap = gapOf({ 'opt.a': { n: 200, match: 190 }, 'opt.b': { n: 20, match: 10 } }, { 'opt.a': { n: 20, match: 19 }, 'opt.b': { n: 200, match: 100 } });
     expect(gap.gap).toBeCloseTo(0);
     expect(gap.significant).toBe(false);
   });
 
-  it("only compares the corpus headline's features that the holdout has", () => {
-    const corpus = score({ 'opt.a': { n: 20, match: 20 }, 'opt.b': { n: 5, match: 0 }, 'opt.help': { n: 20, match: 0 }, 'opt.c': { n: 20, match: 20 } });
-    const gap = holdoutGap(corpus, holdout({ 'opt.a': { n: 10, match: 10 }, 'opt.b': { n: 10, match: 10 }, 'opt.help': { n: 10, match: 10 }, 'opt.d': { n: 10, match: 0 } }), 0.01);
-    expect(gap.features.map((f) => f.feature)).toEqual(['opt.a']);
-    expect(holdoutGap(corpus, holdout({ 'opt.z': { n: 10, match: 0 } }), 0.01)).toMatchObject({ features: [], gap: null, pValue: null, significant: false });
+  it('only compares the features asked for that both sides have a scored case of', () => {
+    const corpus = { 'opt.a': { n: 20, match: 20 }, 'opt.b': { n: 5, match: 0 }, 'opt.c': { n: 20, match: 20 } };
+    const fresh = { 'opt.a': { n: 10, match: 10 }, 'opt.b': { n: 10, match: 10 }, 'opt.d': { n: 10, match: 0 } };
+    expect(gapOf(corpus, fresh, 0.01, all('opt.a', 'opt.c', 'opt.d')).features.map((f) => f.feature)).toEqual(['opt.a']);
+    expect(gapOf(corpus, { 'opt.z': { n: 10, match: 0 } })).toMatchObject({ features: [], gap: null, pValue: null, significant: false });
+    // Excluded cases (waived, flaky-reference) don't count on either side.
+    const excluded: GapCase[] = Array.from({ length: 30 }, (_, i) => ({ features: ['opt.a'], cluster: `x${i}`, outcome: 'excluded' }));
+    expect(holdoutGap(side({ 'opt.a': { n: 20, match: 20 } }), excluded, { alpha: 0.01, features: all('opt.a') }).features).toEqual([]);
+  });
+
+  it('counts a case without tags in base, as scoring does', () => {
+    const untagged: GapCase[] = Array.from({ length: 10 }, (_, i) => ({ features: [], cluster: `u${i}`, outcome: 'diverge' }));
+    const gap = holdoutGap(side({ base: { n: 20, match: 20 } }), untagged, { alpha: 0.01, features: all('base') });
+    expect(gap.features).toEqual([{ feature: 'base', corpus: { match: 20, scored: 20 }, holdout: { match: 0, scored: 10 } }]);
+    expect(gap.significant).toBe(true);
+  });
+
+  it('weighs a cluster of cases that fail together as less evidence than as many independent cases', () => {
+    const corpus = { 'opt.a': { n: 200, match: 190 } };
+    const fresh = { 'opt.a': { n: 100, match: 85 } };
+    const independent = holdoutGap(side(corpus), side(fresh), { alpha: 0.01, features: all('opt.a') });
+    // The same counts, the 15 failures being 3 parents' mutants of 5 each.
+    const grouped = holdoutGap(side(corpus), side(fresh, 5), { alpha: 0.01, features: all('opt.a') });
+    expect(independent.significant).toBe(true);
+    expect(grouped.pValue!).toBeGreaterThan(independent.pValue!);
+    expect(grouped.clusters.holdout).toBe(20);
   });
 
   it('refuses an alpha outside (0, 1)', () => {
-    const s = score({ 'opt.a': { n: 20, match: 20 } });
-    for (const alpha of [0, 1, -0.1, Number.NaN]) expect(() => holdoutGap(s, s, alpha)).toThrow(RangeError);
+    const s = side({ 'opt.a': { n: 20, match: 20 } });
+    for (const alpha of [0, 1, -0.1, Number.NaN]) expect(() => holdoutGap(s, s, { alpha, features: all('opt.a') })).toThrow(RangeError);
   });
 
-  // The false-alarm rate is the reason for the test: a fresh seed moves holdout parity by chance,
-  // and an honest candidate must fail about alpha of the time, not more.
-  it('flags an honest candidate about alpha of the time when both sides have the same per-feature parity', () => {
+  // A fresh seed moves holdout parity by chance; an honest candidate must fail about alpha of the
+  // time, not more. Clustered cases are the hard part: a test that assumes independent cases flags
+  // them far too often.
+  it('flags an honest candidate at most about alpha of the time, independent or clustered cases', () => {
     const rng = createRng('holdout false alarms', 'v1');
-    const parities = [0.99, 0.97, 0.95, 0.9, 0.85, 0.8, 0.7, 0.6, 0.98, 0.93, 0.88, 0.75];
-    const trials = 4000;
-    for (const alpha of [0.01, 0.05]) {
+    const parities = [0.99, 0.97, 0.95, 0.9, 0.85, 0.8, 0.7, 0.6];
+    const features = new Set(parities.map((_, f) => `opt.f${f}`));
+    const rate = (trials: number, alpha: number, clusters: number, size: number, spread: number) => {
       let alarms = 0;
       for (let t = 0; t < trials; t++) {
-        const corpus: Record<string, { n: number; match: number }> = {};
-        const fresh: Record<string, { n: number; match: number }> = {};
-        parities.forEach((p, i) => {
-          corpus[`opt.f${i}`] = { n: 60, match: binomial(rng, 60, p) };
-          fresh[`opt.f${i}`] = { n: 80, match: binomial(rng, 80, p) };
-        });
-        if (holdoutGap(counts(corpus, true), counts(fresh, false), alpha).significant) alarms++;
+        const corpus = clustered(rng, 'c', parities, clusters, size, spread);
+        if (holdoutGap(corpus, clustered(rng, 'h', parities, clusters, size, spread), { alpha, features }).significant) alarms++;
       }
-      const rate = alarms / trials;
-      expect(rate, `alpha ${alpha}`).toBeGreaterThan(alpha / 3);
-      expect(rate, `alpha ${alpha}`).toBeLessThan(alpha * 1.6);
-    }
+      return alarms / trials;
+    };
+    // Independent cases: the pooled two-proportion test, calibrated.
+    const independent = rate(1500, 0.05, 40, 1, 0);
+    expect(independent).toBeGreaterThan(0.025);
+    expect(independent).toBeLessThan(0.08);
+    // Clusters of 6 whose parity varies widely: still at most about alpha.
+    expect(rate(1500, 0.05, 10, 6, 1)).toBeLessThan(0.08);
+  }, 60_000);
+});
+
+describe('holdoutParity', () => {
+  it('is the mean of per-feature parity over the features asked for, with an interval', () => {
+    const p = holdoutParity(side({ 'opt.a': { n: 40, match: 30 }, 'opt.b': { n: 40, match: 40 }, 'opt.z': { n: 10, match: 0 } }), all('opt.a', 'opt.b'));
+    expect(p.parity).toBeCloseTo(0.875);
+    expect(p.features).toBe(2);
+    expect(p.ci95![0]).toBeLessThan(0.875);
+    expect(p.ci95![1]).toBeGreaterThan(0.875);
+    expect(holdoutParity(side({ 'opt.z': { n: 10, match: 0 } }), all('opt.a'))).toEqual({ parity: null, ci95: null, features: 0 });
   });
 
-  it('puts the holdout parity inside its 95% interval about 95% of the time', () => {
+  it("doesn't call 100% on a few cases certain", () => {
+    const p = holdoutParity(side({ 'opt.a': { n: 7, match: 7 } }), all('opt.a'));
+    expect(p.ci95![1]).toBe(1);
+    expect(p.ci95![0]).toBeLessThan(0.9);
+  });
+
+  it('covers the true parity about 95% of the time, also with clustered cases', () => {
     const rng = createRng('holdout interval', 'v1');
     const parities = [0.9, 0.8, 0.95, 0.7, 0.99];
     const truth = parities.reduce((a, b) => a + b) / parities.length;
-    let inside = 0;
-    const trials = 2000;
-    for (let t = 0; t < trials; t++) {
-      const fresh = Object.fromEntries(parities.map((p, i) => [`opt.f${i}`, { n: 50, match: binomial(rng, 50, p) }]));
-      const corpus = Object.fromEntries(parities.map((_, i) => [`opt.f${i}`, { n: 20, match: 20 }]));
-      const [lo, hi] = holdoutGap(counts(corpus, true), counts(fresh, false), 0.01).holdoutCi95!;
-      if (lo <= truth && truth <= hi) inside++;
+    const features = new Set(parities.map((_, f) => `opt.f${f}`));
+    for (const [clusters, size, spread] of [
+      [50, 1, 0],
+      [15, 6, 1],
+    ] as const) {
+      let inside = 0;
+      const trials = 1500;
+      for (let t = 0; t < trials; t++) {
+        const [lo, hi] = holdoutParity(clustered(rng, 'h', parities, clusters, size, spread), features).ci95!;
+        if (lo <= truth && truth <= hi) inside++;
+      }
+      expect(inside / trials, `${clusters} clusters of ${size}`).toBeGreaterThan(0.92);
     }
-    expect(inside / trials).toBeGreaterThan(0.93);
-    expect(inside / trials).toBeLessThan(0.99);
+  });
+});
+
+describe('gapCluster', () => {
+  it('ties cases with the same argv and environment, whatever their input', () => {
+    expect(gapCluster({ argv: ['-n', 'a'], env: { B: '1', A: '2' } })).toBe(gapCluster({ argv: ['-n', 'a'], env: { A: '2', B: '1' } }));
+    expect(gapCluster({ argv: ['-n', 'a'], env: {} })).not.toBe(gapCluster({ argv: ['-n a'], env: {} }));
+    expect(gapCluster({ argv: ['-n'], env: {} })).not.toBe(gapCluster({ argv: ['-n'], env: { A: '' } }));
   });
 });
 
@@ -164,6 +233,7 @@ describe('fresh holdout across 100 seeds', () => {
     ],
     forms: [{ usage: 'frob [OPTION]... [FILE]...', args: [{ name: 'FILE', type: 'path', arity: '*' }] }],
   });
+  const seeds = [new TextEncoder().encode('banana\napple\n10\n9\nJan\nFeb\n'), new TextEncoder().encode('3\n1\n2\n')];
   const decoder = new TextDecoder();
   const inputs = (c: CanonicalCase, blobs: ReadonlyMap<string, Uint8Array>) => {
     const content = (ref: string) => decoder.decode(blobs.get(ref)!);
@@ -183,44 +253,47 @@ describe('fresh holdout across 100 seeds', () => {
       stable: true,
     });
   const observe: ObserveReference = async (cases, blobs) => cases.map((c) => observation(inputs(c, blobs)));
-  const generator = { generator: 'v1' as const, minCasesPerFeature: 20, observe };
+  const generator = { generator: 'v1' as const, minCasesPerFeature: 20, observe, seeds };
+  /** The cases as the gap test sees them, for a candidate given as whether it gets each case right. */
+  const gapCases = (cases: readonly CanonicalCase[], right: (c: CanonicalCase) => boolean): GapCase[] =>
+    cases.map((c) => ({ features: c.features, cluster: gapCluster(c), outcome: right(c) ? 'match' : 'diverge' }));
 
-  /** Scores a candidate, given as whether it gets each case right. */
-  const scoreOf = (cases: readonly CanonicalCase[], right: (c: CanonicalCase) => boolean) =>
-    scoreCandidate(
-      cases.map((c) => ({ caseId: c.id, features: c.features, origin: 'generated', verdict: right(c) ? 'match' : 'diverge' })),
-      { minCasesPerFeature: 20 },
-    );
-
-  it('flags a lookup table on every seed, and an honest candidate about alpha of the time at most (done when)', { timeout: 120_000 }, async () => {
-    const corpus = await generateCorpus(spec, { ...generator, seed: 42, budget: 400 });
+  it('flags a lookup table on almost every seed, and honest candidates about alpha of the time at most (done when)', { timeout: 300_000 }, async () => {
+    const corpus = await generateCorpus(spec, { ...generator, seed: 42, budget: 1000 });
+    const blobs = new Map(corpus.blobs);
     const ids = new Set(corpus.cases.map((c) => c.case.id));
-    const corpusCases = corpus.cases.map((c) => c.case);
-    // A table of the corpus's expected outputs, and the reference's own answers elsewhere: it is
-    // right exactly on the corpus. The honest one has a bug that hits about 1 case in 8 anywhere.
-    const lookup = (c: CanonicalCase) => ids.has(c.id);
-    const correct = () => true;
-    const buggy = (c: CanonicalCase) => Number.parseInt(c.id.slice(-2), 16) % 8 !== 0;
-    const corpusScores = { lookup: scoreOf(corpusCases, lookup), correct: scoreOf(corpusCases, correct), buggy: scoreOf(corpusCases, buggy) };
-    expect(corpusScores.lookup.headline).toBe(1);
-    expect(corpusScores.buggy.headline).toBeGreaterThan(0.75);
-
-    const flagged = { lookup: 0, correct: 0, buggy: 0 };
-    let sizes = 0;
+    // Like `run`, compare the byte mutants on both sides.
+    const corpusMutants = corpus.cases.filter((c) => c.strategy === 'mutation').map((c) => c.case);
+    const features = new Set(corpus.cases.flatMap((c) => (c.case.features.length === 0 ? ['base'] : c.case.features)));
+    const stdin = (c: CanonicalCase) => (c.stdin === null ? new Uint8Array() : blobs.get(c.stdin)!);
+    const candidates: Record<string, (c: CanonicalCase) => boolean> = {
+      // A table of the corpus's expected outputs: right exactly on the corpus.
+      lookup: (c) => ids.has(c.id),
+      correct: () => true,
+      // Honest ports with a bug tied to the case: these fail together across a parent's mutants.
+      'wrong with -n and -r together': (c) => !(c.argv.includes('-n') && c.argv.includes('-r')),
+      'wrong with 5 or more arguments': (c) => c.argv.length < 5,
+      'wrong with fewer than 3 arguments': (c) => c.argv.length >= 3,
+      'wrong on bytes above 126': (c) => !stdin(c).some((b) => b > 126),
+      'wrong on 1 case in 8': (c) => Number.parseInt(c.id.slice(-2), 16) % 8 !== 0,
+    };
+    const flagged = Object.fromEntries(Object.keys(candidates).map((name) => [name, 0]));
+    let mutants = 0;
     for (let seed = 1000; seed < 1100; seed++) {
-      const holdout = await generateFreshHoldout(spec, { ...generator, seed, cases: 200, corpus: ids });
+      const holdout = await generateFreshHoldout(spec, { ...generator, seed, cases: 400, corpus: ids });
       expect(holdout.cases.some((c) => ids.has(c.id))).toBe(false);
-      sizes += holdout.cases.length;
-      for (const name of ['lookup', 'correct', 'buggy'] as const) {
-        const right = { lookup, correct, buggy }[name];
-        if (holdoutGap(corpusScores[name], scoreOf(holdout.cases, right), 0.01).significant) flagged[name]++;
+      for (const [ref, bytes] of holdout.blobs) blobs.set(ref, bytes);
+      const fresh = holdout.cases.filter((_, i) => holdout.strategies[i] === 'mutation');
+      mutants += fresh.length;
+      for (const [name, right] of Object.entries(candidates)) {
+        if (holdoutGap(gapCases(corpusMutants, right), gapCases(fresh, right), { alpha: 0.01, features }).significant) flagged[name]!++;
       }
     }
-    expect(sizes / 100).toBeGreaterThan(150); // mostly new cases
-    expect(flagged.lookup).toBe(100);
+    expect(mutants / 100).toBeGreaterThan(250);
+    expect(flagged.lookup).toBeGreaterThanOrEqual(98);
     expect(flagged.correct).toBe(0);
-    // Expected about 1 at alpha 0.01; 5 or more would be a test that is not calibrated.
-    expect(flagged.buggy).toBeLessThan(5);
+    // About 1 each at alpha 0.01; 5 or more would mean the test is not calibrated.
+    for (const name of Object.keys(candidates).filter((n) => n !== 'lookup' && n !== 'correct')) expect(flagged[name], name).toBeLessThan(5);
   });
 
   it('spreads the holdout over every feature, like the corpus', async () => {
@@ -229,6 +302,8 @@ describe('fresh holdout across 100 seeds', () => {
     for (const c of holdout.cases) for (const f of c.features.length === 0 ? ['base'] : c.features) per.set(f, (per.get(f) ?? 0) + 1);
     for (const f of ['opt.numeric', 'opt.reverse', 'opt.key', 'opt.sort']) expect(per.get(f), f).toBeGreaterThanOrEqual(20);
     expect(holdout.observations).toHaveLength(holdout.cases.length);
+    expect(holdout.strategies).toHaveLength(holdout.cases.length);
+    expect(holdout.strategies).toContain('mutation');
     for (const c of holdout.cases) if (c.stdin !== null) expect(holdout.blobs.has(c.stdin)).toBe(true);
   });
 
