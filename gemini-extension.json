@@ -1,0 +1,15 @@
+{
+  "name": "port-anything",
+  "version": "0.0.1",
+  "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports.",
+  "mcpServers": {
+    "port-anything": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "port-anything",
+        "mcp"
+      ]
+    }
+  }
+}

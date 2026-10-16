@@ -1,0 +1,22 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Port a program",
+      "description": "Plan a port, drive it to parity one divergence cluster at a time, report the result.",
+      "skills": [
+        "port-plan",
+        "port-loop",
+        "port-report"
+      ]
+    },
+    {
+      "title": "Audit an existing rewrite",
+      "description": "Measure a rewrite against its original.",
+      "skills": [
+        "port-audit"
+      ]
+    }
+  ]
+}
