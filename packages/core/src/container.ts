@@ -38,19 +38,21 @@ export const RUNNER_TOOLS: readonly string[] = Object.freeze(['tar', 'dd', 'wc',
  * The runner each long-lived container runs (with `sh`, since the image may have nothing else), fed
  * over its stdin and answering on its stdout; no host directory is shared with it. It first checks
  * that the image has `RUNNER_TOOLS` (or answers `missing <tools>` and stops), then says `ready`.
- * For each case the host sends a line `run <timeout s> <grace s> <bytes>`, then that many bytes: a
+ * For each case the host sends a line `run <nonce> <timeout s> <grace s> <bytes>`, then that many bytes: a
  * tar archive holding `dir` (the case directory's path), `cmd` (the script to run), maybe `stdin`,
  * and `case/` (the case's files). The runner reads exactly those bytes (`dd`, one read at a time:
  * `head -c` from BusyBox reads ahead), unpacks them, moves `case/` to the case directory (on the
  * tmpfs), and runs the script in a session of its own with stdout and stderr in files and a watchdog
  * that sends SIGTERM to the case's process group at the timeout, then SIGKILL after the grace period.
  * Once the case has exited, it kills every process in the container but itself (anything the case
- * left behind, even in a session of its own), archives the case directory and answers `done
+ * left behind, even in a session of its own), archives the case directory and answers `done <nonce>
  * <status> <1 if timed out> <stdout bytes> <stderr bytes> <archive bytes>`, followed by stdout,
  * stderr and the archive. As under bwrap, a signal death is the shell's exit status 128 + n. When it
- * can't unpack a case or archive its directory, it answers `error <in|back> <bytes>` and that many
- * bytes of what went wrong. Everything the runner sends comes from a container that ran a case, so
- * the host checks it all and writes nothing outside a directory of its own (`unpackTar`).
+ * can't unpack a case or archive its directory, it answers `error <nonce> <in|back> <bytes>` and
+ * that many bytes of what went wrong. Everything the runner sends comes from a container that ran a
+ * case, so the host checks it all and writes nothing outside a directory of its own (`unpackTar`).
+ * A case could write to the runner's stdout too, but not with the nonce: the runner read that line
+ * before the case started.
  */
 export const RUNNER_SCRIPT = [
   `m=; for t in ${RUNNER_TOOLS.join(' ')}; do command -v "$t" >/dev/null 2>&1 || m="$m $t"; done`,
@@ -68,9 +70,9 @@ export const RUNNER_SCRIPT = [
   '  done',
   '}',
   // fail <in|back>: what went wrong, from the error file.
-  'fail() { echo "error $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
+  'fail() { echo "error $nonce $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
   `p=${RUNNER_DIR}`,
-  'while read -r cmd t g bytes; do',
+  'while read -r cmd nonce t g bytes; do',
   '  [ "$cmd" = run ] || exit 0',
   '  rm -rf "$p" && mkdir "$p" && take "$bytes" "$p/in.tar" || exit 1',
   '  if ! { tar -xf "$p/in.tar" -C "$p" && c=$(cat "$p/dir") && rm -rf "$c" && mv "$p/case" "$c"; } 2>"$p/error"; then fail in; continue; fi',
@@ -90,7 +92,7 @@ export const RUNNER_SCRIPT = [
   '  chmod -R u+rwX "$c" 2>/dev/null',
   '  if ! tar -cf "$p/back.tar" -C "$c" . 2>"$p/error"; then rm -rf "$c"; fail back; continue; fi',
   '  rm -rf "$c"',
-  '  echo "done $status $to $(wc -c <"$p/out") $(wc -c <"$p/err") $(wc -c <"$p/back.tar")"',
+  '  echo "done $nonce $status $to $(wc -c <"$p/out") $(wc -c <"$p/err") $(wc -c <"$p/back.tar")"',
   '  cat "$p/out" "$p/err" "$p/back.tar"',
   'done',
 ].join('\n');
@@ -453,25 +455,26 @@ export class ContainerSession {
       ...stdin,
       ...(await treeEntries(join(dir, 'case'), 'case')),
     ]);
+    const nonce = randomBytes(8).toString('hex');
     const started = performance.now();
-    this.child.stdin.write(`run ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)} ${input.length}\n`);
+    this.child.stdin.write(`run ${nonce} ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)} ${input.length}\n`);
     this.child.stdin.write(input);
     // The watchdog in the container stops the case; this only guards against a stuck container.
     const line = await this.reader.line(timeoutMs + graceMs + 60_000);
     const wall = performance.now() - started;
-    // A case may have written to the runner's stdout, so whatever doesn't parse ends the session.
+    // A case may have written to the runner's stdout: an answer without the nonce ends the session.
     const broken = (what: string): never => {
       this.forceRemove();
       throw new ContainerError(`The container ${this.name} ${what} (${this.options.setup.image}):\n${this.stderr.trim() || line || 'no output'}`);
     };
-    const failed = line === undefined ? null : /^error (in|back) (\d+)$/.exec(line);
+    const failed = line?.startsWith(`error ${nonce} `) ? /^error \S+ (in|back) (\d+)$/.exec(line) : null;
     if (failed !== null) {
       const message = await this.reader.bytes(Number(failed[2]), 60_000);
       if (message === undefined) return broken('stopped answering');
       const what = failed[1] === 'in' ? 'could not copy in the files of a case' : 'could not copy back the directory of a case';
       throw new ContainerError(`The container ${this.name} ${what} (${this.options.setup.image}):\n${message.toString('utf8').trim() || 'no message'}`);
     }
-    const match = line === undefined ? null : /^done (\d+) ([01]) (\d+) (\d+) (\d+)$/.exec(line);
+    const match = line?.startsWith(`done ${nonce} `) ? /^done \S+ (\d+) ([01]) (\d+) (\d+) (\d+)$/.exec(line) : null;
     if (match === null) return broken('stopped answering');
     const [outBytes, errBytes, tarBytes] = match.slice(3).map(Number) as [number, number, number];
     const payload = await this.reader.bytes(outBytes + errBytes + tarBytes, 60_000 + (outBytes + errBytes + tarBytes) / 1000);
@@ -514,5 +517,8 @@ export class ContainerSession {
     if (this.ended) return;
     spawnSync(this.options.setup.engine, ['rm', '-f', this.name], { stdio: 'ignore', timeout: 30_000 });
     this.child.kill('SIGKILL');
+    // Before the engine's client has even exited: no case may start in it any more.
+    this.ended = true;
+    this.reader.end();
   }
 }

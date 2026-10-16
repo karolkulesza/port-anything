@@ -95,7 +95,7 @@ case "$1" in
   late) ls /tmp/pa-late ;;
   forge)
     # An answer of its own on the runner's stdout, with an archive that climbs out of the directory.
-    printf 'done 0 0 0 0 %s\n' "$(wc -c <"$2")" >"/proc/$PPID/fd/1"
+    printf 'done %s 0 0 0 0 %s\n' "$3" "$(wc -c <"$2")" >"/proc/$PPID/fd/1"
     cat "$2" >"/proc/$PPID/fd/1"
     sleep 1
     ;;
@@ -269,7 +269,8 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       const s = await session();
       const forger = await s.prepare(caseDir);
       writeFileSync(join(forger.files, 'evil.tar'), packTar([{ type: 'file', name: Buffer.from('../../../escaped'), data: Buffer.from('x') }]));
-      await expect(forger.run(proc('forge', 'evil.tar'))).rejects.toThrow(/sent back a case directory that can't be unpacked: .*goes up a directory/);
+      // It can't know the nonce of its case, so it can only guess.
+      await expect(forger.run(proc('forge', 'evil.tar', '0123456789abcdef'))).rejects.toThrow(/stopped answering/);
       await forger.dispose();
       expect(readdirSync(dir).filter((name) => name === 'escaped')).toEqual([]);
       const next = await s.prepare(caseDir);
@@ -294,7 +295,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     };
     const send = (entries: Parameters<typeof packTar>[0]) => {
       const archive = packTar(entries);
-      child.stdin.write(`run 10 1 ${archive.length}\n`);
+      child.stdin.write(`run n0nce 10 1 ${archive.length}\n`);
       child.stdin.write(archive);
     };
     const f = (name: string, data: string | Buffer) => ({ type: 'file' as const, name: Buffer.from(name), data: Buffer.from(data) });
@@ -303,11 +304,11 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       // 200 kB of stdin, more than one read of a pipe.
       const big = Buffer.alloc(200_000, 'y');
       send([f('dir', '/w/case'), f('cmd', 'cd /w/case && wc -c </tmp/pa-runner/stdin && printf oops >&2 && echo made >sub/out.txt\n'), f('stdin', big), { type: 'dir', name: Buffer.from('case') }, { type: 'dir', name: Buffer.from('case/sub') }, f('case/sub/in.txt', 'in')]);
-      const head = 'done 0 0 7 4 ';
+      const head = 'done n0nce 0 0 7 4 ';
       let answer = await received(head.length + 11);
       const line = answer.subarray(0, answer.indexOf(0x0a)).toString();
-      expect(line).toMatch(/^done 0 0 7 4 \d+$/);
-      const tarBytes = Number(line.split(' ')[5]);
+      expect(line).toMatch(/^done n0nce 0 0 7 4 \d+$/);
+      const tarBytes = Number(line.split(' ')[6]);
       answer = Buffer.concat([answer, await received(line.length + 1 + 11 + tarBytes - answer.length)]);
       const body = answer.subarray(line.length + 1);
       expect(body.subarray(0, 11).toString()).toBe('200000\noops');
@@ -315,15 +316,15 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       expect(names.map((n) => n.replace(/\/$/, '')).sort()).toEqual(['dir .', 'dir ./sub', 'file ./sub/in.txt', 'file ./sub/out.txt']);
       // Not an archive: tar says why, and the runner takes the next case.
       const junk = Buffer.alloc(1024, 'x');
-      child.stdin.write(`run 10 1 ${junk.length}\n`);
+      child.stdin.write(`run n0nce 10 1 ${junk.length}\n`);
       child.stdin.write(junk);
       const error = (await received(20)).toString();
-      expect(error).toMatch(/^error in \d+\n.*tar/s);
+      expect(error).toMatch(/^error n0nce in \d+\n.*tar/s);
       // A case directory where none can be made.
       send([f('dir', '/no-such-dir/case'), f('cmd', 'true\n'), { type: 'dir', name: Buffer.from('case') }]);
-      expect((await received(20)).toString()).toMatch(/^error in \d+\n.*(No such file|cannot)/s);
+      expect((await received(20)).toString()).toMatch(/^error n0nce in \d+\n.*(No such file|cannot)/s);
       send([f('dir', '/w/case'), f('cmd', 'echo still\n'), { type: 'dir', name: Buffer.from('case') }]);
-      expect((await received(20)).toString()).toMatch(/^done 0 0 6 0 \d+\nstill\n/);
+      expect((await received(20)).toString()).toMatch(/^done n0nce 0 0 6 0 \d+\nstill\n/);
     } finally {
       child.stdin.end();
       child.kill();
