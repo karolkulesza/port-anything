@@ -284,9 +284,12 @@ export async function observeCase(
   const { store } = options;
   if (options.sandbox.kind === 'container' && options.containers === undefined) throw new Error('Sandbox mode "container" needs a container pool.');
   const prepared = options.containers === undefined ? undefined : await (await options.containers.session(side, caseDir)).prepare(caseDir);
+  // A container case's files go in a new, empty directory: never rewrite a path the container reads.
   const hostDir = prepared === undefined ? caseDir : prepared.files;
-  await rm(hostDir, { recursive: true, force: true });
-  await mkdir(hostDir, { recursive: true });
+  if (prepared === undefined) {
+    await rm(hostDir, { recursive: true, force: true });
+    await mkdir(hostDir, { recursive: true });
+  }
   for (const [path, ref] of Object.entries(c.fixtures)) {
     const file = join(hostDir, path);
     await mkdir(dirname(file), { recursive: true });

@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { caseScript, engineCpus, ensureImage, findContainerEngine, shellQuote } from '../src/container.js';
+import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, shellQuote } from '../src/container.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { NormalizersSchema } from '../src/normalize.js';
 import { resolveProgram, type ResolvedProgram } from '../src/program.js';
@@ -83,6 +83,7 @@ case "$1" in
   sleep) sleep "$2"; echo woke ;;
   big) head -c "$2" /dev/zero ;;
   status) exit "$2" ;;
+  vanish) cd / && rm -rf "$OLDPWD" ;;
 esac
 `;
 
@@ -178,6 +179,38 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     expect((await store.get(big!.stdout)).length).toBe(1_000);
     expect(big!.exit).toBe(128 + 25); // SIGXFSZ
     expect(await text(after!.stdout)).toBe('after\n');
+  }, 60_000);
+
+  it("says so when a case's files can't be copied in or its directory back, and the container keeps going", async () => {
+    // The tool alone in a directory of its own, mounted read-only.
+    const bin = join(dir, 'copies-bin');
+    mkdirSync(bin);
+    const tool = join(bin, 'tool');
+    writeFileSync(tool, TOOL('ref'));
+    chmodSync(tool, 0o755);
+    const pool = new ContainerPool({ setup: { kind: 'container', engine: engine!, image: IMAGE }, dir: join(dir, 'copies') });
+    try {
+      const caseDir = join(dir, 'copies-work', 'slot-0', 'case');
+      const session = await pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir);
+      const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
+      // Its files went before it ran.
+      const lost = await session.prepare(caseDir);
+      rmSync(lost.files, { recursive: true });
+      const error = await lost.run(proc('echo', 'x')).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(ContainerError);
+      expect((error as Error).message).toMatch(/could not copy in the files of a case [^\n]*:\n.*No such file/);
+      await lost.dispose();
+      // The case removed its own directory.
+      const vanished = await session.prepare(caseDir);
+      await expect(vanished.run(proc('vanish'))).rejects.toThrow(/could not copy back the directory of a case [^\n]*:\n.*No such file/);
+      await vanished.dispose();
+      const fine = await session.prepare(caseDir);
+      const result = await fine.run(proc('echo', 'still', 'here'));
+      expect(result.stdout.toString()).toBe('still here\n');
+      await fine.dispose();
+    } finally {
+      await pool.close();
+    }
   }, 60_000);
 });
 

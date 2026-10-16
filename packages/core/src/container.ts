@@ -1,6 +1,6 @@
 import { execFile, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createInterface } from 'node:readline';
@@ -41,15 +41,15 @@ const IO_DIR = '/pa-io';
  * files, and a watchdog that sends SIGTERM to the case's process group at the timeout, then SIGKILL
  * after the grace period. Once the case has exited and whatever it left running has been killed,
  * it copies the case directory back (`result/`) and answers `done <status> <1 if timed out>`. As
- * under bwrap, a signal death is the shell's exit status 128 + n.
+ * under bwrap, a signal death is the shell's exit status 128 + n. When it can't copy the case's files
+ * in, it answers `error <n>` instead; either way, what `cp` said is in `cp-error`.
  */
 export const RUNNER_SCRIPT = [
   'echo ready',
   'while read -r cmd n t g; do',
   '  [ "$cmd" = run ] || exit 0',
   `  i=${IO_DIR}/$n`,
-  '  IFS= read -r c <"$i/dir"',
-  '  rm -rf "$c" && cp -a "$i/case" "$c"',
+  '  if ! { IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c"; } 2>"$i/cp-error"; then echo "error $n"; continue; fi',
   '  setsid sh "$i/cmd" >"$i/out" 2>"$i/err" &',
   '  pid=$!',
   `  setsid sh -c 'sleep "$1"; : >"$4"; kill -15 "-$3"; sleep "$2"; kill -9 "-$3"' watchdog "$t" "$g" "$pid" "$i/timedout" >/dev/null 2>&1 &`,
@@ -59,7 +59,7 @@ export const RUNNER_SCRIPT = [
   '  kill -9 "-$wd" "-$pid" 2>/dev/null',
   '  wait "$wd" 2>/dev/null',
   '  if [ -e "$i/timedout" ]; then to=1; else to=0; fi',
-  '  cp -a "$c" "$i/result" 2>/dev/null',
+  '  cp -a "$c" "$i/result" 2>"$i/cp-error"',
   '  rm -rf "$c"',
   '  echo "done $status $to"',
   'done',
@@ -360,6 +360,8 @@ export class ContainerSession {
     // The watchdog in the container stops the case; this only guards against a stuck container.
     const line = await this.nextLine(timeoutMs + graceMs + 60_000);
     const wall = performance.now() - started;
+    const failed = async () => (await readFile(join(dir, 'cp-error'), 'utf8').catch(() => '')).trim() || 'no message';
+    if (line === `error ${n}`) throw new ContainerError(`The container ${this.name} could not copy in the files of a case (${this.options.setup.image}):\n${await failed()}`);
     const match = line === undefined ? null : /^done (\d+) ([01])$/.exec(line);
     if (match === null) {
       this.forceRemove();
@@ -370,6 +372,9 @@ export class ContainerSession {
       return { data: data.length > cap ? data.subarray(0, cap) : data, truncated: data.length > cap };
     };
     const [stdout, stderr] = await Promise.all([read('out'), read('err')]);
+    if (!(await stat(join(dir, 'result')).then((s) => s.isDirectory(), () => false))) {
+      throw new ContainerError(`The container ${this.name} could not copy back the directory of a case (${this.options.setup.image}):\n${await failed()}`);
+    }
     return {
       exit: Number(match[1]),
       signal: null,
