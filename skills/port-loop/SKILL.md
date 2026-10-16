@@ -79,8 +79,8 @@ clusters, a time box) is met.
 7. **Commit** when the cluster passes and the smoke run broke nothing: only the candidate's
    files, with a message that states the rule you implemented (`fix(wc): count a CR before the LF
    in -L, as wc-lite does`). One cluster per commit, so a regression found later is easy to trace
-   and revert. If `port-anything run` updated `.port-anything/history.jsonl`, include it as the
-   tool wrote it.
+   and revert. A full `port-anything run` appends a line to `.port-anything/history.jsonl`, the
+   project's committed parity history: commit it with the fix, as the tool wrote it.
 8. **Repeat** from step 1. `next` skips the clusters a later run of that cluster found fixed, so
    it moves on by itself.
 
