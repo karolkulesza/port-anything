@@ -356,11 +356,16 @@ describe('executeRun', () => {
     expect(missing.exitCode).toBe(3);
     expect(missing.stderr).toMatch(/nope not found/);
 
-    const container = await executeRun(
-      options({ config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-copy' }, sandbox: { mode: 'container' } }) }),
-    );
-    expect(container.exitCode).toBe(3);
-    expect(container.stderr).toMatch(/sandbox mode "container" is not available yet/);
+    // Container mode: --no-sandbox doesn't apply, and a bare name would be the host's program.
+    const container = (cmd: string, noSandbox: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd }, sandbox: { mode: 'container' } }),
+          args: { candidates: [], json: false, noSandbox },
+        }),
+      );
+    expect(await container('./bin/tool-copy', true)).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/--no-sandbox is for sandbox mode local/) });
+    expect(await container('tool-copy', false)).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/In sandbox mode "container", give each program as a path \(\.\/tool-copy/) });
 
     const noCases = await executeRun(options({ cases: [] }));
     expect(noCases.exitCode).toBe(3);

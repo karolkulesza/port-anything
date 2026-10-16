@@ -136,7 +136,7 @@ interface MeasureOptions {
 
 async function measure({ projectDir, config, cases, args, cliEntry, probe }: MeasureOptions): Promise<CliResult> {
   if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
+    throw new ConfigError('sandbox mode "container" is not available for strength yet (the mutation tools build on the host); set sandbox.mode to local.');
   }
   const candidates = configCandidates(config);
   const candidate = candidates[0];

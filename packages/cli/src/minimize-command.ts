@@ -93,9 +93,6 @@ export async function executeMinimize(options: ExecuteMinimizeOptions): Promise<
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything minimize: ${message}\n` });
 
 async function execute({ projectDir, config, cases, args, probe }: ExecuteMinimizeOptions): Promise<CliResult> {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   const target = await resolveCluster(projectDir, args.cluster);
   const clusterOf = await clusterCases(projectDir, target, cases);
   const command = target.run.candidate_commands[target.cluster.candidate - 1]!;
@@ -107,7 +104,11 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteMinimi
   try {
     const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
     programName = runner.programName;
-    result = await minimizeCluster({ runner, key: signatureKey(target.cluster.signature), cases: clusterOf, store, maxRuns: DEFAULT_MINIMIZE_RUNS });
+    try {
+      result = await minimizeCluster({ runner, key: signatureKey(target.cluster.signature), cases: clusterOf, store, maxRuns: DEFAULT_MINIMIZE_RUNS });
+    } finally {
+      await runner.close();
+    }
   } finally {
     await removeScratch(projectDir, workDir);
   }
