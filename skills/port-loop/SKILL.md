@@ -32,6 +32,19 @@ The oracle is the reference, the cases and the config. You change the candidate,
 3. **Build both sides** with the config's build commands (`reference.build`, then
    `candidate.build`), in a shell. A reference that doesn't build is the user's problem to solve:
    stop and say so.
+
+   **Sandbox mode `container`** (`sandbox.mode: container` in the config): the programs are
+   built and run in the image (`sandbox.image`, `debian:12-slim` when it isn't set), not on this
+   machine. `port-anything run` (and the `run` and `next` tools) build both sides in the image
+   themselves before each run, and what they build may not run here. So don't build on this
+   machine; build, and run a program by hand, in the image, with the project at the same path:
+
+   ```sh
+   docker run --rm -i -v "$PWD:$PWD" -w "$PWD" -u "$(id -u):$(id -g)" -e HOME=/tmp <image> sh -c '<command>'
+   ```
+
+   (`podman` takes the same options.) Every "run it yourself" and "build" below means this in
+   container mode.
 4. **A full run.** `next` and `run` work from the latest run of the whole corpus. Call `status`
    (CLI: the summary `port-anything run` prints): if it says there is no run, or the candidate
    changed since the latest one, run the whole corpus in a shell:
