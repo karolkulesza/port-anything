@@ -1,15 +1,28 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BlobStore, cacheDir, describeFeatures, describeSignature, loadCommittedCases, readConfigFile, type SavedCluster, type Score } from '@port-anything/core';
+import {
+  BlobStore,
+  buildInImage,
+  cacheDir,
+  describeFeatures,
+  describeSignature,
+  ensureImage,
+  findContainerEngine,
+  loadCommittedCases,
+  readConfigFile,
+  type SavedCluster,
+  type Score,
+} from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // The wc-lite example end to end: a C reference, its Rust port, and bad ports that are the same
-// port built with one deliberate bug each (cargo features). Needs a C compiler and cargo; CI and
-// the dev container have both (scripts/dev-linux.sh pnpm -r test).
+// port built with one deliberate bug each (cargo features), in both sandbox modes. Local mode needs
+// a C compiler and cargo; CI and the dev container have both (scripts/dev-linux.sh pnpm -r test).
+// Container mode needs Docker or Podman instead: everything is built and run in a Rust image.
 const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
@@ -121,6 +134,13 @@ const toolchain = (await has('cc')) && (await has('cargo'));
 // On a developer machine without the toolchain the test is skipped; in CI it must run.
 const enabled = toolchain || process.env.CI !== undefined;
 const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === '1';
+const engine = await findContainerEngine().catch(() => undefined);
+const IMAGE = 'rust:1-slim';
+const MODES = [
+  { mode: 'local', enabled },
+  // Wherever Docker or Podman answers, and always in CI on Linux (the runners have Docker).
+  { mode: 'container', enabled: engine !== undefined || (process.env.CI !== undefined && process.platform === 'linux') },
+] as const;
 
 interface RunSummary {
   cases: number;
@@ -128,23 +148,27 @@ interface RunSummary {
   clusters: SavedCluster[];
 }
 
-describe.runIf(enabled)('examples/wc-lite', () => {
+for (const { mode, enabled } of MODES)
+describe.runIf(enabled)(`examples/wc-lite (sandbox mode ${mode})`, () => {
   let project: string;
+  // In container mode cases always run in containers; locally, outside the dev container, unsandboxed.
+  const noSandbox = mode === 'local' && !sandboxed ? ['--no-sandbox'] : [];
   const badPath = (feature: string) => `./port/target/${feature}/release/wc-lite`;
   const port = (...args: string[]) =>
-    exec(process.execPath, [binPath, 'run', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+    exec(process.execPath, [binPath, 'run', ...noSandbox, ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
 
   const minimize = (...args: string[]) =>
-    exec(process.execPath, [binPath, 'minimize', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+    exec(process.execPath, [binPath, 'minimize', ...noSandbox, ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
 
   beforeAll(async () => {
-    if (!toolchain) throw new Error('The wc-lite example needs cc and cargo on the PATH.');
+    if (mode === 'local' && !toolchain) throw new Error('The wc-lite example needs cc and cargo on the PATH.');
+    if (mode === 'container' && engine === undefined) throw new Error('Sandbox mode container needs Docker or Podman running.');
     // Under /tmp, away from the checkout, so no build output lands in it.
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-wc-lite-')));
     cpSync(example, project, {
@@ -154,13 +178,23 @@ describe.runIf(enabled)('examples/wc-lite', () => {
         return !['ref/wc-lite', 'port/target', '.port-anything'].some((p) => path === p || path.startsWith(`${p}/`));
       },
     });
+    if (mode === 'container') {
+      const file = join(project, 'port-anything.yaml');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('\n  mode: local\n', `\n  mode: container\n  image: ${IMAGE}\n`));
+    }
     // The builds the config documents, then one build per bad port.
     const config = await readConfigFile(project);
+    expect(config.sandbox.mode).toBe(mode);
     const builds = [config.reference.build!, config.candidate!.build!];
     for (const feature of Object.keys(BAD_PORTS)) {
       builds.push(`cargo build --release --manifest-path port/Cargo.toml --features ${feature} --target-dir port/target/${feature}`);
     }
-    await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
+    if (mode === 'container') {
+      // In the image, one after another (the bad ports have target dirs of their own).
+      await ensureImage(engine!, IMAGE);
+      const built = await buildInImage({ kind: 'container', engine: engine!, image: IMAGE }, project, builds.join(' && '));
+      if (!built.ok) throw new Error(built.output);
+    } else await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
     mkdirSync(join(project, 'copy'));
     copyFileSync(join(project, 'ref', 'wc-lite'), join(project, 'copy', 'wc-copy'));
   }, 300_000);
