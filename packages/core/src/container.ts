@@ -80,7 +80,8 @@ export const RUNNER_SCRIPT = [
   '  wd=$!',
   '  wait "$pid"',
   '  status=$?',
-  '  kill -9 "-$wd" "-$pid" 2>/dev/null',
+  // The watchdog by its PID too: a case can end before the watchdog has made its process group.
+  '  kill -9 "$wd" "-$wd" "-$pid" 2>/dev/null',
   '  wait "$wd" 2>/dev/null',
   // Every process but this one (and the init process): kill -1 never signals the caller.
   '  kill -9 -1 2>/dev/null',

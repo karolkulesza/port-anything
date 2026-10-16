@@ -209,6 +209,15 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     return { pool, caseDir, proc, session: () => pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir) };
   };
 
+  it('never takes a quick case for a timed-out one, even with many containers busy', async () => {
+    // A case can end before its watchdog has started; the runner once waited out the timeout then.
+    const quick = await Promise.all(Array.from({ length: 320 }, (_, i) => make({ argv: ['status', String(i % 2)] })));
+    const started = performance.now();
+    const result = await runCases({ reference: ref, candidates: [], cases: quick, store, sandbox: sandbox(), workDir: join(dir, 'quick'), programName: 'tool', concurrency: 8, timeoutMs: 30_000 });
+    expect(result.cases.filter((c) => c.reference.timeout)).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(30_000);
+  }, 120_000);
+
   it("says so when a case's directory can't be copied back, and the container keeps going", async () => {
     const { pool, caseDir, proc, session } = await single('copies');
     try {
