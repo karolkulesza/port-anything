@@ -50,6 +50,7 @@ export {
   ContainerSession,
   DEFAULT_CONTAINER_IMAGE,
   RUNNER_SCRIPT,
+  RUNNER_TOOLS,
   buildInImage,
   caseScript,
   engineCpus,

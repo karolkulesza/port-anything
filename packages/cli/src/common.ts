@@ -43,8 +43,7 @@ export async function withScratchDir<T>(projectDir: string, label: string, use: 
   try {
     return await use(workDir);
   } finally {
-    // Retries: files containers wrote in it can show up on the host while it goes (ENOTEMPTY).
-    await rm(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(workDir, { recursive: true, force: true });
     await rmdir(join(projectDir, '.port-anything', 'tmp')).catch(() => {}); // kept while another command uses it
   }
 }

@@ -1,12 +1,11 @@
 import { execFile, spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { createInterface } from 'node:readline';
 import { DEFAULT_KILL_GRACE_MS, DEFAULT_OUTPUT_CAP_BYTES, DEFAULT_TIMEOUT_MS, type ProcessResult } from './process-runner.js';
 import type { PinnedProgram } from './program.js';
+import { packTar, treeEntries, unpackTar } from './tar.js';
 
 /** The base image both sides run in when `sandbox.image` isn't set. */
 export const DEFAULT_CONTAINER_IMAGE = 'debian:12-slim';
@@ -29,46 +28,55 @@ export class ContainerError extends Error {
   override readonly name = 'ContainerError';
 }
 
-/** Where a session's runner files are mounted in its container. */
-const IO_DIR = '/pa-io';
+/** Where the runner keeps a case's script, stdin and output in its container (on the `/tmp` tmpfs). */
+const RUNNER_DIR = '/tmp/pa-runner';
+
+/** What the runner uses from the image, beside `sh` and its built-ins. */
+export const RUNNER_TOOLS: readonly string[] = Object.freeze(['tar', 'dd', 'wc', 'cat', 'mkdir', 'rm', 'mv', 'chmod', 'setsid', 'sleep']);
 
 /**
- * The runner each long-lived container runs (with `sh`, since the image may have nothing else; it
- * also uses `cp`, `find`, `cat`, `wc`, `setsid` and `sleep` from the image). The host stages each
- * case in a directory of its own, out of the containers' sight: the case directory's path (`dir`),
- * its files (`case/`), the script to run (`cmd`) and maybe `stdin`; then it moves the whole
- * directory to `<IO_DIR>/<n>` in one rename. That name is new: Docker Desktop's file sharing may
- * show a container the old content of a path the host rewrote, and a rename fails if a case planted
- * something there. For each `run <n> <timeout s> <grace s> <cmd bytes> <stdin bytes or -> <entries>
- * <bytes>` line (the last two count the entries of `case/` and the bytes of its files), the runner
- * copies the files to the case directory, on the tmpfs, and waits until it has seen all of that
- * (the share can lag behind the host on a busy machine; it tries for about 2 s), runs the script in
- * a session of its own with stdout and stderr in files, and a watchdog that sends SIGTERM to the
- * case's process group at the timeout, then SIGKILL after the grace period. Once the case has
- * exited, it kills every process in the container but itself (anything the case left behind, even
- * in a session of its own, so nothing touches the shared directory while the host reads it), copies
- * the case directory back (`result/`) and answers `done <status> <1 if timed out> <1 if copied
- * back> <stdout bytes> <stderr bytes> <entries> <bytes>` (the last two for the case directory), so
- * the host can wait until it sees the same. As under bwrap, a signal death is the shell's exit
- * status 128 + n. When it can't copy the case's files in, it answers `error <n>` instead; either
- * way, what went wrong is in `cp-error`.
+ * The runner each long-lived container runs (with `sh`, since the image may have nothing else), fed
+ * over its stdin and answering on its stdout; no host directory is shared with it. It first checks
+ * that the image has `RUNNER_TOOLS` (or answers `missing <tools>` and stops), then says `ready`.
+ * For each case the host sends a line `run <timeout s> <grace s> <bytes>`, then that many bytes: a
+ * tar archive holding `dir` (the case directory's path), `cmd` (the script to run), maybe `stdin`,
+ * and `case/` (the case's files). The runner reads exactly those bytes (`dd`, one read at a time:
+ * `head -c` from BusyBox reads ahead), unpacks them, moves `case/` to the case directory (on the
+ * tmpfs), and runs the script in a session of its own with stdout and stderr in files and a watchdog
+ * that sends SIGTERM to the case's process group at the timeout, then SIGKILL after the grace period.
+ * Once the case has exited, it kills every process in the container but itself (anything the case
+ * left behind, even in a session of its own), archives the case directory and answers `done
+ * <status> <1 if timed out> <stdout bytes> <stderr bytes> <archive bytes>`, followed by stdout,
+ * stderr and the archive. As under bwrap, a signal death is the shell's exit status 128 + n. When it
+ * can't unpack a case or archive its directory, it answers `error <in|back> <bytes>` and that many
+ * bytes of what went wrong. Everything the runner sends comes from a container that ran a case, so
+ * the host checks it all and writes nothing outside a directory of its own (`unpackTar`).
  */
 export const RUNNER_SCRIPT = [
+  `m=; for t in ${RUNNER_TOOLS.join(' ')}; do command -v "$t" >/dev/null 2>&1 || m="$m $t"; done`,
+  'if [ -n "$m" ]; then echo "missing$m"; exit 0; fi',
   'echo ready',
-  // Entries (each counts as one byte of x) and bytes of the regular files, of a directory tree.
-  "tree() { echo \"$(find \"$1\" -exec printf '%.0sx' {} + | wc -c) $(find \"$1\" -type f -exec cat {} + | wc -c)\"; }",
-  'while read -r cmd n t g cs ss fe fb; do',
-  '  [ "$cmd" = run ] || exit 0',
-  `  i=${IO_DIR}/$n`,
-  '  k=0',
-  '  until { [ "$(wc -c <"$i/cmd")" -eq "$cs" ] && { [ "$ss" = - ] || [ "$(wc -c <"$i/stdin")" -eq "$ss" ]; } &&',
-  '    IFS= read -r c <"$i/dir" && rm -rf "$c" && cp -a "$i/case" "$c" && [ "$(tree "$c")" = "$fe $fb" ]; } 2>"$i/cp-error"; do',
-  '    k=$((k + 1)); [ "$k" -lt 20 ] || break; sleep 0.1',
+  // take <bytes> <file>: exactly that many bytes of stdin; fails at the end of the input.
+  'take() {',
+  '  : >"$2"; got=0',
+  '  while [ "$got" -lt "$1" ]; do',
+  '    b=$(($1 - got)); [ "$b" -le 65536 ] || b=65536',
+  '    dd bs="$b" count=1 2>/dev/null >>"$2"',
+  '    now=$(wc -c <"$2")',
+  '    [ "$now" -gt "$got" ] || return 1',
+  '    got=$now',
   '  done',
-  '  if [ "$k" -ge 20 ]; then echo "error $n"; continue; fi',
-  '  setsid sh "$i/cmd" >"$i/out" 2>"$i/err" &',
+  '}',
+  // fail <in|back>: what went wrong, from the error file.
+  'fail() { echo "error $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
+  `p=${RUNNER_DIR}`,
+  'while read -r cmd t g bytes; do',
+  '  [ "$cmd" = run ] || exit 0',
+  '  rm -rf "$p" && mkdir "$p" && take "$bytes" "$p/in.tar" || exit 1',
+  '  if ! { tar -xf "$p/in.tar" -C "$p" && c=$(cat "$p/dir") && rm -rf "$c" && mv "$p/case" "$c"; } 2>"$p/error"; then fail in; continue; fi',
+  '  setsid sh "$p/cmd" </dev/null >"$p/out" 2>"$p/err" &',
   '  pid=$!',
-  `  setsid sh -c 'sleep "$1"; : >"$4"; kill -15 "-$3"; sleep "$2"; kill -9 "-$3"' watchdog "$t" "$g" "$pid" "$i/timedout" >/dev/null 2>&1 &`,
+  `  setsid sh -c 'sleep "$1"; : >"$4"; kill -15 "-$3"; sleep "$2"; kill -9 "-$3"' watchdog "$t" "$g" "$pid" "$p/timedout" >/dev/null 2>&1 &`,
   '  wd=$!',
   '  wait "$pid"',
   '  status=$?',
@@ -76,62 +84,87 @@ export const RUNNER_SCRIPT = [
   '  wait "$wd" 2>/dev/null',
   // Every process but this one (and the init process): kill -1 never signals the caller.
   '  kill -9 -1 2>/dev/null',
-  '  if [ -e "$i/timedout" ]; then to=1; else to=0; fi',
-  '  rt=$(tree "$c")',
-  '  rm -rf "$i/result"',
-  '  if cp -a "$c" "$i/result" 2>"$i/cp-error"; then r=1; else r=0; fi',
+  '  if [ -e "$p/timedout" ]; then to=1; else to=0; fi',
+  // Files the case made unreadable are still the case's files (local mode reads them too).
+  '  chmod -R u+rwX "$c" 2>/dev/null',
+  '  if ! tar -cf "$p/back.tar" -C "$c" . 2>"$p/error"; then rm -rf "$c"; fail back; continue; fi',
   '  rm -rf "$c"',
-  '  echo done "$status" "$to" "$r" $(wc -c <"$i/out") $(wc -c <"$i/err") $rt',
+  '  echo "done $status $to $(wc -c <"$p/out") $(wc -c <"$p/err") $(wc -c <"$p/back.tar")"',
+  '  cat "$p/out" "$p/err" "$p/back.tar"',
   'done',
 ].join('\n');
 
-/** How long the host waits for the share to show it what a container wrote, in ms. */
-const SETTLE_MS = 10_000;
-
-/** Calls `get` until `done` accepts its value or `ms` have passed (then returns the last value). */
-async function settle<T>(get: () => Promise<T>, done: (value: T) => boolean, ms: number): Promise<T> {
-  const until = performance.now() + ms;
-  for (;;) {
-    const value = await get();
-    if (done(value) || performance.now() >= until) return value;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
 /**
- * Removes a directory a container wrote: a file it made can show up on the host while the removal
- * is under way (the share lags), which fails it with ENOTEMPTY, so this retries.
+ * Reads a container's stdout: lines (the runner's answers) and the exact byte counts that follow
+ * them.
  */
-export function removeShared(dir: string): Promise<void> {
-  return rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-}
+class FrameReader {
+  private chunks: Buffer[] = [];
+  private size = 0;
+  private ended = false;
+  private wake: (() => void) | undefined;
 
-/** A regular file's content; refuses a symlink. */
-async function readRegular(path: string): Promise<Buffer> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    if (!(await file.stat()).isFile()) throw new Error(`${path} is not a regular file.`);
-    return await file.readFile();
-  } finally {
-    await file.close();
+  constructor(stream: NodeJS.ReadableStream) {
+    stream.on('data', (chunk: Buffer) => {
+      this.chunks.push(chunk);
+      this.size += chunk.length;
+      this.wake?.();
+    });
+    stream.on('end', () => this.end());
   }
-}
 
-/** Entries of a directory tree (itself included) and bytes of its regular files, as the runner counts them; follows no symlinks. */
-async function treeSize(dir: string): Promise<{ entries: number; bytes: number }> {
-  const total = { entries: 1, bytes: 0 };
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const sub = await treeSize(path);
-      total.entries += sub.entries;
-      total.bytes += sub.bytes;
-    } else {
-      total.entries += 1;
-      if (entry.isFile()) total.bytes += (await lstat(path)).size;
+  end(): void {
+    this.ended = true;
+    this.wake?.();
+  }
+
+  private flat(): Buffer {
+    if (this.chunks.length > 1) this.chunks = [Buffer.concat(this.chunks)];
+    return this.chunks[0] ?? Buffer.alloc(0);
+  }
+
+  private take(n: number): Buffer {
+    const all = this.flat();
+    const taken = Buffer.from(all.subarray(0, n));
+    this.chunks = n < all.length ? [all.subarray(n)] : [];
+    this.size -= n;
+    return taken;
+  }
+
+  /** Waits until `ready` holds, the stream ends or `ms` pass; whether `ready` holds. */
+  private async until(ready: () => boolean, ms: number): Promise<boolean> {
+    const deadline = performance.now() + ms;
+    while (!ready()) {
+      const left = deadline - performance.now();
+      if (this.ended || left <= 0) return false;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, left);
+        this.wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      this.wake = undefined;
     }
+    return true;
   }
-  return total;
+
+  /** The next line, without its newline; undefined if none comes within `ms` (or over 4 KiB of no newline). */
+  async line(ms: number): Promise<string | undefined> {
+    let at = -1;
+    const found = await this.until(() => {
+      if (this.size === 0) return false;
+      at = this.flat().indexOf(0x0a);
+      return at !== -1 || this.size > 4096;
+    }, ms);
+    if (!found || at === -1) return undefined;
+    return this.take(at + 1).subarray(0, at).toString('utf8');
+  }
+
+  /** The next `n` bytes; undefined if they don't all come within `ms`. */
+  async bytes(n: number, ms: number): Promise<Buffer | undefined> {
+    return (await this.until(() => this.size >= n, ms)) ? this.take(n) : undefined;
+  }
 }
 
 /** Quotes a word for `sh`: single quotes, each `'` written as `'\''`. */
@@ -341,8 +374,7 @@ export interface ContainerCase {
 /** One long-lived container and the runner in it; runs one case at a time. */
 export class ContainerSession {
   private queue: Promise<unknown> = Promise.resolve();
-  private readonly lines: string[] = [];
-  private waiting: ((line: string | undefined) => void) | undefined;
+  private readonly reader: FrameReader;
   private ended = false;
   private stderr = '';
   private cases = 0;
@@ -351,33 +383,24 @@ export class ContainerSession {
     private readonly options: SessionOptions,
     private readonly name: string,
     private readonly child: ChildProcessWithoutNullStreams,
-    /** Host directory mounted at the runner's IO directory. */
-    private readonly io: string,
   ) {
-    createInterface({ input: child.stdout }).on('line', (line) => {
-      if (this.waiting) {
-        const resolve = this.waiting;
-        this.waiting = undefined;
-        resolve(line);
-      } else this.lines.push(line);
-    });
+    this.reader = new FrameReader(child.stdout);
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       if (this.stderr.length < 64 * 1024) this.stderr += chunk;
     });
     child.stdin.on('error', () => {});
     child.on('close', () => {
       this.ended = true;
-      this.waiting?.(undefined);
-      this.waiting = undefined;
+      this.reader.end();
     });
     child.on('error', (error) => {
       this.stderr += error.message;
+      this.reader.end();
     });
   }
 
   static async start(options: SessionOptions): Promise<ContainerSession> {
-    const io = join(options.dir, 'io');
-    await mkdir(io, { recursive: true });
+    await mkdir(options.dir, { recursive: true });
     const name = `port-anything-${randomBytes(6).toString('hex')}`;
     const { engine, image } = options.setup;
     const child = spawn(engine, [
@@ -385,14 +408,16 @@ export class ContainerSession {
       '--network', 'none', '--read-only', '--tmpfs', '/tmp', '--tmpfs', `${options.parent}:exec,mode=1777`,
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       ...userArgs(engine),
-      '-v', `${io}:${IO_DIR}`,
       ...options.side.readOnlyPaths.flatMap((p) => ['-v', `${p}:${p}:ro`]),
-      '-w', IO_DIR, '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT,
+      '-w', '/tmp', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
-    const session = new ContainerSession(options, name, child, io);
-    const ready = await session.nextLine(120_000);
+    const session = new ContainerSession(options, name, child);
+    const ready = await session.reader.line(120_000);
     if (ready !== 'ready') {
       session.forceRemove();
+      if (ready?.startsWith('missing ')) {
+        throw new ContainerError(`The image ${image} (sandbox.image) has no ${ready.slice('missing '.length).split(' ').join(', ')}: container mode runs cases with them. Use an image that has them, such as ${DEFAULT_CONTAINER_IMAGE}.`);
+      }
       throw new ContainerError(`The container for ${options.side.binDir} did not start (${image}):\n${session.stderr.trim() || ready || 'no output'}`);
     }
     return session;
@@ -401,88 +426,64 @@ export class ContainerSession {
   /** A new case to run in `caseDir`, a directory in the session's parent directory. */
   async prepare(caseDir: string): Promise<ContainerCase> {
     if (dirname(caseDir) !== this.options.parent) throw new Error(`${caseDir} is not in ${this.options.parent}.`);
-    const n = this.cases++;
-    // Staged out of the containers' sight, then moved into the shared directory to run.
-    const stage = join(this.options.dir, 'stage', String(n));
-    const files = join(stage, 'case');
+    const dir = join(this.options.dir, String(this.cases++));
+    const files = join(dir, 'case');
     await mkdir(files, { recursive: true });
-    await writeFile(join(stage, 'dir'), `${caseDir}\n`);
     return {
       files,
       run: (proc, limits = {}) => {
-        const result = this.queue.then(() => this.runNow(n, proc, limits));
+        const result = this.queue.then(() => this.runNow(caseDir, dir, proc, limits));
         this.queue = result.catch(() => {});
         return result;
       },
-      dispose: async () => {
-        await rm(stage, { recursive: true, force: true });
-        await removeShared(join(this.io, String(n)));
-      },
+      dispose: () => rm(dir, { recursive: true, force: true }),
     };
   }
 
-  private async runNow(n: number, proc: ContainerProcess, limits: Limits): Promise<ProcessResult & { result: string }> {
+  private async runNow(caseDir: string, dir: string, proc: ContainerProcess, limits: Limits): Promise<ProcessResult & { result: string }> {
     const timeoutMs = limits.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const graceMs = limits.killGraceMs ?? this.options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
     const cap = limits.outputCapBytes ?? this.options.outputCapBytes ?? DEFAULT_OUTPUT_CAP_BYTES;
-    const stage = join(this.options.dir, 'stage', String(n));
-    const dir = join(this.io, String(n));
-    const script = caseScript(proc, cap, `${IO_DIR}/${n}/stdin`);
-    await writeFile(join(stage, 'cmd'), script);
-    const hasStdin = proc.stdin !== undefined && proc.stdin !== null;
-    if (hasStdin) await writeFile(join(stage, 'stdin'), proc.stdin!);
-    const files = await treeSize(join(stage, 'case'));
-    try {
-      await rename(stage, dir);
-    } catch (e) {
-      throw new ContainerError(`Something in the container ${this.name} took the name of the next case's directory (${dir}): ${(e as Error).message}`);
-    }
-    const sizes = `${Buffer.byteLength(script)} ${hasStdin ? Buffer.byteLength(proc.stdin!) : '-'} ${files.entries} ${files.bytes}`;
+    if (this.ended) throw new ContainerError(`The container ${this.name} has stopped (${this.options.setup.image}):\n${this.stderr.trim() || 'no output'}`);
+    const stdin = proc.stdin === undefined || proc.stdin === null ? [] : [{ type: 'file' as const, name: Buffer.from('stdin'), data: Buffer.from(proc.stdin) }];
+    const input = packTar([
+      { type: 'file', name: Buffer.from('dir'), data: Buffer.from(caseDir) },
+      { type: 'file', name: Buffer.from('cmd'), data: Buffer.from(caseScript(proc, cap, `${RUNNER_DIR}/stdin`)) },
+      ...stdin,
+      ...(await treeEntries(join(dir, 'case'), 'case')),
+    ]);
     const started = performance.now();
-    this.child.stdin.write(`run ${n} ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)} ${sizes}\n`);
+    this.child.stdin.write(`run ${(timeoutMs / 1000).toFixed(3)} ${(graceMs / 1000).toFixed(3)} ${input.length}\n`);
+    this.child.stdin.write(input);
     // The watchdog in the container stops the case; this only guards against a stuck container.
-    const line = await this.nextLine(timeoutMs + graceMs + 60_000);
+    const line = await this.reader.line(timeoutMs + graceMs + 60_000);
     const wall = performance.now() - started;
-    // Cases can write the shared directory too, so nothing in it is followed: no symlinks, and its
-    // files are read only once every process of the case is gone (the runner killed them).
-    const failed = async () => {
-      // What cp said, once the share shows it.
-      const read = () => readRegular(join(dir, 'cp-error')).then((b) => b.toString('utf8').trim(), () => '');
-      const message = await settle(read, (m) => m !== '', SETTLE_MS / 5);
-      return message || this.stderr.trim() || 'no message';
-    };
-    if (line === `error ${n}`) throw new ContainerError(`The container ${this.name} could not copy in the files of a case (${this.options.setup.image}):\n${await failed()}`);
-    const match = line === undefined ? null : /^done (\d+) ([01]) ([01]) (\d+) (\d+) (\d+) (\d+)$/.exec(line);
-    if (match === null) {
+    // A case may have written to the runner's stdout, so whatever doesn't parse ends the session.
+    const broken = (what: string): never => {
       this.forceRemove();
-      throw new ContainerError(`The container ${this.name} stopped answering (${this.options.setup.image}):\n${this.stderr.trim() || line || 'no output'}`);
-    }
-    if (match[3] !== '1') {
-      throw new ContainerError(`The container ${this.name} could not copy back the directory of a case (${this.options.setup.image}):\n${await failed()}`);
-    }
-    // The share can lag behind the container: wait until the host sees what the runner reported.
-    const [outBytes, errBytes, entries, bytes] = match.slice(4).map(Number) as [number, number, number, number];
-    const kind = (path: string) => lstat(path).then((s) => (s.isFile() ? s.size : s.isDirectory() ? 'dir' : 'other'), () => 'missing');
-    const seen = await settle(
-      async () => {
-        if ((await kind(dir)) !== 'dir' || (await kind(join(dir, 'out'))) !== outBytes || (await kind(join(dir, 'err'))) !== errBytes) return false;
-        if ((await kind(join(dir, 'result'))) !== 'dir') return false;
-        const tree = await treeSize(join(dir, 'result'));
-        return tree.entries === entries && tree.bytes === bytes;
-      },
-      (ok) => ok,
-      SETTLE_MS,
-    );
-    if (!seen) {
-      throw new ContainerError(
-        `The host did not see what a case in ${this.name} left within ${SETTLE_MS / 1000} s: ${outBytes} bytes of stdout, ${errBytes} of stderr, and a directory of ${entries} entries holding ${bytes} bytes.`,
-      );
-    }
-    const read = async (file: string) => {
-      const data = await readRegular(join(dir, file));
-      return { data: data.length > cap ? data.subarray(0, cap) : data, truncated: data.length > cap };
+      throw new ContainerError(`The container ${this.name} ${what} (${this.options.setup.image}):\n${this.stderr.trim() || line || 'no output'}`);
     };
-    const [stdout, stderr] = await Promise.all([read('out'), read('err')]);
+    const failed = line === undefined ? null : /^error (in|back) (\d+)$/.exec(line);
+    if (failed !== null) {
+      const message = await this.reader.bytes(Number(failed[2]), 60_000);
+      if (message === undefined) return broken('stopped answering');
+      const what = failed[1] === 'in' ? 'could not copy in the files of a case' : 'could not copy back the directory of a case';
+      throw new ContainerError(`The container ${this.name} ${what} (${this.options.setup.image}):\n${message.toString('utf8').trim() || 'no message'}`);
+    }
+    const match = line === undefined ? null : /^done (\d+) ([01]) (\d+) (\d+) (\d+)$/.exec(line);
+    if (match === null) return broken('stopped answering');
+    const [outBytes, errBytes, tarBytes] = match.slice(3).map(Number) as [number, number, number];
+    const payload = await this.reader.bytes(outBytes + errBytes + tarBytes, 60_000 + (outBytes + errBytes + tarBytes) / 1000);
+    if (payload === undefined) return broken('stopped in the middle of an answer');
+    const result = join(dir, 'result');
+    try {
+      await unpackTar(payload.subarray(outBytes + errBytes), result);
+    } catch (e) {
+      return broken(`sent back a case directory that can't be unpacked: ${(e as Error).message}`);
+    }
+    const capped = (data: Buffer) => ({ data: data.length > cap ? data.subarray(0, cap) : data, truncated: data.length > cap });
+    const stdout = capped(payload.subarray(0, outBytes));
+    const stderr = capped(payload.subarray(outBytes, outBytes + errBytes));
     return {
       exit: Number(match[1]),
       signal: null,
@@ -492,24 +493,8 @@ export class ContainerSession {
       truncated: { stdout: stdout.truncated, stderr: stderr.truncated },
       time_ms: { wall, user: null, sys: null },
       rss_kb: null,
-      result: join(dir, 'result'),
+      result,
     };
-  }
-
-  private nextLine(timeoutMs: number): Promise<string | undefined> {
-    const queued = this.lines.shift();
-    if (queued !== undefined) return Promise.resolve(queued);
-    if (this.ended) return Promise.resolve(undefined);
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.waiting = undefined;
-        resolve(undefined);
-      }, timeoutMs);
-      this.waiting = (line) => {
-        clearTimeout(timer);
-        resolve(line);
-      };
-    });
   }
 
   /** Ends the runner (its container is removed as it exits), or removes the container after 10 s. */
@@ -520,7 +505,7 @@ export class ContainerSession {
       const timer = new Promise<'late'>((resolve) => setTimeout(() => resolve('late'), 10_000).unref());
       if ((await Promise.race([exited, timer])) === 'late') this.forceRemove();
     }
-    await removeShared(this.options.dir);
+    await rm(this.options.dir, { recursive: true, force: true });
   }
 
   /** Removes the container now, synchronously (also on process exit). */

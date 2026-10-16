@@ -1,17 +1,18 @@
 import { execFile, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, RUNNER_SCRIPT, shellQuote } from '../src/container.js';
+import { caseScript, ContainerError, ContainerPool, engineCpus, ensureImage, findContainerEngine, RUNNER_SCRIPT, RUNNER_TOOLS, shellQuote } from '../src/container.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { NormalizersSchema } from '../src/normalize.js';
 import { resolveProgram, type ResolvedProgram } from '../src/program.js';
 import { observeCase, runCases } from '../src/run-cases.js';
 import { containerSandbox, sandboxCommand } from '../src/sandbox.js';
+import { packTar, readTar } from '../src/tar.js';
 
 const exec = promisify(execFile);
 
@@ -23,12 +24,12 @@ describe('container mode, without a container', () => {
   });
 
   it('writes a case script: its directory, a file size limit just over the cap, a clean environment, stdin', () => {
-    const script = caseScript({ argv: ['tool', '-x', "it's"], cwd: '/w/slot-0/case', env: { HOME: '/w/slot-0/case', PATH: '/bin' }, stdin: Buffer.from('in') }, 1024, '/pa-io/7/stdin');
+    const script = caseScript({ argv: ['tool', '-x', "it's"], cwd: '/w/slot-0/case', env: { HOME: '/w/slot-0/case', PATH: '/bin' }, stdin: Buffer.from('in') }, 1024, '/tmp/pa-runner/stdin');
     expect(script).toBe(
       [
         "cd '/w/slot-0/case' || exit 126",
         'ulimit -f 3',
-        "exec env -i 'HOME=/w/slot-0/case' 'PATH=/bin' 'PWD=/w/slot-0/case' 'tool' '-x' 'it'\\''s' <'/pa-io/7/stdin'",
+        "exec env -i 'HOME=/w/slot-0/case' 'PATH=/bin' 'PWD=/w/slot-0/case' 'tool' '-x' 'it'\\''s' <'/tmp/pa-runner/stdin'",
         '',
       ].join('\n'),
     );
@@ -86,12 +87,17 @@ case "$1" in
   status) exit "$2" ;;
   vanish) cd / && rm -rf "$OLDPWD" ;;
   plant)
-    # Traps for the host in the shared directory: the next case's name as a link to $2, the one
-    # after as a directory holding such a link, and a process left behind to plant more later.
-    n=$(ls /pa-io | sort -n | tail -n 1)
-    ln -s "$2" "/pa-io/$((n + 1))"
-    mkdir "/pa-io/$((n + 2))" && ln -s "$2" "/pa-io/$((n + 2))/case"
-    setsid sh -c 'sleep 2; ln -s "$1" /pa-io/late' plant "$2" >/dev/null 2>&1 &
+    # Traps for the host: links out of the case directory, and a process left behind.
+    ln -s "$2" link
+    mkdir sub && ln -s "$2" sub/inner
+    setsid sh -c 'sleep 2; touch /tmp/pa-late' plant >/dev/null 2>&1 &
+    ;;
+  late) ls /tmp/pa-late ;;
+  forge)
+    # An answer of its own on the runner's stdout, with an archive that climbs out of the directory.
+    printf 'done 0 0 0 0 %s\n' "$(wc -c <"$2")" >"/proc/$PPID/fd/1"
+    cat "$2" >"/proc/$PPID/fd/1"
+    sleep 1
     ;;
 esac
 `;
@@ -190,98 +196,150 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     expect(await text(after!.stdout)).toBe('after\n');
   }, 60_000);
 
-  it("says so when a case's files can't be copied in or its directory back, and the container keeps going", async () => {
-    // The tool alone in a directory of its own, mounted read-only.
-    const bin = join(dir, 'copies-bin');
+  /** A pool with one session for the tool alone in a directory of its own, mounted read-only. */
+  const single = async (name: string, image = IMAGE) => {
+    const bin = join(dir, `${name}-bin`);
     mkdirSync(bin);
     const tool = join(bin, 'tool');
     writeFileSync(tool, TOOL('ref'));
     chmodSync(tool, 0o755);
-    const pool = new ContainerPool({ setup: { kind: 'container', engine: engine!, image: IMAGE }, dir: join(dir, 'copies') });
+    const pool = new ContainerPool({ setup: { kind: 'container', engine: engine!, image }, dir: join(dir, name) });
+    const caseDir = join(dir, `${name}-work`, 'slot-0', 'case');
+    const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
+    return { pool, caseDir, proc, session: () => pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir) };
+  };
+
+  it("says so when a case's directory can't be copied back, and the container keeps going", async () => {
+    const { pool, caseDir, proc, session } = await single('copies');
     try {
-      const caseDir = join(dir, 'copies-work', 'slot-0', 'case');
-      const session = await pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir);
-      const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
-      // Its directory can't be made where the case says it goes.
-      const lost = await session.prepare(caseDir);
-      writeFileSync(join(dirname(lost.files), 'dir'), '/no-such-dir/case\n');
-      const error = await lost.run(proc('echo', 'x')).catch((e: unknown) => e);
-      expect(error).toBeInstanceOf(ContainerError);
-      expect((error as Error).message).toMatch(/could not copy in the files of a case [^\n]*:\n.*No such file/);
-      await lost.dispose();
+      const s = await session();
       // The case removed its own directory.
-      const vanished = await session.prepare(caseDir);
+      const vanished = await s.prepare(caseDir);
       await expect(vanished.run(proc('vanish'))).rejects.toThrow(/could not copy back the directory of a case [^\n]*:\n.*No such file/);
       await vanished.dispose();
-      const fine = await session.prepare(caseDir);
-      const result = await fine.run(proc('echo', 'still', 'here'));
-      expect(result.stdout.toString()).toBe('still here\n');
+      const fine = await s.prepare(caseDir);
+      writeFileSync(join(fine.files, `${'f'.repeat(150)}.txt`), 'long name\n');
+      const result = await fine.run(proc('cat', `${'f'.repeat(150)}.txt`));
+      expect(result.stdout.toString()).toBe('long name\n');
+      expect(readFileSync(join(result.result, `${'f'.repeat(150)}.txt`), 'utf8')).toBe('long name\n');
       await fine.dispose();
     } finally {
       await pool.close();
     }
   }, 60_000);
 
-  it('writes nothing through what a case planted in the shared directory, and kills what it left running', async () => {
-    const bin = join(dir, 'plant-bin');
-    mkdirSync(bin);
-    const tool = join(bin, 'tool');
-    writeFileSync(tool, TOOL('ref'));
-    chmodSync(tool, 0o755);
+  it('writes nothing through links a case left, and kills what it left running', async () => {
     const victim = join(dir, 'victim');
     mkdirSync(victim);
-    const pool = new ContainerPool({ setup: { kind: 'container', engine: engine!, image: IMAGE }, dir: join(dir, 'plant') });
+    const { pool, caseDir, proc, session } = await single('plant');
     try {
-      const caseDir = join(dir, 'plant-work', 'slot-0', 'case');
-      const session = await pool.session({ binDir: bin, args: [], readOnlyPaths: [bin] }, caseDir);
-      const proc = (...argv: string[]) => ({ argv: [tool, ...argv], cwd: caseDir, env: { PATH: '/usr/bin:/bin' } });
-      const planter = await session.prepare(caseDir);
-      expect((await planter.run(proc('plant', victim))).exit).toBe(0);
+      const s = await session();
+      const planter = await s.prepare(caseDir);
+      const planted = await planter.run(proc('plant', victim));
+      expect(planted.exit).toBe(0);
+      // The links come back as links, pointing where the case said.
+      expect(readlinkSync(join(planted.result, 'link'))).toBe(victim);
+      expect(readlinkSync(join(planted.result, 'sub', 'inner'))).toBe(victim);
       await planter.dispose();
-      for (let i = 0; i < 2; i++) {
-        const next = await session.prepare(caseDir);
-        writeFileSync(join(next.files, 'payload.txt'), 'x');
-        await expect(next.run(proc('echo', 'x'))).rejects.toThrow(/took the name of the next case's directory/);
-        await next.dispose();
-      }
-      // What it left running is gone too.
       await new Promise((resolve) => setTimeout(resolve, 3000));
-      expect(readdirSync(join(dir, 'plant', 'session-0', 'io')).filter((name) => name === 'late')).toEqual([]);
+      // What it left running was killed before it could do anything.
+      const after = await s.prepare(caseDir);
+      writeFileSync(join(after.files, 'payload.txt'), 'x');
+      const late = await after.run(proc('late'));
+      expect(late.stderr.toString()).toMatch(/No such file/);
+      await after.dispose();
       expect(readdirSync(victim)).toEqual([]);
     } finally {
       await pool.close();
     }
   }, 60_000);
 
-  it('waits for the files of a case the share shows late, and reports the sizes of what the case left', async () => {
-    const io = join(dir, 'late-io');
-    mkdirSync(join(io, '0', 'case'), { recursive: true });
-    writeFileSync(join(io, '0', 'dir'), '/w/case\n');
-    const child = spawn(engine!, ['run', '--rm', '-i', '--tmpfs', '/w', '-v', `${io}:/pa-io`, '--entrypoint', '/bin/sh', IMAGE, '-c', RUNNER_SCRIPT]);
-    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  it('ends a session whose case wrote an answer of its own, and writes nothing outside its directory', async () => {
+    const { pool, caseDir, proc, session } = await single('forge');
     try {
-      expect((await lines.next()).value).toBe('ready');
-      const script = 'cd /w/case && printf hello && printf oops >&2 && echo made >sub/out.txt\n';
-      // The run line comes first; the script, stdin and a file of the case only show up half a second later.
-      child.stdin.write(`run 0 10 1 ${Buffer.byteLength(script)} 3 3 2\n`);
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      writeFileSync(join(io, '0', 'stdin'), 'abc');
-      writeFileSync(join(io, '0', 'cmd'), script);
-      mkdirSync(join(io, '0', 'case', 'sub'));
-      writeFileSync(join(io, '0', 'case', 'sub', 'in.txt'), 'in');
-      // stdout, stderr, then the case directory: itself, sub/, in.txt and out.txt, 2 + 5 bytes.
-      expect((await lines.next()).value).toBe('done 0 0 1 5 4 4 7');
-      // A script that never shows up in full: the runner gives up after about 2 s.
-      mkdirSync(join(io, '1', 'case'), { recursive: true });
-      writeFileSync(join(io, '1', 'dir'), '/w/case\n');
-      writeFileSync(join(io, '1', 'cmd'), 'true\n');
-      child.stdin.write('run 1 10 1 999 - 1 0\n');
-      expect((await lines.next()).value).toBe('error 1');
+      const s = await session();
+      const forger = await s.prepare(caseDir);
+      writeFileSync(join(forger.files, 'evil.tar'), packTar([{ type: 'file', name: Buffer.from('../../../escaped'), data: Buffer.from('x') }]));
+      await expect(forger.run(proc('forge', 'evil.tar'))).rejects.toThrow(/sent back a case directory that can't be unpacked: .*goes up a directory/);
+      await forger.dispose();
+      expect(readdirSync(dir).filter((name) => name === 'escaped')).toEqual([]);
+      const next = await s.prepare(caseDir);
+      await expect(next.run(proc('echo', 'x'))).rejects.toThrow(/has stopped/);
+      await next.dispose();
+    } finally {
+      await pool.close();
+    }
+  }, 60_000);
+
+  // BusyBox's tools differ from GNU's (its head reads ahead, for one).
+  it.each([IMAGE, 'alpine:3'])('runs the protocol in %s: one archive in, stdout, stderr and the case directory out, or what went wrong', async (image) => {
+    await ensureImage(engine!, image);
+    const child = spawn(engine!, ['run', '--rm', '-i', '--tmpfs', '/w', '--entrypoint', '/bin/sh', image, '-c', RUNNER_SCRIPT]);
+    const out: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    const received = async (bytes: number) => {
+      for (let i = 0; i < 300 && Buffer.concat(out).length < bytes; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+      const all = Buffer.concat(out);
+      out.length = 0;
+      return all;
+    };
+    const send = (entries: Parameters<typeof packTar>[0]) => {
+      const archive = packTar(entries);
+      child.stdin.write(`run 10 1 ${archive.length}\n`);
+      child.stdin.write(archive);
+    };
+    const f = (name: string, data: string | Buffer) => ({ type: 'file' as const, name: Buffer.from(name), data: Buffer.from(data) });
+    try {
+      expect((await received(6)).toString()).toBe('ready\n');
+      // 200 kB of stdin, more than one read of a pipe.
+      const big = Buffer.alloc(200_000, 'y');
+      send([f('dir', '/w/case'), f('cmd', 'cd /w/case && wc -c </tmp/pa-runner/stdin && printf oops >&2 && echo made >sub/out.txt\n'), f('stdin', big), { type: 'dir', name: Buffer.from('case') }, { type: 'dir', name: Buffer.from('case/sub') }, f('case/sub/in.txt', 'in')]);
+      const head = 'done 0 0 7 4 ';
+      let answer = await received(head.length + 11);
+      const line = answer.subarray(0, answer.indexOf(0x0a)).toString();
+      expect(line).toMatch(/^done 0 0 7 4 \d+$/);
+      const tarBytes = Number(line.split(' ')[5]);
+      answer = Buffer.concat([answer, await received(line.length + 1 + 11 + tarBytes - answer.length)]);
+      const body = answer.subarray(line.length + 1);
+      expect(body.subarray(0, 11).toString()).toBe('200000\noops');
+      const names = readTar(body.subarray(11, 11 + tarBytes)).map((e) => `${e.type} ${e.name.toString()}`);
+      expect(names.map((n) => n.replace(/\/$/, '')).sort()).toEqual(['dir .', 'dir ./sub', 'file ./sub/in.txt', 'file ./sub/out.txt']);
+      // Not an archive: tar says why, and the runner takes the next case.
+      const junk = Buffer.alloc(1024, 'x');
+      child.stdin.write(`run 10 1 ${junk.length}\n`);
+      child.stdin.write(junk);
+      const error = (await received(20)).toString();
+      expect(error).toMatch(/^error in \d+\n.*tar/s);
+      // A case directory where none can be made.
+      send([f('dir', '/no-such-dir/case'), f('cmd', 'true\n'), { type: 'dir', name: Buffer.from('case') }]);
+      expect((await received(20)).toString()).toMatch(/^error in \d+\n.*(No such file|cannot)/s);
+      send([f('dir', '/w/case'), f('cmd', 'echo still\n'), { type: 'dir', name: Buffer.from('case') }]);
+      expect((await received(20)).toString()).toMatch(/^done 0 0 6 0 \d+\nstill\n/);
     } finally {
       child.stdin.end();
       child.kill();
     }
   }, 60_000);
+
+  it('says which tools an image lacks', async () => {
+    const child = spawn(engine!, ['run', '--rm', '-i', '-e', 'PATH=/nowhere', '--entrypoint', '/bin/sh', IMAGE, '-c', RUNNER_SCRIPT]);
+    const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+    expect((await lines.next()).value).toBe(`missing ${RUNNER_TOOLS.join(' ')}`);
+    child.kill();
+    // And a pool names the image and the tools.
+    const tag = `port-anything-test-no-tar:${process.pid}`;
+    const context = join(dir, 'no-tar');
+    mkdirSync(context);
+    writeFileSync(join(context, 'Dockerfile'), `FROM ${IMAGE}\nRUN rm /usr/bin/tar\n`);
+    await exec(engine!, ['build', '-q', '-t', tag, context]);
+    const { pool, session } = await single('no-tar-pool', tag);
+    try {
+      await expect(session()).rejects.toThrow(new RegExp(`The image ${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(sandbox.image\\) has no tar: `));
+    } finally {
+      await pool.close();
+      await exec(engine!, ['rmi', '-f', tag]).catch(() => {});
+    }
+  }, 180_000);
 });
 
 /** The names of the containers a pool started in `dir` that are still there. */
