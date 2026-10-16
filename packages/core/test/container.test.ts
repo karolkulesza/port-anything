@@ -326,7 +326,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       // It can't know the nonce of its case, so it can only guess.
       await expect(forger.run(proc('forge', 'evil.tar', '0123456789abcdef'))).rejects.toThrow(/stopped answering/);
       await forger.dispose();
-      expect(readdirSync(dir).filter((name) => name === 'escaped')).toEqual([]);
+      expect(readdirSync(join(dir, 'forge'), { recursive: true }).filter((name) => String(name).endsWith('escaped'))).toEqual([]);
       const next = await s.prepare(caseDir);
       await expect(next.run(proc('echo', 'x'))).rejects.toThrow(/has stopped/);
       await next.dispose();
