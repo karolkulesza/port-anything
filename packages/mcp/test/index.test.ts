@@ -15,6 +15,7 @@ describe('runSelection', () => {
     expect(runSelection({})).toEqual({ smoke: true });
     expect(runSelection({ smoke: true })).toEqual({ smoke: true });
     expect(runSelection({ cluster: '3' })).toEqual({ cluster: '3' });
+    expect(runSelection({ cluster: 3 })).toEqual({ cluster: '3' });
     expect(runSelection({ feature: 'opt.n' })).toEqual({ feature: 'opt.n' });
     expect(runSelection({ cases: ['c_1234'] })).toEqual({ cases: ['c_1234'] });
   });
