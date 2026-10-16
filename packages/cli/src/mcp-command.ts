@@ -436,12 +436,16 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     const store = new BlobStore(cacheDir(projectDir));
     const { runner: runnerOptions } = await prepareSides(projectDir, config, [], regenerate);
     const { reference } = runnerOptions;
-    try {
-      assertNotDestructive([reference.path, ...(reference.tool === undefined ? [] : [reference.tool]), ...reference.args, ...input.argv]);
-    } catch (e) {
-      if (e instanceof DestructiveToolError) throw new ConfigError(`Refusing to probe "${e.command}": it is on the list of destructive tools and subcommands.`);
-      throw e;
-    }
+    /** Refuses a denylisted command line, as the program file and as the name it runs as (`program_name`). */
+    const refuseDestructive = (argv: readonly string[]) => {
+      try {
+        assertNotDestructive(argv);
+      } catch (e) {
+        if (e instanceof DestructiveToolError) throw new ConfigError(`Refusing to probe "${e.command}": it is on the list of destructive tools and subcommands.`);
+        throw e;
+      }
+    };
+    refuseDestructive([reference.path, ...(reference.tool === undefined ? [] : [reference.tool]), ...reference.args, ...input.argv]);
     let c: CanonicalCase;
     try {
       const fixtures: Record<string, string> = {};
@@ -457,6 +461,7 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     try {
       const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
       programName = runner.programName;
+      refuseDestructive([programName, ...input.argv]);
       observed = await runner.run(c);
     } finally {
       await removeScratch(projectDir, workDir);

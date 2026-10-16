@@ -164,7 +164,7 @@ esac
   it('features: nothing without a spec or a run', async () => {
     const f = await backend.features();
     expect(f).toEqual({ spec: null, run: null, candidates: [], prefix: null, features: [] });
-    expect(formatFeatures(f)).toContain('no CLI spec');
+    expect(formatFeatures(f)).toContain("no CLI spec (port-anything spec infer writes port-anything/cli-spec.yaml); features from the latest full run's cases only\nno saved run of the whole corpus yet");
   });
 
   it('case: one case in full before any run, on the configured candidate', async () => {
@@ -263,6 +263,11 @@ esac
       await expect(git.probe({ argv: ['clean', '-fdx'] })).rejects.toThrow('Refusing to probe "git clean"');
       expect(existsSync(probesDir(dir))).toBe(false);
       expect((await git.probe({ argv: ['status'] })).observed.stdout).toBe('status\n');
+      // The name it runs as counts too: a multicall binary pinned as `rm` would run rm.
+      writeFileSync(join(dir, 'bin', 'multi'), '#!/bin/sh\necho "$0 $@"\n', { mode: 0o755 });
+      writeFileSync(join(dir, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/multi }\nprogram_name: rm\n');
+      await expect(git.probe({ argv: ['-rf', 'x'] })).rejects.toThrow('Refusing to probe "rm"');
+      expect(readdirSync(probesDir(dir))).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
