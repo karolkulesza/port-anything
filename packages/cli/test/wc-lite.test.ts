@@ -308,9 +308,8 @@ describe.runIf(enabled)(`examples/wc-lite (sandbox mode ${mode})`, () => {
     expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf').replace(/[.]/g, '\\.')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
   }, 300_000);
 
-  // The smoke target is 15 s. In container mode a run usually takes 4–8 s here too, but container
-  // start-up on Docker Desktop slows down a lot when the machine is busy, so the bound is looser.
-  const SMOKE_BOUND_MS = mode === 'container' ? 30_000 : 15_000;
+  // The smoke target, in both sandbox modes.
+  const SMOKE_BOUND_MS = 15_000;
   it(`catches every bad port with run --smoke in under ${SMOKE_BOUND_MS / 1000} s, with or without its cluster open (done when)`, async () => {
     // The three bad ports this check was written for; each forms one cluster.
     const bad = ['bad-off-by-one', 'bad-crlf', 'bad-exit-code'];
