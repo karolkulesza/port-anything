@@ -97,8 +97,11 @@ case "$1" in
   stash)
     # State for whichever case comes next: in /tmp, /dev/shm, next to the case directory, the runner's tmpfs.
     echo s >/tmp/state; echo s >/tmp/.hidden; echo s >/dev/shm/state; echo s >../stash; echo s >/pa-runner/state
+    # Also in directories it then makes read-only, and unreadable.
+    for d in /tmp/ro /dev/shm/ro ../ro /tmp/none; do mkdir "$d" && echo s >"$d/f"; done
+    chmod 555 /tmp/ro /dev/shm/ro ../ro; chmod 000 /tmp/none
     ;;
-  peek) cat /tmp/state /tmp/.hidden /dev/shm/state ../stash /pa-runner/state 2>&1; ls -A /tmp /dev/shm .. ;;
+  peek) cat /tmp/state /tmp/.hidden /dev/shm/state ../stash /pa-runner/state /tmp/ro/f /dev/shm/ro/f ../ro/f /tmp/none/f 2>&1; ls -A /tmp /dev/shm .. ;;
   mounts) grep -E " (/tmp|$(dirname "$PWD")|/pa-runner) " /proc/mounts ;;
   forge)
     # An answer of its own on the runner's stdout, with an archive that climbs out of the directory.
@@ -281,7 +284,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       const seen = await peek.run(proc('peek'));
       await peek.dispose();
       // Every cat fails; the listings show only the case directory itself.
-      expect(seen.stdout.toString().match(/No such file/g)).toHaveLength(5);
+      expect(seen.stdout.toString().match(/No such file/g)).toHaveLength(9);
       expect(seen.stdout.toString()).not.toMatch(/^s$/m);
       expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l))).toEqual(['case']);
     } finally {

@@ -92,8 +92,14 @@ export const RUNNER_SCRIPT = [
   // fail <in|back>: what went wrong, from the error file.
   'fail() { echo "error $nonce $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
   `p=${RUNNER_DIR}`,
-  // wipe <dir>: empty it, dot files included (a pattern that matches nothing stays as it is).
-  'wipe() { rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null; }',
+  // wipe <dir>: empty it, dot files included (a pattern that matches nothing stays as it is), even
+  // what a case made read-only or unreadable; a runner that can't stops, rather than leak a case's files.
+  'wipe() {',
+  '  chmod -R u+rwX "$1" 2>/dev/null; rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null',
+  '  for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do',
+  '    if [ -e "$f" ] || [ -L "$f" ]; then echo "port-anything runner: cannot empty $1 after a case" >&2; exit 1; fi',
+  '  done',
+  '}',
   'while read -r cmd nonce t g bytes; do',
   '  [ "$cmd" = run ] || exit 0',
   `  wipe ${RUNNER_MOUNT} && mkdir "$p" && take "$bytes" "$p/in.tar" || exit 1`,
