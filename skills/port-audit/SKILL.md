@@ -77,7 +77,7 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | `candidates[].per_feature[].selfDescription` | `--help` / `--version` style features: listed, never in the headline (help text is allowed to differ). |
 | `candidates[].per_feature[].underSampled` | Too few cases to count in the headline: report the numbers, don't conclude from them. |
 | `candidates[].divergences[]` | Every diverging case: `case` (its ID), `argv` (the arguments after the program name) and `fields` (what differed: `exit` code, `signal`, `timeout`, `stdout`, `stderr`, `fs` for files created, changed or deleted). |
-| `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. An audit doesn't need `--save`. |
+| `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. Only step 4 uses `--save`. |
 | `duration_ms` | Wall time of the run. |
 
 The JSON doesn't include each case's stdin or input files (an `argv` may name an input file,
@@ -89,7 +89,8 @@ hand (step 5).
 
 When there are divergences, turn the audit into a project to get each cluster of divergences
 with a minimized repro, inputs included. In an empty working directory (`--save` refuses to
-overwrite a project):
+overwrite a project), and with **absolute paths** for every program (`--save` writes the commands
+into `port-anything.yaml` as given, and a relative path wouldn't resolve from there):
 
 ```sh
 port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --save --json > audit.json
