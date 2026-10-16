@@ -76,6 +76,8 @@ describe('projectBackend', () => {
     expect(k.repro.stdin).toMatch(/^[a-z]$/);
     expect(k.diff).toEqual([{ field: 'stdout', reference: (k.repro.stdin as string).toUpperCase(), candidate: k.repro.stdin }]);
     expect(formatNext(next)).toContain(`  $ tool upper\n  stdin: "${k.repro.stdin}"\ndiff (reference -, candidate +, after normalizers):\nstdout:\n  @@ line 1\n  - ${(k.repro.stdin as string).toUpperCase()}\n  + ${k.repro.stdin}\n`);
+    // The smoke subset runs the saved repro for cluster 1; with nothing changed, nothing broke.
+    expect(await backend.run({ smoke: true })).toMatchObject({ candidates: [{ fixed: 0, broke: 0 }] });
     const file = reproPath(project, k.cluster.run, 1);
     const saved = statSync(file).mtimeMs;
     expect(await backend.next()).toEqual(next);

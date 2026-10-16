@@ -243,14 +243,21 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     };
     const { summary: done, ran } = await performRun({ projectDir, config, cases, waivers, args, ...probe });
     const before = baseline === undefined ? undefined : (baseline as Partial<SavedRun>);
+    // A smoke run runs a cluster's saved repro in place of its cases: it stands for its source case.
+    const sourceOf = new Map<string, string>();
+    for (const k of baseline?.clusters ?? []) {
+      const repro = await loadRepro(projectDir, baseline!.run_id, k.cluster).catch(() => undefined);
+      if (repro !== undefined) sourceOf.set(repro.case.id, repro.source);
+    }
+    const asInBaseline = (id: string) => sourceOf.get(id) ?? id;
     const candidates = done.candidates.map((c, i): CandidateDelta => {
       const base = before?.candidates?.find((b) => b.command === c.command && b.divergences !== undefined);
       const now = diverging(c);
       const counts = { candidate: i + 1, command: c.command, match: c.match, diverge: c.diverge, waived: c.waived };
       if (base === undefined) return { ...counts, fixed: null, broke: null, brokeCases: [] };
       const was = diverging(base);
-      const broke = [...now].filter((id) => !was.has(id));
-      return { ...counts, fixed: ran.filter((id) => was.has(id) && !now.has(id)).length, broke: broke.length, brokeCases: broke.slice(0, NAMED_BROKEN).map((id) => shortCaseId(id)) };
+      const broke = [...now].filter((id) => !was.has(asInBaseline(id)));
+      return { ...counts, fixed: ran.filter((id) => was.has(asInBaseline(id)) && !now.has(id)).length, broke: broke.length, brokeCases: broke.slice(0, NAMED_BROKEN).map((id) => shortCaseId(id)) };
     });
     const subset = done.subset;
     const selected =
