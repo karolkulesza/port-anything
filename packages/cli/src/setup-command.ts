@@ -1,0 +1,213 @@
+import { existsSync } from 'node:fs';
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { CliResult } from './common.js';
+
+export const USAGE = 'Usage: port-anything setup';
+
+/** The MCP server every agent gets: the published CLI's `mcp`, which serves the project in the agent's working directory. */
+export const MCP_SERVER = { name: 'port-anything', command: 'npx', args: ['-y', 'port-anything', 'mcp'] } as const;
+
+/** Where to look for agents and write their settings: a home directory and the environment that may move an agent's own. */
+export interface SetupEnvironment {
+  home: string;
+  env: Readonly<Record<string, string | undefined>>;
+}
+
+/** What `setup` did for one agent's MCP server or skills. */
+type Change = 'added' | 'updated' | 'already there';
+
+/** An agent `setup` knows: how to tell it is installed and where its MCP servers and skills go. */
+interface Agent {
+  name: string;
+  /** The directory whose presence says the agent is installed. */
+  configDir(e: SetupEnvironment): string;
+  /** Registers the MCP server; says what changed and in which file. */
+  registerMcp(e: SetupEnvironment): Promise<{ file: string; change: Change }>;
+  /** The directory skills go in, one `<name>/SKILL.md` each, given the names of all the agents found. */
+  skillsDir(e: SetupEnvironment, found: readonly string[]): string;
+}
+
+const claudeDir = (e: SetupEnvironment) => e.env.CLAUDE_CONFIG_DIR ?? join(e.home, '.claude');
+const codexDir = (e: SetupEnvironment) => e.env.CODEX_HOME ?? join(e.home, '.codex');
+const geminiDir = (e: SetupEnvironment) => join(e.env.GEMINI_CLI_HOME ?? e.home, '.gemini');
+/** The skills directory Codex, Gemini CLI and Cursor all read (Codex's own, ~/.codex/skills, is deprecated). */
+const sharedSkills = (e: SetupEnvironment) => join(e.home, '.agents', 'skills');
+const ENTRY = { command: MCP_SERVER.command, args: [...MCP_SERVER.args] };
+
+export const AGENTS: readonly Agent[] = [
+  {
+    name: 'Claude Code',
+    configDir: claudeDir,
+    // User-scope servers live in ~/.claude.json, beside the config directory (inside it when CLAUDE_CONFIG_DIR moves it).
+    registerMcp: (e) => mergeJsonServer(e.env.CLAUDE_CONFIG_DIR === undefined ? join(e.home, '.claude.json') : join(e.env.CLAUDE_CONFIG_DIR, '.claude.json'), { type: 'stdio', ...ENTRY, env: {} }),
+    // Claude Code reads no other agent's directory.
+    skillsDir: (e) => join(claudeDir(e), 'skills'),
+  },
+  {
+    name: 'Codex',
+    configDir: codexDir,
+    registerMcp: (e) => mergeTomlServer(join(codexDir(e), 'config.toml')),
+    skillsDir: sharedSkills,
+  },
+  {
+    name: 'Cursor',
+    configDir: (e) => join(e.home, '.cursor'),
+    registerMcp: (e) => mergeJsonServer(join(e.home, '.cursor', 'mcp.json'), { type: 'stdio', ...ENTRY }),
+    // Cursor also reads ~/.claude/skills: with Claude Code set up too, a second copy would list each skill twice.
+    skillsDir: (e, others) => (others.includes('Claude Code') ? join(claudeDir(e), 'skills') : sharedSkills(e)),
+  },
+  {
+    name: 'Gemini CLI',
+    configDir: geminiDir,
+    registerMcp: (e) => mergeJsonServer(join(geminiDir(e), 'settings.json'), ENTRY),
+    // Gemini CLI reads ~/.agents/skills as its user skills directory too.
+    skillsDir: sharedSkills,
+  },
+];
+
+/**
+ * `port-anything setup`: for each agent installed for this user (Claude Code, Codex, Cursor,
+ * Gemini CLI), registers the MCP server and installs the skills, and lists what it did. Run again,
+ * it changes only what differs. Exit 0, 3 for unexpected arguments, a settings file it can't
+ * read, or no agent found.
+ */
+export async function setupCommand(argv: readonly string[], options: { environment?: SetupEnvironment; skillsSource?: string } = {}): Promise<CliResult> {
+  if (argv.length > 0) return { exitCode: 3, stdout: '', stderr: `port-anything setup: unexpected argument "${argv[0]}"; it takes none.\n${USAGE}\n` };
+  const e = options.environment ?? { home: homedir(), env: process.env };
+  const source = options.skillsSource ?? bundledSkills();
+  const found = AGENTS.filter((a) => existsSync(a.configDir(e)));
+  if (found.length === 0) {
+    return { exitCode: 3, stdout: '', stderr: `port-anything setup: found none of ${AGENTS.map((a) => a.name).join(', ')} (looked for ${AGENTS.map((a) => a.configDir(e)).join(', ')}).\n` };
+  }
+  const names = found.map((a) => a.name);
+  const lines: string[] = [];
+  // Agents may share a skills directory; each is written once, and each agent lists what happened to it.
+  const installed = new Map<string, Map<string, Change>>();
+  try {
+    for (const agent of found) {
+      const mcp = await agent.registerMcp(e);
+      const dir = agent.skillsDir(e, names);
+      if (!installed.has(dir)) installed.set(dir, await installSkills(source, dir));
+      lines.push(`${agent.name}:`, `  MCP server ${MCP_SERVER.name} in ${mcp.file}: ${mcp.change}`, `  skills in ${dir}: ${describeSkills(installed.get(dir)!)}`);
+    }
+  } catch (err) {
+    if (err instanceof SetupError) return { exitCode: 3, stdout: `${lines.join('\n')}${lines.length > 0 ? '\n' : ''}`, stderr: `port-anything setup: ${err.message}\n` };
+    throw err;
+  }
+  const missing = AGENTS.filter((a) => !found.includes(a)).map((a) => a.name);
+  if (missing.length > 0) lines.push(`Not found: ${missing.join(', ')}.`);
+  lines.push('Restart the agents to load the server and the skills. The server serves the Port Anything project in the directory the agent runs in.');
+  return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+class SetupError extends Error {}
+
+/** The skills shipped in the package (`dist/skills`), or in the repo when running from source. */
+function bundledSkills(): string {
+  for (const url of [new URL('skills/', import.meta.url), new URL('../../../skills/', import.meta.url)]) {
+    const path = fileURLToPath(url);
+    if (existsSync(path)) return path;
+  }
+  throw new Error('The agent skills are missing from this installation of port-anything.');
+}
+
+/** A JSON settings file as an object; a missing or empty file is `{}`. */
+async function readJsonObject(file: string): Promise<Record<string, unknown>> {
+  let text: string;
+  try {
+    text = await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw err;
+  }
+  if (text.trim() === '') return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new SetupError(`${file} is not valid JSON (${(err as Error).message}); fix it or add the server by hand.`);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new SetupError(`${file} doesn't hold a JSON object; fix it or add the server by hand.`);
+  return parsed as Record<string, unknown>;
+}
+
+/** Writes a file through a temporary one beside it, so a reader never sees half of it. */
+async function writeAtomically(file: string, text: string): Promise<void> {
+  await mkdir(dirname(file), { recursive: true });
+  const temp = `${file}.port-anything-${process.pid}.tmp`;
+  await writeFile(temp, text);
+  await rename(temp, file);
+}
+
+/** Sets `mcpServers["port-anything"]` in a JSON settings file, keeping everything else in it. */
+async function mergeJsonServer(file: string, entry: Record<string, unknown>): Promise<{ file: string; change: Change }> {
+  const settings = await readJsonObject(file);
+  const servers = settings.mcpServers ?? {};
+  if (typeof servers !== 'object' || servers === null || Array.isArray(servers)) throw new SetupError(`mcpServers in ${file} isn't an object; fix it or add the server by hand.`);
+  const current = (servers as Record<string, unknown>)[MCP_SERVER.name];
+  if (JSON.stringify(current) === JSON.stringify(entry)) return { file, change: 'already there' };
+  settings.mcpServers = { ...(servers as Record<string, unknown>), [MCP_SERVER.name]: entry };
+  await writeAtomically(file, `${JSON.stringify(settings, null, 2)}\n`);
+  return { file, change: current === undefined ? 'added' : 'updated' };
+}
+
+/** The TOML table for the server, as Codex reads it. */
+const TOML_TABLE = `[mcp_servers.${MCP_SERVER.name}]\ncommand = ${JSON.stringify(MCP_SERVER.command)}\nargs = [${MCP_SERVER.args.map((a) => JSON.stringify(a)).join(', ')}]\n`;
+
+/**
+ * Adds the `[mcp_servers.port-anything]` table to a TOML config. Appending a table nobody defined
+ * yet keeps the file valid without parsing it; a table that is already there is left alone (and
+ * said so) when it differs, since rewriting it would mean parsing TOML.
+ */
+async function mergeTomlServer(file: string): Promise<{ file: string; change: Change }> {
+  let text = '';
+  try {
+    text = await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const header = /^\s*\[\s*mcp_servers\s*\.\s*(?:port-anything|"port-anything"|'port-anything')\s*\]/m;
+  if (header.test(text)) return { file, change: 'already there' };
+  const separator = text === '' ? '' : text.endsWith('\n\n') ? '' : text.endsWith('\n') ? '\n' : '\n\n';
+  await writeAtomically(file, `${text}${separator}${TOML_TABLE}`);
+  return { file, change: 'added' };
+}
+
+/** Copies each skill directory of `source` into `target`, replacing an older copy; what changed per skill. */
+async function installSkills(source: string, target: string): Promise<Map<string, Change>> {
+  const changes = new Map<string, Change>();
+  for (const name of (await readdir(source)).sort()) {
+    const from = join(source, name);
+    if (!(await stat(from)).isDirectory() || !existsSync(join(from, 'SKILL.md'))) continue;
+    const to = join(target, name);
+    const before = existsSync(to) ? await snapshot(to) : undefined;
+    if (before !== undefined && before === (await snapshot(from))) {
+      changes.set(name, 'already there');
+      continue;
+    }
+    await rm(to, { recursive: true, force: true });
+    await mkdir(target, { recursive: true });
+    await cp(from, to, { recursive: true });
+    changes.set(name, before === undefined ? 'added' : 'updated');
+  }
+  return changes;
+}
+
+/** A directory's files and their contents, as one string to compare. */
+async function snapshot(dir: string): Promise<string> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  const files = entries.filter((d) => d.isFile()).map((d) => join(d.parentPath, d.name)).sort();
+  const parts = await Promise.all(files.map(async (f) => `${f.slice(dir.length)}\0${await readFile(f, 'latin1')}`));
+  return parts.join('\0\0');
+}
+
+function describeSkills(changes: Map<string, Change>): string {
+  const by = (change: Change) => [...changes].filter(([, c]) => c === change).map(([name]) => name);
+  return (['added', 'updated', 'already there'] as const)
+    .filter((c) => by(c).length > 0)
+    .map((c) => `${by(c).join(', ')} ${c}`)
+    .join('; ');
+}
