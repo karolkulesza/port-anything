@@ -9,7 +9,8 @@ export function defaultConcurrency(): number {
  * Workers by default in sandbox mode `container`, where each worker keeps one container per side
  * running: as many as keep the containers at about two per CPU core, at least 1 and at most one
  * worker per core. With many candidates, one worker per core would start more containers than a
- * container engine (Docker Desktop's VM especially) copes with.
+ * container engine (Docker Desktop's VM especially) copes with. `cores` are the engine's CPUs
+ * when it says (`ContainerSetup.cpus`), since the containers run on those.
  */
 export function defaultContainerConcurrency(sides: number, cores = availableParallelism()): number {
   return Math.max(1, Math.min(cores, Math.floor((2 * cores) / Math.max(1, sides))));

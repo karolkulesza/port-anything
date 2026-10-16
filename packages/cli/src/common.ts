@@ -8,6 +8,7 @@ import {
   buildInImage,
   configCandidates,
   containerSandbox,
+  engineCpus,
   ensureImage,
   findContainerEngine,
   parseProgramCommand,
@@ -78,7 +79,8 @@ export async function prepareContainer(
   try {
     const engine = await findContainerEngine();
     await ensureImage(engine, image);
-    const sandbox = containerSandbox({ engine, image });
+    const cpus = await engineCpus(engine);
+    const sandbox = containerSandbox({ engine, image, ...(cpus === undefined ? {} : { cpus }) });
     const same = (a: string | readonly string[], b: string | readonly string[]) => JSON.stringify(a) === JSON.stringify(b);
     const builds = [
       ...(config.reference.build === undefined ? [] : [{ key: 'reference.build', command: config.reference.build }]),

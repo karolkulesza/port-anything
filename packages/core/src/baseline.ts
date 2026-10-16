@@ -87,7 +87,7 @@ export async function baselineCases(options: BaselineOptions): Promise<BaselineR
   const containers = openContainers(options, workDir);
   const observeOptions = { ...options, ...(containers === undefined ? {} : { containers }) };
 
-  const runs = await mapPool(options.cases, options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(1) : defaultConcurrency()), async (c, _index, slot) => {
+  const runs = await mapPool(options.cases, options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(1, options.sandbox.cpus) : defaultConcurrency()), async (c, _index, slot) => {
     const observations: Observation[] = [];
     const contexts: SideContext[] = [];
     for (let run = 0; run < repeats; run++) {

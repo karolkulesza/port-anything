@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BlobStore, blobRef } from '../src/blob-store.js';
-import { caseScript, ensureImage, findContainerEngine, shellQuote } from '../src/container.js';
+import { caseScript, engineCpus, ensureImage, findContainerEngine, shellQuote } from '../src/container.js';
 import { canonicalCase, type CanonicalCase } from '../src/model.js';
 import { NormalizersSchema } from '../src/normalize.js';
 import { resolveProgram, type ResolvedProgram } from '../src/program.js';
@@ -56,6 +56,10 @@ describe('container mode, without a container', () => {
     await expect(findContainerEngine(['pa-no-such-engine-1', 'pa-no-such-engine-2'])).rejects.toThrow(
       /needs Docker or Podman running[\s\S]*pa-no-such-engine-1: [\s\S]*pa-no-such-engine-2: [\s\S]*set sandbox.mode to local/,
     );
+  });
+
+  it("knows no CPU count for an engine that doesn't answer", async () => {
+    expect(await engineCpus('pa-no-such-engine')).toBeUndefined();
   });
 });
 
@@ -111,6 +115,11 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     return canonicalCase({ origin: 'recorded', argv: input.argv, stdin: input.stdin === undefined ? null : await store.put(Buffer.from(input.stdin)), fixtures });
   };
   const sandbox = () => containerSandbox({ engine: engine!, image: IMAGE });
+
+  it("reads the CPUs the engine's containers get", async () => {
+    const cpus = await engineCpus(engine!);
+    expect(Number.isInteger(cpus) && cpus! > 0, String(cpus)).toBe(true);
+  });
 
   it('runs every case of each side in its own long-lived containers and compares them (done when)', async () => {
     const cases = await Promise.all([

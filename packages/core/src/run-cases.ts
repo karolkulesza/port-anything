@@ -29,7 +29,8 @@ export interface RunCasesOptions {
   programName?: string;
   /**
    * Cases running at once. Defaults to the number of CPU cores; in sandbox mode `container`, to
-   * fewer when there are many candidates (`defaultContainerConcurrency`).
+   * fewer when there are many candidates, or when the engine has fewer CPUs than the host
+   * (`defaultContainerConcurrency`).
    */
   concurrency?: number;
   timeoutMs?: number;
@@ -128,7 +129,7 @@ export async function runCases(options: RunCasesOptions): Promise<RunCasesResult
   const runner = await openCaseRunner(options);
   try {
     const sides = 1 + options.candidates.length;
-    const concurrency = options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(sides) : defaultConcurrency());
+    const concurrency = options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(sides, options.sandbox.cpus) : defaultConcurrency());
     const cases = await mapPool(options.cases, concurrency, async (c, _index, slot) => {
       const result = await runner.run(c, slot);
       options.onCase?.(result);

@@ -76,4 +76,10 @@ describe('defaultContainerConcurrency', () => {
     expect(defaultContainerConcurrency(12, 10)).toBe(1);
     expect(defaultContainerConcurrency(30, 4)).toBe(1);
   });
+
+  it("counts the engine's CPUs when given: Docker Desktop's VM may have half the host's", () => {
+    expect(defaultContainerConcurrency(2, 5)).toBe(5);
+    expect(defaultContainerConcurrency(4, 5)).toBe(2);
+    expect(defaultContainerConcurrency(2, undefined)).toBe(defaultContainerConcurrency(2, availableParallelism()));
+  });
 });

@@ -52,6 +52,7 @@ export {
   RUNNER_SCRIPT,
   buildInImage,
   caseScript,
+  engineCpus,
   ensureImage,
   findContainerEngine,
   imagePath,

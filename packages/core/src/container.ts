@@ -19,6 +19,8 @@ export interface ContainerSetup {
   /** The engine's command: `docker` or `podman`. */
   engine: string;
   image: string;
+  /** CPUs the engine runs containers on, when known: Docker Desktop's VM may have fewer than the host. */
+  cpus?: number;
 }
 
 /** Thrown when container mode can't start: no engine, an image that can't be pulled, a build that fails. */
@@ -126,6 +128,17 @@ export async function findContainerEngine(engines: readonly string[] = CONTAINER
   throw new ContainerError(
     ['Sandbox mode "container" needs Docker or Podman running, and neither answers:', ...failures, 'Start one of them, or set sandbox.mode to local.'].join('\n'),
   );
+}
+
+/**
+ * How many CPUs the engine's containers get (`info`): the host's on Linux, the VM's with Docker
+ * Desktop or a Podman machine. Undefined when the engine doesn't say.
+ */
+export async function engineCpus(engine: string): Promise<number | undefined> {
+  const format = basename(engine) === 'podman' ? '{{.Host.CPUs}}' : '{{.NCPU}}';
+  const info = await engineCommand(engine, ['info', '--format', format], { timeoutMs: 30_000 });
+  const cpus = Number(info.output);
+  return info.ok && Number.isInteger(cpus) && cpus > 0 ? cpus : undefined;
 }
 
 /** Pulls `image` unless the engine has it already. */
