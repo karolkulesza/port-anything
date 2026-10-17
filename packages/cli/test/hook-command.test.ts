@@ -130,14 +130,16 @@ describe('port-anything hook (run `pnpm build` first)', () => {
   });
 
   it('stops a build and smoke run that take longer than --timeout, and says so', async () => {
-    const dir = project('sleep 30; touch built');
+    // Left running, this build would leave a file 4 s in.
+    const dir = project('sleep 4; touch built');
+    const started = Date.now();
     const answer = await hook(edit(dir, 'port/src.sh'), ['--timeout', '1']);
     expect(answer.code).toBe(0);
     expect(context(answer.stdout)).toContain('smoke skipped: build/smoke took over 1 s');
-    // Well under the 30 s build, with room for node's start-up on a busy machine.
+    // With room for node's start-up on a busy machine.
     expect(answer.ms).toBeLessThan(20_000);
-    // The build was stopped too, not left running.
-    await new Promise((r) => setTimeout(r, 1500));
+    // The build was stopped with the worker, not left running: no file well after it would have finished.
+    await new Promise((r) => setTimeout(r, Math.max(0, started + 8000 - Date.now())));
     expect(readdirSync(dir)).not.toContain('built');
   }, 40_000);
 
