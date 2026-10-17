@@ -81,12 +81,14 @@ describe('parseRunArgs', () => {
     });
     expect(parseRunArgs([])).toEqual({ candidates: [], smoke: false, json: false, noSandbox: false });
     expect(parseRunArgs(['--smoke'])).toEqual({ candidates: [], smoke: true, json: false, noSandbox: false });
-    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke and --cluster run different subsets/);
+    expect(parseRunArgs(['--feature', 'opt.n'])).toEqual({ candidates: [], feature: 'opt.n', smoke: false, json: false, noSandbox: false });
+    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke, --cluster and --feature run different subsets/);
+    expect(() => parseRunArgs(['--feature', 'x', '--cluster', '2'])).toThrow(/run different subsets/);
+    expect(() => parseRunArgs(['--feature='])).toThrow(/--feature needs a feature name/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
     expect(() => parseRunArgs(['--all'])).toThrow(/--all is not available yet/);
-    expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
     expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
     expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
   });
@@ -778,8 +780,9 @@ describe('executeRun slowdown gate', () => {
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-slow-')));
     mkdirSync(join(project, 'bin'));
     writeFileSync(join(project, 'bin', 'tool'), TOOL('ref'), { mode: 0o755 });
-    // A deliberately slow port: right on every case, but it naps first.
-    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 0.3\n'), { mode: 0o755 });
+    // A deliberately slow port: right on every case, but it naps first, long enough that a slow
+    // reference spawn on a loaded machine can't bring the ratio under the 2x gate.
+    writeFileSync(join(project, 'bin', 'tool-slow'), TOOL('ref').replace('\n', '\nsleep 1.5\n'), { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -973,9 +976,28 @@ describe('executeRun --smoke', () => {
     const again = await json({ cluster: `${smoke.run_id}/${stdoutCluster.cluster}` });
     expect(again).toMatchObject({ exitCode: 1, cases: 6 });
     expect(again.candidates[0].divergences.map((d: { case: string }) => d.case)).toContain(repro.id);
-  });
+  }, 30_000);
 
   it('refuses --smoke with --cluster (exit 3)', async () => {
-    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });
+    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke, --cluster and --feature run different subsets/) });
+  });
+
+  it('runs the cases of one feature as a subset run', async () => {
+    const before = (await latestRun(project))?.run_id;
+    const run = await json({ feature: 'opt.e' });
+    expect(run).toMatchObject({ exitCode: 0, subset: { feature: 'opt.e' }, cases: 20 });
+    expect((await latestRun(project))?.run_id).toBe(before);
+    expect((await exec({ feature: 'error' })).stdout).toMatch(/^run \S+, feature error only\n/m);
+    const unknown = await exec({ feature: 'opt.zzz' });
+    expect(unknown).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('No case has feature "opt.zzz"; the corpus has error, opt.e, opt.u.') });
+  });
+
+  it('runs given cases, by ID or prefix', async () => {
+    const wanted = [cases[100]!.id, shortCaseId(cases[0]!.id)];
+    const run = await json({ caseIds: wanted });
+    expect(run).toMatchObject({ exitCode: 1, subset: { cases: [cases[100]!.id, cases[0]!.id] }, cases: 2 });
+    expect((await exec({ caseIds: [cases[100]!.id] })).stdout).toMatch(/^run \S+, 1 given case only\n/m);
+    expect(await exec({ caseIds: ['c_zz'] })).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('is not a case ID') });
+    expect(await exec({ caseIds: ['c_1'], smoke: true })).toMatchObject({ exitCode: 3 });
   });
 });

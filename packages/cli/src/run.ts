@@ -1,12 +1,15 @@
-import { baselineCommand } from './baseline-command.js';
-import { compareCommand } from './compare-command.js';
-import { minimizeCommand } from './minimize-command.js';
-import { reportCommand } from './report-command.js';
-import { initCommand } from './init-command.js';
-import { runCommand } from './run-command.js';
-import { waiveCommand } from './waive-command.js';
-import { specCommand } from './spec-command.js';
-import { strengthCommand } from './strength-command.js';
+import { baselineCommand, USAGE as BASELINE_USAGE } from './baseline-command.js';
+import { compareCommand, USAGE as COMPARE_USAGE } from './compare-command.js';
+import { generateCommand, USAGE as GENERATE_USAGE } from './generate-command.js';
+import { minimizeCommand, USAGE as MINIMIZE_USAGE } from './minimize-command.js';
+import { reportCommand, USAGE as REPORT_USAGE } from './report-command.js';
+import { initCommand, USAGE as INIT_USAGE } from './init-command.js';
+import { mcpCommand, USAGE as MCP_USAGE } from './mcp-command.js';
+import { runCommand, USAGE as RUN_USAGE } from './run-command.js';
+import { waiveCommand, USAGE as WAIVE_USAGE } from './waive-command.js';
+import { specCommand, USAGE as SPEC_USAGE } from './spec-command.js';
+import { strengthCommand, USAGE as STRENGTH_USAGE } from './strength-command.js';
+import { verifyCommand, USAGE as VERIFY_USAGE } from './verify-command.js';
 
 export interface RunResult {
   exitCode: number;
@@ -21,14 +24,14 @@ export interface RunOptions {
   progress?: (line: string) => void;
 }
 
+// Each command's own usage line, so the overview can't drift from what the command accepts.
+const USAGES = [COMPARE_USAGE, INIT_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE];
+
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
-Usage: port-anything compare '<ref cmd>' '<candidate cmd>'… [--budget 500] [--save] [--json] [--i-know] [--no-sandbox]
-       port-anything spec infer [--no-sandbox]
-       port-anything baseline [--repeats N] [--no-sandbox]
-       port-anything run [--candidate <cmd>]… [--json] [--no-sandbox]
+${USAGES.map((usage, i) => (i === 0 ? usage : usage.replace(/^Usage:/, '      '))).join('\n')}
 
-Exit codes: 0 all good, 1 divergences, 3 config or usage error.
+Exit codes: 0 all good, 1 divergences, 2 integrity broken (verify), 3 config or usage error.
 Docs: https://github.com/karolkulesza/port-anything
 `;
 
@@ -55,9 +58,12 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   if (command === 'init') return initCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'minimize') return minimizeCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'spec') return specCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'generate') return generateCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'baseline') return baselineCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'waive') return waiveCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'report') return reportCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  if (command === 'verify') return verifyCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'strength') return strengthCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "run", "minimize", "baseline", "waive", "report", "strength" and "spec infer" are.\n` };
+  if (command === 'mcp') return mcpCommand(rest, { cwd: options.cwd ?? process.cwd() });
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify", "strength" and "mcp" are.\n` };
 }

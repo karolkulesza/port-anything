@@ -38,11 +38,14 @@
     "prepack": "tsup"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
     "yaml": "2.9.1",
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "2.11.0",
     "@port-anything/core": "workspace:*",
+    "@port-anything/mcp": "workspace:*",
     "@port-anything/report": "workspace:*"
   }
 }

@@ -26,5 +26,13 @@
     "build": "tsup",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "@port-anything/core": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1"
   }
 }

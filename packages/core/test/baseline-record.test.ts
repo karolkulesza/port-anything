@@ -13,7 +13,7 @@ const result = (cases: Partial<CaseBaseline>[]): BaselineResult => ({
   repeats: 3,
   proposals: [],
   withheld: [],
-  cases: cases.map((c) => ({ caseId: id('0'), observations: [], varied: [], fixes: [], unstable: [], status: 'stable', ...c })),
+  cases: cases.map((c) => ({ caseId: id('0'), observations: [], varied: [], fixes: [], unstable: [], status: 'stable', observationHash: null, ...c })),
 });
 
 describe('baseline record', () => {

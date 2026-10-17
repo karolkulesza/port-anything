@@ -341,8 +341,8 @@ ${input.waivers
 <li>sandbox: ${esc(input.sandbox)}</li>
 <li>program name (argv[0], both sides): <code>${esc(input.programName)}</code></li>
 <li>compared under: ${esc(compare)}</li>
-<li>manifest verification: not run by this version</li>
-<li>environment fingerprint: not recorded by this version</li>
+<li>manifest verification: not part of the report; run <code>port-anything verify</code></li>
+<li>environment fingerprint: recorded in <code>.port-anything/MANIFEST.json</code> by <code>port-anything baseline</code>, checked by <code>port-anything verify</code></li>
 <li>fresh holdout: not run by this version</li>
 <li>candidate language composition: not measured by this version</li>
 </ul>

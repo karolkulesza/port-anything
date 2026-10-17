@@ -1,14 +1,11 @@
 import { relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  BlobStore,
   ConfigError,
   DEFAULT_MINIMIZE_RUNS,
   SandboxUnavailableError,
-  cacheDir,
   describeSignature,
   inlineCase,
-  loadCommittedCases,
   minimizeCluster,
   openCaseRunner,
   readConfigFile,
@@ -22,6 +19,7 @@ import {
   type InlineContent,
   type SandboxProbe,
 } from '@port-anything/core';
+import { loadCorpus } from './corpus.js';
 import { clusterCases, display, prepareSides, removeScratch, scratchDir, type CliResult } from './run-command.js';
 
 /** The options of `port-anything minimize`. */
@@ -32,7 +30,7 @@ export interface MinimizeArgs {
   noSandbox: boolean;
 }
 
-const USAGE = 'Usage: port-anything minimize [<run-id>/]<cluster> [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything minimize [<run-id>/]<cluster> [--json] [--no-sandbox]';
 
 /** Reads the arguments after `minimize`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseMinimizeArgs(argv: readonly string[]): MinimizeArgs {
@@ -53,10 +51,10 @@ export async function minimizeCommand(argv: readonly string[], options: { cwd: s
   try {
     const args = parseMinimizeArgs(argv);
     const config = await readConfigFile(options.cwd);
-    const cases = await loadCommittedCases(options.cwd, new BlobStore(cacheDir(options.cwd)));
+    const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
     prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
-    if (e instanceof ConfigError) return fail(e.message);
+    if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
   return executeMinimize(prepared);

@@ -58,11 +58,14 @@ export const RunRecordSchema = z
     /**
      * The part of the corpus it ran, when not the whole: `cluster` is the address it re-ran;
      * `smoke` is a smoke subset (see `smokeSubset`) of a corpus of `corpus` cases, with the open
-     * clusters of run `from` (none when there was no run yet) and how many cases each part added.
+     * clusters of run `from` (none when there was no run yet) and how many cases each part added;
+     * `feature` the cases of one feature; `cases` the cases given by ID.
      */
     subset: z
       .union([
         z.object({ cluster: z.string() }),
+        z.object({ feature: z.string().min(1) }),
+        z.object({ cases: z.array(CaseIdSchema).min(1) }),
         z.object({
           smoke: z.object({
             from: z.string().regex(RUN_ID_PATTERN).nullable(),
@@ -161,6 +164,30 @@ export async function latestRun(projectDir: string): Promise<RunRecord | undefin
     if (best === undefined || run.created > best.created || (run.created === best.created && run.run_id > best.run_id)) best = run;
   }
   return best;
+}
+
+/**
+ * The runs saved after `run` (by their `created` time, then run ID), oldest first, subset runs
+ * included; a damaged run or one still being written is skipped.
+ */
+export async function runsAfter(projectDir: string, run: Pick<RunRecord, 'run_id' | 'created'>): Promise<RunRecord[]> {
+  let ids: string[];
+  try {
+    ids = (await readdir(runsDir(projectDir))).filter((id) => RUN_ID_PATTERN.test(id) && id.slice(0, 15) >= run.run_id.slice(0, 15));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
+  }
+  const later: RunRecord[] = [];
+  for (const id of ids) {
+    try {
+      const r = await loadRun(projectDir, id);
+      if (r.created > run.created || (r.created === run.created && r.run_id > run.run_id)) later.push(r);
+    } catch (e) {
+      if (!(e instanceof ConfigError)) throw e;
+    }
+  }
+  return later.sort((a, b) => (a.created === b.created ? (a.run_id < b.run_id ? -1 : 1) : a.created < b.created ? -1 : 1));
 }
 
 export interface ClusterAddress {

@@ -57,6 +57,18 @@ describe('parseConfig', () => {
     expect(() => parseConfig({ ...base, corpus: { min_cases_per_feature: 2.5 } })).toThrow(/corpus\.min_cases_per_feature: /);
   });
 
+  it('reads the generated corpus settings: a known generator, a whole seed and budget, an error-path cap between 0 and 1', () => {
+    const base = { version: 1, reference: { cmd: 'a' } };
+    const corpus = { generator: 'v1', generator_seed: 42, budget: 500, error_path_cap: 0.25, fresh: 'later' };
+    expect(parseConfig({ ...base, corpus }).corpus).toEqual(corpus);
+    expect(() => parseConfig({ ...base, corpus: { generator: 'v9' } })).toThrow(/corpus\.generator: /);
+    expect(() => parseConfig({ ...base, corpus: { generator_seed: -1 } })).toThrow(/corpus\.generator_seed: /);
+    expect(() => parseConfig({ ...base, corpus: { generator_seed: '42' } })).toThrow(/corpus\.generator_seed: /);
+    expect(() => parseConfig({ ...base, corpus: { budget: 0 } })).toThrow(/corpus\.budget: /);
+    expect(() => parseConfig({ ...base, corpus: { budget: 1.5 } })).toThrow(/corpus\.budget: /);
+    expect(() => parseConfig({ ...base, corpus: { error_path_cap: 1.5 } })).toThrow(/corpus\.error_path_cap: /);
+  });
+
   it('takes several candidates, but not both spellings at once', () => {
     const config = parseConfig({ version: 1, reference: { cmd: 'gnusort' }, candidates: [{ cmd: 'coreutils sort' }, { cmd: 'busybox sort' }] });
     expect(configCandidates(config).map((c) => c.cmd)).toEqual(['coreutils sort', 'busybox sort']);

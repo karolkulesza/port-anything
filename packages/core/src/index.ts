@@ -186,6 +186,7 @@ export {
   reproPath,
   parseClusterAddress,
   resolveCluster,
+  runsAfter,
   runsDir,
   saveRepro,
   saveRun,
@@ -196,6 +197,7 @@ export {
   type RunRecord,
   type SavedCluster,
 } from './runs.js';
+export { PROBE_ID_PATTERN, ProbeRecordSchema, loadProbe, probePath, probesDir, saveProbe, type ProbeRecord } from './probes.js';
 export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
 export {
   CLI_SPEC_FILE,
@@ -270,8 +272,49 @@ export {
   type NormalizerProposal,
   type ProposableNormalizer,
 } from './baseline.js';
-export { appendNormalizers, normalizerEntry } from './config-edit.js';
+export { appendNormalizers, normalizerEntry, setCorpusSettings } from './config-edit.js';
+export {
+  DEFAULT_GENERATOR_SEED,
+  GENERATED_CORPUS_FILE,
+  SEEDS_DIR,
+  generatedCorpusKey,
+  generatedCorpusSettings,
+  readGeneratedCorpusCache,
+  readSeedFixtures,
+  writeGeneratedCorpusCache,
+  type GeneratedCorpusCache,
+  type GeneratedCorpusKeyInput,
+  type GeneratedCorpusSettings,
+} from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
+export {
+  FingerprintSchema,
+  environmentFingerprint,
+  fingerprintDifferences,
+  localFingerprintHost,
+  type Fingerprint,
+  type FingerprintHost,
+  type FingerprintOptions,
+} from './fingerprint.js';
+export {
+  MANIFEST_FILE,
+  checkManifest,
+  manifestCases,
+  manifestGenerator,
+  manifestNormalizers,
+  manifestPath,
+  observationHash,
+  readManifest,
+  referenceObservationHashes,
+  writeManifest,
+  type Manifest,
+  type ManifestCase,
+  type ManifestCheck,
+  type ManifestProblem,
+  type ManifestState,
+  type ObservationHashOptions,
+  type ObserveReferenceOptions,
+} from './manifest.js';
 export {
   LARGE_WAIVER_SHARE,
   WAIVERS_FILE,
