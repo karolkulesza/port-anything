@@ -1,15 +1,28 @@
 import { execFile } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { BlobStore, cacheDir, describeFeatures, describeSignature, loadCommittedCases, readConfigFile, type SavedCluster, type Score } from '@port-anything/core';
+import {
+  BlobStore,
+  buildInImage,
+  cacheDir,
+  describeFeatures,
+  describeSignature,
+  ensureImage,
+  findContainerEngine,
+  loadCommittedCases,
+  readConfigFile,
+  type SavedCluster,
+  type Score,
+} from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // The wc-lite example end to end: a C reference, its Rust port, and bad ports that are the same
-// port built with one deliberate bug each (cargo features). Needs a C compiler and cargo; CI and
-// the dev container have both (scripts/dev-linux.sh pnpm -r test).
+// port built with one deliberate bug each (cargo features), in both sandbox modes. Local mode needs
+// a C compiler and cargo; CI and the dev container have both (scripts/dev-linux.sh pnpm -r test).
+// Container mode needs Docker or Podman instead: everything is built and run in a Rust image.
 const exec = promisify(execFile);
 const example = fileURLToPath(new URL('../../../examples/wc-lite/', import.meta.url));
 const binPath = fileURLToPath(new URL('../dist/bin.js', import.meta.url));
@@ -196,30 +209,50 @@ const toolchain = (await has('cc')) && (await has('cargo'));
 // On a developer machine without the toolchain the test is skipped; in CI it must run.
 const enabled = toolchain || process.env.CI !== undefined;
 const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === '1';
+const engine = await findContainerEngine().catch(() => undefined);
+const IMAGE = 'rust:1-slim';
+const MODES = [
+  { mode: 'local', enabled },
+  // Wherever Docker or Podman answers, and always in CI on Linux (the runners have Docker).
+  { mode: 'container', enabled: engine !== undefined || (process.env.CI !== undefined && process.platform === 'linux') },
+] as const;
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; waived: number; score: Score; normalizers: unknown[]; waivers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; waived: number; score: Score; normalizers: unknown[]; waivers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[]; timeout_recovered: { case: string }[] }[];
   clusters: SavedCluster[];
 }
 
-describe.runIf(enabled)('examples/wc-lite', () => {
+for (const { mode, enabled } of MODES)
+describe.runIf(enabled)(`examples/wc-lite (sandbox mode ${mode})`, () => {
   let project: string;
+  // In container mode cases always run in containers; locally, outside the dev container, unsandboxed.
+  const noSandbox = mode === 'local' && !sandboxed ? ['--no-sandbox'] : [];
   const badPath = (feature: string) => `./port/target/${feature}/release/wc-lite`;
   const port = (...args: string[]) =>
-    exec(process.execPath, [binPath, 'run', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+    exec(process.execPath, [binPath, 'run', ...noSandbox, ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
 
   const minimize = (...args: string[]) =>
-    exec(process.execPath, [binPath, 'minimize', ...(sandboxed ? [] : ['--no-sandbox']), ...args], { cwd: project }).then(
+    exec(process.execPath, [binPath, 'minimize', ...noSandbox, ...args], { cwd: project }).then(
       (r) => ({ ...r, code: 0 }),
       (e: { code: number; stdout: string; stderr: string }) => e,
     );
 
+  // A command's JSON output; when there is none, the error says what it printed on stderr.
+  const parse = <T>({ stdout, stderr }: { stdout: string; stderr: string }): T => {
+    try {
+      return JSON.parse(stdout) as T;
+    } catch {
+      throw new Error(`no JSON on stdout; stderr:\n${stderr}`);
+    }
+  };
+
   beforeAll(async () => {
-    if (!toolchain) throw new Error('The wc-lite example needs cc and cargo on the PATH.');
+    if (mode === 'local' && !toolchain) throw new Error('The wc-lite example needs cc and cargo on the PATH.');
+    if (mode === 'container' && engine === undefined) throw new Error('Sandbox mode container needs Docker or Podman running.');
     // Under /tmp, away from the checkout, so no build output lands in it.
     project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-wc-lite-')));
     cpSync(example, project, {
@@ -229,16 +262,35 @@ describe.runIf(enabled)('examples/wc-lite', () => {
         return !['ref/wc-lite', 'port/target', '.port-anything'].some((p) => path === p || path.startsWith(`${p}/`));
       },
     });
+    if (mode === 'container') {
+      const file = join(project, 'port-anything.yaml');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('\n  mode: local\n', `\n  mode: container\n  image: ${IMAGE}\n`));
+    }
     // The builds the config documents, then one build per bad port.
     const config = await readConfigFile(project);
+    expect(config.sandbox.mode).toBe(mode);
     const builds = [config.reference.build!, config.candidate!.build!];
     for (const feature of Object.keys(BAD_PORTS)) {
       builds.push(`cargo build --release --manifest-path port/Cargo.toml --features ${feature} --target-dir port/target/${feature}`);
     }
-    // Cargo creates a missing target dir atomically (a temp dir renamed into place), which would
-    // replace a port/target a parallel bad-port build has just made under it; make it first.
-    mkdirSync(join(project, 'port', 'target'), { recursive: true });
-    await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
+    if (mode === 'container') {
+      // The bad ports in the image, one after another (each has a target dir of its own). The
+      // reference and the port are left to the first run, which builds what the config documents
+      // in the image.
+      await ensureImage(engine!, IMAGE);
+      const built = await buildInImage({ kind: 'container', engine: engine!, image: IMAGE }, project, builds.slice(2).join(' && '));
+      if (!built.ok) throw new Error(built.output);
+      const programs = ['ref/wc-lite', 'port/target/release/wc-lite'].map((p) => join(project, p));
+      expect(programs.filter((p) => existsSync(p))).toEqual([]);
+      const first = await port('--json');
+      expect(first.stderr).toBe('');
+      expect(programs.filter((p) => existsSync(p))).toEqual(programs);
+    } else {
+      // Cargo creates a missing target dir atomically (a temp dir renamed into place), which would
+      // replace a port/target a parallel bad-port build has just made under it; make it first.
+      mkdirSync(join(project, 'port', 'target'), { recursive: true });
+      await Promise.all(builds.map((cmd) => exec('sh', ['-c', cmd], { cwd: project })));
+    }
     mkdirSync(join(project, 'copy'));
     copyFileSync(join(project, 'ref', 'wc-lite'), join(project, 'copy', 'wc-copy'));
   }, 300_000);
@@ -255,8 +307,9 @@ describe.runIf(enabled)('examples/wc-lite', () => {
   });
 
   it('matches the reference with the Rust port as configured', async () => {
-    const { code, stdout } = await port('--json');
-    const summary = JSON.parse(stdout) as RunSummary;
+    const result = await port('--json');
+    const { code } = result;
+    const summary = parse<RunSummary>(result);
     expect(summary.cases).toBeGreaterThanOrEqual(20);
     expect(summary.candidates).toEqual([
       {
@@ -269,6 +322,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
         waivers: [],
         divergences: [],
         flaky_candidate: [],
+        timeout_recovered: [],
         waived_cases: [],
       },
     ]);
@@ -282,7 +336,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
   it('catches every bad port: one cluster of its own each, flaky-candidate apart, none for a renamed identical copy (one run)', async () => {
     const args = ['./copy/wc-copy', ...BAD.map(badPath)].flatMap((c) => ['--candidate', c]);
     const json = await port('--json', ...args);
-    const { cases, candidates, clusters } = JSON.parse(json.stdout) as RunSummary;
+    const { cases, candidates, clusters } = parse<RunSummary>(json);
     expect(json.code).toBe(1);
     expect(candidates[0]).toMatchObject({ command: './copy/wc-copy', match: cases, diverge: 0 });
     const got = clusters.map((c) => ({ candidate: c.candidate, size: c.size, signature: describeSignature(c.signature), features: describeFeatures(c.features) }));
@@ -317,12 +371,12 @@ describe.runIf(enabled)('examples/wc-lite', () => {
 
   it('minimizes the cluster of each bad port to its expected repro and saves it with the run (done when)', async () => {
     const run = await port('--json', ...BAD.flatMap((c) => ['--candidate', badPath(c)]));
-    const { run_id: runId, clusters } = JSON.parse(run.stdout) as RunSummary & { run_id: string };
+    const { run_id: runId, clusters } = parse<RunSummary & { run_id: string }>(run);
     expect(clusters.map((c) => BAD[c.candidate - 1])).toEqual(CLUSTERED);
     for (const [i, feature] of CLUSTERED.entries()) {
       const minimized = await minimize('--json', `${runId}/${i + 1}`);
-      expect(minimized.code).toBe(1);
-      const repro = JSON.parse(minimized.stdout) as { reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } };
+      expect(minimized.code, minimized.stderr).toBe(1);
+      const repro = parse<{ reproduced: boolean; exhausted: boolean; runs: number; case: { id: string } }>(minimized);
       const { id: _id, ...invocation } = repro.case;
       expect({ feature, ...invocation }).toEqual({ feature, ...BAD_PORTS[feature]!.repro });
       expect(repro).toMatchObject({ reproduced: true, exhausted: false });
@@ -334,15 +388,17 @@ describe.runIf(enabled)('examples/wc-lite', () => {
     expect(text.stdout).toMatch(new RegExp(`^cluster ${runId}/2 · candidate 2 ${badPath('bad-crlf').replace(/[.]/g, '\\.')} · stdout number-value\nminimized \\S+ in \\d+ runs\nrepro: wc-lite -L crlf\\.txt\n  file crlf\\.txt: "\\\\r\\\\n"\nsaved \\.port-anything/runs/${runId}/repros/2\\.json\n$`));
   }, 300_000);
 
-  it('catches every bad port with run --smoke in under 15 s, with or without its cluster open (done when)', async () => {
+  // The smoke target, in both sandbox modes.
+  const SMOKE_BOUND_MS = 15_000;
+  it(`catches every bad port with run --smoke in under ${SMOKE_BOUND_MS / 1000} s, with or without its cluster open (done when)`, async () => {
     // The three bad ports this check was written for; each forms one cluster.
     const bad = ['bad-off-by-one', 'bad-crlf', 'bad-exit-code'];
     const smoke = async (...args: string[]) => {
       const start = performance.now();
       const result = await port('--smoke', '--json', ...args);
       const ms = performance.now() - start;
-      expect(ms).toBeLessThan(15_000);
-      return { code: result.code, ms, summary: JSON.parse(result.stdout) as RunSummary & { subset: { smoke: { from: string | null; clusters: number } } } };
+      expect(ms).toBeLessThan(SMOKE_BOUND_MS);
+      return { code: result.code, ms, summary: parse<RunSummary & { subset: { smoke: { from: string | null; clusters: number } } }>(result) };
     };
     // The inner loop after a full run of the good port: nothing is open, so the samples must find each bug.
     expect((await port()).code).toBe(0);
@@ -354,9 +410,9 @@ describe.runIf(enabled)('examples/wc-lite', () => {
 
     // After a full run of the bad ports and minimizing their clusters, smoke runs each repro.
     const candidates = bad.flatMap((c) => ['--candidate', badPath(c)]);
-    const run = JSON.parse((await port('--json', ...candidates)).stdout) as RunSummary & { run_id: string };
+    const run = parse<RunSummary & { run_id: string }>(await port('--json', ...candidates));
     const repros: string[] = [];
-    for (const i of bad.keys()) repros.push((JSON.parse((await minimize('--json', `${run.run_id}/${i + 1}`)).stdout) as { case: { id: string } }).case.id);
+    for (const i of bad.keys()) repros.push(parse<{ case: { id: string } }>(await minimize('--json', `${run.run_id}/${i + 1}`)).case.id);
     const { code, summary } = await smoke(...candidates);
     expect(code).toBe(1);
     expect(summary.subset.smoke).toMatchObject({ from: run.run_id, clusters: 3 });

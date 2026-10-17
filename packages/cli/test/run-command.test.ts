@@ -8,6 +8,7 @@ import {
   cacheDir,
   canonicalCase,
   describeSignature,
+  findContainerEngine,
   historyPath,
   inlineCase,
   latestRun,
@@ -25,6 +26,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
+const engine = await findContainerEngine().catch(() => undefined);
+
 const TOOL = (variant: 'ref' | 'good' | 'bad') => `#!/bin/sh
 case "$1" in
   echo) shift; echo "$@" ;;
@@ -50,11 +53,23 @@ case "$1" in
 esac
 `;
 
+// A port that stalls on its first `upper`, as a starved machine makes any program do, then answers rightly.
+const STALL = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ "$n" = 0 ]; then exec sleep 10; fi; tr 'a-z' 'A-Z' ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 /** Text output with the run ID, which differs on every run, replaced. */
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
 
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
-const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed)).*\n/gm, '');
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed|timeout)).*\n/gm, '');
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
@@ -69,12 +84,14 @@ describe('parseRunArgs', () => {
     });
     expect(parseRunArgs([])).toEqual({ candidates: [], smoke: false, json: false, noSandbox: false });
     expect(parseRunArgs(['--smoke'])).toEqual({ candidates: [], smoke: true, json: false, noSandbox: false });
-    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke and --cluster run different subsets/);
+    expect(parseRunArgs(['--feature', 'opt.n'])).toEqual({ candidates: [], feature: 'opt.n', smoke: false, json: false, noSandbox: false });
+    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke, --cluster and --feature run different subsets/);
+    expect(() => parseRunArgs(['--feature', 'x', '--cluster', '2'])).toThrow(/run different subsets/);
+    expect(() => parseRunArgs(['--feature='])).toThrow(/--feature needs a feature name/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
     expect(() => parseRunArgs(['--all'])).toThrow(/--all is not available yet/);
-    expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
     expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
     expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
   });
@@ -91,6 +108,7 @@ describe('executeRun', () => {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
     writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-stall'), STALL, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -168,6 +186,7 @@ describe('executeRun', () => {
           waivers: [],
           divergences: [],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
         {
@@ -183,6 +202,7 @@ describe('executeRun', () => {
             { case: cases[2]!.id, fields: ['exit'] },
           ],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
       ],
@@ -212,6 +232,49 @@ describe('executeRun', () => {
     expect(saved).toEqual(json);
     expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
     expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('scores a case on the candidate re-run when its first run timed out, and lists it as recovered', { timeout: 60_000 }, async () => {
+    let state = 0;
+    const stall = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidate: { cmd: './bin/tool-stall' },
+            sandbox: { timeout: '2s', env: { PA_TEST_STATE: join(project, `stall-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await stall(false);
+    expect(text.exitCode).toBe(0);
+    expect(stable(text.stdout)).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
+        'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
+        'normalizers: none',
+        'candidate 1 ./bin/tool-stall: 3 of 3 cases match',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  1 timeout, recovered on re-run',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
+        '  timeout, recovered on re-run (the re-run was compared):',
+        `    ${shortCaseId(cases[1]!.id)}`,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await stall(true)).stdout);
+    expect(json.candidates[0]).toMatchObject({
+      match: 3,
+      diverge: 0,
+      score: { raw: { scored: 3, match: 3, timeouts: 0, timeoutRecovered: 1 } },
+      divergences: [],
+      flaky_candidate: [],
+      timeout_recovered: [{ case: cases[1]!.id }],
+    });
   });
 
   it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
@@ -260,6 +323,7 @@ describe('executeRun', () => {
       waivers: [],
       divergences: [],
       flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+      timeout_recovered: [],
       waived_cases: [],
     });
     // Kept out of the clusters, which only hold steady divergences.
@@ -297,16 +361,46 @@ describe('executeRun', () => {
     expect(missing.exitCode).toBe(3);
     expect(missing.stderr).toMatch(/nope not found/);
 
-    const container = await executeRun(
-      options({ config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd: './bin/tool-copy' }, sandbox: { mode: 'container' } }) }),
-    );
-    expect(container.exitCode).toBe(3);
-    expect(container.stderr).toMatch(/sandbox mode "container" is not available yet/);
+    // Container mode: --no-sandbox doesn't apply, and a bare name would be the host's program.
+    const container = (cmd: string, noSandbox: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, candidate: { cmd }, sandbox: { mode: 'container' } }),
+          args: { candidates: [], json: false, noSandbox },
+        }),
+      );
+    expect(await container('./bin/tool-copy', true)).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/--no-sandbox is for sandbox mode local/) });
+    expect(await container('tool-copy', false)).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/In sandbox mode "container", give each program as a path \(\.\/tool-copy/) });
 
     const noCases = await executeRun(options({ cases: [] }));
     expect(noCases.exitCode).toBe(3);
     expect(noCases.stderr).toMatch(/No cases to run/);
   });
+
+  // Real containers: wherever Docker or Podman answers, and always in CI on Linux.
+  it.runIf(engine !== undefined || (process.env.CI !== undefined && process.platform === 'linux'))(
+    'in sandbox mode container, runs reference.build and the configured candidate.build in the image first, and exits 3 when one fails',
+    async () => {
+      // Each build leaves a file only the image has (/etc/debian_version), so a build on the host would fail.
+      const config = (referenceBuild: string) =>
+        parseConfig({
+          version: 1,
+          reference: { cmd: './bin/tool', build: referenceBuild },
+          candidate: { cmd: './bin/tool-copy', build: 'cp /etc/debian_version built-candidate' },
+          sandbox: { mode: 'container', image: 'debian:12-slim' },
+        });
+      const container = (referenceBuild: string) => executeRun(options({ config: config(referenceBuild), args: { candidates: [], json: false, noSandbox: false } }));
+      const built = await container('cp /etc/debian_version built-reference');
+      expect(built.stderr).toBe('');
+      expect(built.exitCode).toBe(0);
+      expect(built.stdout).toContain('sandbox: container (');
+      expect([existsSync(join(project, 'built-reference')), existsSync(join(project, 'built-candidate'))]).toEqual([true, true]);
+
+      const failed = await container('echo no compiler >&2; exit 1');
+      expect(failed).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/^port-anything run: reference\.build failed in the image debian:12-slim: echo no compiler >&2; exit 1\nno compiler/) });
+    },
+    120_000,
+  );
 });
 
 describe('executeRun waivers', () => {
@@ -918,6 +1012,25 @@ describe('executeRun --smoke', () => {
   }, 30_000);
 
   it('refuses --smoke with --cluster (exit 3)', async () => {
-    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });
+    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke, --cluster and --feature run different subsets/) });
+  });
+
+  it('runs the cases of one feature as a subset run', async () => {
+    const before = (await latestRun(project))?.run_id;
+    const run = await json({ feature: 'opt.e' });
+    expect(run).toMatchObject({ exitCode: 0, subset: { feature: 'opt.e' }, cases: 20 });
+    expect((await latestRun(project))?.run_id).toBe(before);
+    expect((await exec({ feature: 'error' })).stdout).toMatch(/^run \S+, feature error only\n/m);
+    const unknown = await exec({ feature: 'opt.zzz' });
+    expect(unknown).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('No case has feature "opt.zzz"; the corpus has error, opt.e, opt.u.') });
+  });
+
+  it('runs given cases, by ID or prefix', async () => {
+    const wanted = [cases[100]!.id, shortCaseId(cases[0]!.id)];
+    const run = await json({ caseIds: wanted });
+    expect(run).toMatchObject({ exitCode: 1, subset: { cases: [cases[100]!.id, cases[0]!.id] }, cases: 2 });
+    expect((await exec({ caseIds: [cases[100]!.id] })).stdout).toMatch(/^run \S+, 1 given case only\n/m);
+    expect(await exec({ caseIds: ['c_zz'] })).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('is not a case ID') });
+    expect(await exec({ caseIds: ['c_1'], smoke: true })).toMatchObject({ exitCode: 3 });
   });
 });

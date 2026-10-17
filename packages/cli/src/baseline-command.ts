@@ -6,24 +6,33 @@ import {
   CONFIG_FILE,
   ConfigError,
   DEFAULT_REPEATS,
+  MANIFEST_FILE,
   SandboxUnavailableError,
   appendNormalizers,
   baselineCases,
   baselineRecord,
   cacheDir,
+  caseEnvironment,
   chooseSandbox,
+  environmentFingerprint,
+  generatedCorpusSettings,
+  manifestCases,
+  manifestGenerator,
+  manifestNormalizers,
   normalizerLabel,
   parseConfigSource,
   probeSandbox,
   readConfigFile,
   shortCaseId,
   writeBaselineRecord,
+  writeManifest,
   type CanonicalCase,
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
-import { display, resolveCommand, withScratchDir, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
+import { TOOL_VERSION } from './version.js';
 
 /** The options of `port-anything baseline`. */
 export interface BaselineArgs {
@@ -87,8 +96,10 @@ export interface ExecuteBaselineOptions {
 /**
  * Runs every case against the reference several times and reports what varied. Proposed
  * normalizers are appended to `port-anything.yaml` (an ordinary edit, to review in the diff); cases
- * that still vary are `flaky-reference`, recorded in the cache so `run` leaves them out. Exit code
- * 0 when the baseline finished, 3 when it can't start (config, programs, sandbox).
+ * that still vary are `flaky-reference`, recorded in the cache so `run` leaves them out. Then the
+ * corpus is frozen in `.port-anything/MANIFEST.json` (committed; `verify` checks it): every case,
+ * the hash of each stable observation, the generator settings, the normalizers and the environment
+ * fingerprint. Exit code 0 when the baseline finished, 3 when it can't start (config, programs, sandbox).
  */
 export async function executeBaseline(options: ExecuteBaselineOptions): Promise<CliResult> {
   try {
@@ -102,12 +113,12 @@ export async function executeBaseline(options: ExecuteBaselineOptions): Promise<
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything baseline: ${message}\n` });
 
 async function execute({ projectDir, config, cases, args, probe }: ExecuteBaselineOptions): Promise<CliResult> {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   if (cases.length === 0) throw new ConfigError('No cases to baseline: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, [], { noSandbox: args.noSandbox })
+      : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const reference = await resolveCommand(config.reference.cmd, projectDir);
-  const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const repeats = args.repeats ?? config.corpus?.repeats ?? DEFAULT_REPEATS;
 
   const result = await withScratchDir(projectDir, 'baseline', (workDir) =>
@@ -126,6 +137,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     }),
   );
 
+  let normalizers = config.normalizers;
   if (result.proposals.length > 0) {
     const file = join(projectDir, CONFIG_FILE);
     const source = await readFile(file, 'utf8').catch((e: Error) => {
@@ -136,10 +148,19 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
       source,
       result.proposals.map((p) => ({ spec: p.spec, comment: `added by port-anything baseline: needed in ${plural(p.cases)}` })),
     );
-    parseConfigSource(edited); // never leave a config that no longer loads
+    normalizers = parseConfigSource(edited).normalizers; // never leave a config that no longer loads
     await writeFile(file, edited);
   }
   await writeBaselineRecord(projectDir, baselineRecord(result));
+  const caseEnv = caseEnvironment({ home: projectDir, allowlist: config.sandbox.env_allowlist, env: config.sandbox.env });
+  await writeManifest(projectDir, {
+    version: 1,
+    tool_version: TOOL_VERSION,
+    generator: manifestGenerator(generatedCorpusSettings(config)),
+    normalizers: manifestNormalizers(normalizers),
+    fingerprint: await environmentFingerprint({ reference, caseEnv }),
+    cases: manifestCases(cases, new Map(result.cases.flatMap((c) => (c.observationHash === null ? [] : [[c.caseId, c.observationHash] as const])))),
+  });
 
   const count = (status: string) => result.cases.filter((c) => c.status === status).length;
   const lines = [
@@ -160,5 +181,6 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     lines.push('flaky-reference, left out of run (fields that still vary):');
     for (const c of flaky) lines.push(`  ${shortCaseId(c.caseId)}  ${c.unstable.join(', ')}`);
   }
+  lines.push(`froze the corpus in .port-anything/${MANIFEST_FILE}: commit it; port-anything verify checks it`);
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }

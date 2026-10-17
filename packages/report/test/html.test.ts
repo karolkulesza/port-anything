@@ -74,6 +74,16 @@ describe('renderReportHtml', () => {
     expect(renderReportHtml({ ...INPUT, waivers: [WAIVERS[0]!] })).toContain('<h2>Reference bugs found</h2>\n<p class="note">Divergences where the candidate is right');
   });
 
+  it('lists the cases scored on a re-run after a candidate timeout, with their count', () => {
+    const cards = section('headline');
+    expect(cards).toContain('· 2 timeout, recovered on re-run</p>');
+    expect(cards).toContain('· 0 timeout, recovered on re-run</p>');
+    const integrity = section('integrity');
+    expect(integrity).toContain('<h3>Timeout, recovered on re-run</h3>');
+    expect(integrity).toContain(`<li>candidate 2: 2 cases (the re-run was compared): <code>c_00000005</code>, <code>c_0000001e</code></li>`);
+    expect(integrity).not.toContain('<li>candidate 1:');
+  });
+
   it('shows the integrity panel the run has data for, and says what this version does not check', () => {
     const integrity = section('integrity');
     expect(integrity).toContain('<li>sandbox: bwrap (no network)</li>');

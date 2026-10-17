@@ -75,3 +75,18 @@ port-anything report                      # the latest run: port-anything-report
 ```
 
 The cases run in the local sandbox (bubblewrap on Linux); add `--no-sandbox` where there is none.
+
+With Docker or Podman instead of a local toolchain, use container mode: set the image in `port-anything.yaml` to one with a C compiler and cargo,
+
+```yaml
+sandbox:
+  mode: container
+  image: rust:1-slim
+```
+
+and `port-anything run` builds the reference and the port in that image (`reference.build`, `candidate.build`), then runs every case there, in separate long-lived containers per side, with no network and no host directory shared with them (cases go in and come back over each container's stdin and stdout; the image needs `sh`, `tar` and `dd`, as Debian, Alpine and Rust images have). Candidates given with `--candidate` that aren't configured are run as they are, so build the bad ports in the image too:
+
+```sh
+docker run --rm -v "$PWD:$PWD" -w "$PWD" -u "$(id -u):$(id -g)" -e HOME=/tmp rust:1-slim \
+  cargo build --release --manifest-path port/Cargo.toml --features bad-crlf --target-dir port/target/bad-crlf
+```

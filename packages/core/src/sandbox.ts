@@ -3,6 +3,7 @@ import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import type { ContainerSetup } from './container.js';
 
 /**
  * How a case runs locally:
@@ -13,16 +14,19 @@ import { tmpdir } from 'node:os';
  *   writes only inside the case workdir, no signals to processes outside the sandbox.
  * - `none`: no isolation at all; only with `--no-sandbox`.
  *
+ * Sandbox mode `container` (`ContainerSetup`) doesn't wrap each process: cases go to long-lived
+ * containers (`ContainerPool`).
+ *
  * None is a strong security boundary: they keep a trusted program from touching the network or
  * (except unshare) files outside its workdir by accident. Under bwrap, a Unix socket the user keeps
  * somewhere in their own files (not under /tmp or /run) stays reachable. Under sandbox-exec, the
  * macOS system services (other than the preferences daemon) do: the pasteboard (pbcopy),
  * notifications, and LaunchServices (`open` can start apps outside the sandbox).
  */
-export type SandboxKind = 'bwrap' | 'unshare' | 'sandbox-exec' | 'none';
+export type SandboxKind = 'bwrap' | 'unshare' | 'sandbox-exec' | 'container' | 'none';
 
 /** A sandbox that isolates something; what the probe looks for. */
-export type LocalSandbox = Exclude<SandboxKind, 'none'>;
+export type LocalSandbox = Exclude<SandboxKind, 'none' | 'container'>;
 
 /** A sandbox and the variant of it that works on this machine. */
 export type SandboxSetup =
@@ -31,7 +35,11 @@ export type SandboxSetup =
   /** mapCurrentUser: false on util-linux before 2.38; `id` then shows the overflow uid, file access is unchanged. */
   | { kind: 'unshare'; mapCurrentUser: boolean }
   | { kind: 'sandbox-exec' }
+  | ContainerSetup
   | { kind: 'none' };
+
+/** A local sandbox setup: what the probe finds. */
+export type LocalSetup = Exclude<SandboxSetup, { kind: 'none' } | ContainerSetup>;
 
 /** The process to spawn for one case. */
 export interface SandboxCommand {
@@ -138,6 +146,8 @@ export function sandboxCommand(
       };
     case 'none':
       return { command: argv[0]!, args: argv.slice(1), cwd: workdir };
+    case 'container':
+      throw new Error('In sandbox mode "container", cases run through a ContainerPool, not a wrapped command.');
   }
 }
 
@@ -184,14 +194,14 @@ export interface SandboxAttempt {
 
 export interface SandboxProbe {
   /** The best sandbox setup that works here, if any. */
-  usable: Exclude<SandboxSetup, { kind: 'none' }> | undefined;
+  usable: LocalSetup | undefined;
   attempts: SandboxAttempt[];
   /** When nothing works: what to do about it, ready to print. */
   fix: string | undefined;
 }
 
 // Per platform, each sandbox's variants from strongest to most basic.
-const PROBE_ORDER: Record<string, Exclude<SandboxSetup, { kind: 'none' }>[][]> = {
+const PROBE_ORDER: Record<string, LocalSetup[][]> = {
   linux: [
     [
       { kind: 'bwrap', isolatePids: true },
@@ -304,6 +314,8 @@ function label(setup: SandboxSetup): string {
       return 'unshare, no network (filesystem not isolated)';
     case 'sandbox-exec':
       return 'sandbox-exec, no network';
+    case 'container':
+      return `container (${setup.engine}, ${setup.image}), no network`;
     case 'none':
       return 'none (--no-sandbox)';
   }
@@ -330,6 +342,12 @@ export function chooseSandbox(probe: SandboxProbe, options: { noSandbox?: boolea
   const setup: SandboxSetup | undefined = options.noSandbox ? { kind: 'none' } : probe.usable;
   if (setup === undefined) throw new SandboxUnavailableError(probe);
   return { ...setup, label: label(setup) };
+}
+
+/** The sandbox of a run in sandbox mode `container`. */
+export function containerSandbox(setup: Omit<ContainerSetup, 'kind'>): SandboxChoice {
+  const container: ContainerSetup = { kind: 'container', ...setup };
+  return { ...container, label: label(container) };
 }
 
 /** This machine. */

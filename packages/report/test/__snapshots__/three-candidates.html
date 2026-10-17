@@ -48,7 +48,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p class="parity full">100.0%</p><p>mean of 2 features · 55 of 55 scored cases match (raw 100.0%)</p>
 <p>55 cases match · 0 diverge · 0 waived (not scored)</p>
 <p>by origin: recorded 100.0% (40 cases) · generated 100.0% (15 cases)</p>
-<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge) · 0 timeout, recovered on re-run</p>
 </div>
 <div class="card">
 <p class="meta">candidate 2</p>
@@ -56,7 +56,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p class="parity high">93.7%</p><p>mean of 2 features · 50 of 55 scored cases match (raw 90.9%)</p>
 <p>50 cases match · 5 diverge · 0 waived (not scored)</p>
 <p>by origin: recorded 92.6% (40 cases) · generated 100.0% (15 cases)</p>
-<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge) · 2 timeout, recovered on re-run</p>
 </div>
 <div class="card">
 <p class="meta">candidate 3</p>
@@ -64,7 +64,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <p class="parity high">91.0%</p><p>mean of 2 features · 48 of 52 scored cases match (raw 92.3%)</p>
 <p>48 cases match · 4 diverge · 3 waived (not scored)</p>
 <p>by origin: recorded 87.9% (40 cases) · generated 100.0% (15 cases)</p>
-<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge) · 0 timeout, recovered on re-run</p>
 </div>
 </div>
 </section>
@@ -164,8 +164,8 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <li>sandbox: bwrap (no network)</li>
 <li>program name (argv[0], both sides): <code>tool</code></li>
 <li>compared under: default (stderr loose, similarity 0.8)</li>
-<li>manifest verification: not run by this version</li>
-<li>environment fingerprint: not recorded by this version</li>
+<li>manifest verification: not part of the report; run <code>port-anything verify</code></li>
+<li>environment fingerprint: recorded in <code>.port-anything/MANIFEST.json</code> by <code>port-anything baseline</code>, checked by <code>port-anything verify</code></li>
 <li>fresh holdout: not run by this version</li>
 <li>candidate language composition: not measured by this version</li>
 </ul>
@@ -184,6 +184,11 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <tr><td>2. <code>feature base, field exit, shape exit-code (reference-bug)</code></td><td>the original exits 0 after &quot;write error&quot;</td><td class="num">0 (0.0%)</td><td class="num">0 (0.0%)</td><td class="num">1 (1.8%)</td></tr>
 </tbody>
 </table>
+<h3>Timeout, recovered on re-run</h3>
+<p class="note">A candidate's first run timed out where the reference finished, and its re-run finished; the re-run is what was compared and scored.</p>
+<ul>
+<li>candidate 2: 2 cases (the re-run was compared): <code>c_00000005</code>, <code>c_0000001e</code></li>
+</ul>
 </section>
 <section id="rules">
 <h2>How the score is counted</h2>
@@ -194,6 +199,7 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <li>Features with fewer than 20 scored cases are under-sampled: shown, but left out of the headline.</li>
 <li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
 <li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+<li>A timeout isn't an answer: when a candidate's first run timed out but its re-run finished, the re-run is compared, and the case is listed as recovered. A candidate that times out on both runs diverges.</li>
 </ul>
 </section>
 </main>

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { readConfigFile } from '@port-anything/core';
 import { afterAll, describe, expect, it } from 'vitest';
+import { portSource } from './wc-lite-source.js';
 
 // The mutation ports of the wc-lite example: `port-anything strength` has cargo-mutants mutate the
 // good port, and each mutant counts as caught when a case of the committed corpus diverges. The
@@ -39,42 +40,12 @@ interface MutationScore {
   caught_mutants: string[];
 }
 
-const BAD_ATTRIBUTE = /^\s*#\[cfg\((any\()?feature = "bad-/;
-const GOOD_ATTRIBUTE = /^\s*#\[cfg\(not\(feature = "bad-[a-z-]+"\)\)\]\s*$/;
-
 /**
  * The good port's source without the bad ports' code: what the compiler sees with no feature on.
- * Blanks each item or block under `#[cfg(feature = "bad-…")]` (or `any(` of them), with the
- * comment lines just above it, and the attribute of those under `#[cfg(not(feature = "bad-…"))]`.
- * Otherwise cargo-mutants would also mutate code the good port doesn't contain, and every such
- * mutant would survive. Lines are blanked, not removed, so mutant names keep the source's lines.
+ * Lines are blanked, not removed, so mutant names keep the source's lines. Otherwise cargo-mutants
+ * would also mutate code the good port doesn't contain, and every such mutant would survive.
  */
-function stripBadPorts(source: string): string {
-  const lines = source.split('\n');
-  const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (GOOD_ATTRIBUTE.test(line)) {
-      out.push('');
-      continue;
-    }
-    if (!BAD_ATTRIBUTE.test(line)) {
-      out.push(line);
-      continue;
-    }
-    for (let k = out.length - 1; k >= 0 && /^\s*\/\//.test(out[k]!); k--) out[k] = '';
-    out.push('');
-    // The item: up to its matching closing brace when it opens one, else to the end of the statement.
-    let depth = 0;
-    for (i++; i < lines.length; i++) {
-      const code = lines[i]!.replace(/\/\/.*$/, '');
-      for (const ch of code) depth += ch === '{' ? 1 : ch === '}' ? -1 : 0;
-      out.push('');
-      if (depth === 0 && /[;}]\s*$/.test(code)) break;
-    }
-  }
-  return out.join('\n');
-}
+const stripBadPorts = (source: string) => portSource(source, { blank: true });
 
 /**
  * Why a result falls short of the recorded one: no mutant tested, fewer mutants, a recorded catch

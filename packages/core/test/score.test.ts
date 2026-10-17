@@ -18,7 +18,7 @@ describe('scoreCandidate', () => {
   it('takes the mean of per-feature parity as the headline, so an error-heavy corpus does not inflate it', () => {
     // 1000 cheap, matching error cases and 20 cases of one real feature, half of them wrong.
     const score = scoreCandidate([...many('error.usage', 1000), ...many('opt.l', 20, 10)]);
-    expect(score.raw).toEqual({ cases: 1020, scored: 1020, match: 1010, diverge: 10, waived: 0, flakyReference: 0, flakyCandidate: 0, timeouts: 0, parity: 1010 / 1020 });
+    expect(score.raw).toEqual({ cases: 1020, scored: 1020, match: 1010, diverge: 10, waived: 0, flakyReference: 0, flakyCandidate: 0, timeouts: 0, timeoutRecovered: 0, parity: 1010 / 1020 });
     expect(score.headline).toBe(0.75);
     expect(score.headlineFeatures).toEqual(['error.usage', 'opt.l']);
   });
@@ -102,6 +102,17 @@ describe('scoreCandidate', () => {
     expect(feature(score, 'opt.l')).toMatchObject({ cases: 25, scored: 20, match: 20, flakyReference: 5, parity: 1 });
     expect(feature(score, 'opt.w')).toMatchObject({ cases: 20, scored: 20, match: 18, diverge: 2, flakyCandidate: 1, timeouts: 1, parity: 0.9 });
     expect(score.raw).toMatchObject({ cases: 45, scored: 40, match: 38, diverge: 2, flakyReference: 5, flakyCandidate: 1, timeouts: 1 });
+  });
+
+  it('scores a case recovered from a candidate timeout on its re-run, and counts it whatever the outcome', () => {
+    const score = scoreCandidate([
+      ...many('opt.l', 17),
+      c(['opt.l'], 'match', { timeoutRecovered: true }),
+      c(['opt.l'], 'diverge', { timeoutRecovered: true }),
+      c(['opt.l'], 'diverge', { timeoutRecovered: true, waived: true }),
+    ]);
+    expect(feature(score, 'opt.l')).toMatchObject({ cases: 20, scored: 19, match: 18, diverge: 1, waived: 1, flakyCandidate: 0, timeouts: 0, timeoutRecovered: 3 });
+    expect(score.raw).toMatchObject({ timeoutRecovered: 3, timeouts: 0 });
   });
 
   it('does not let a waiver cover a flaky candidate or a timeout', () => {

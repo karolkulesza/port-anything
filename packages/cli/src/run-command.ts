@@ -4,6 +4,7 @@ import { dirname, join, resolve as resolvePath } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
+  CaseIdError,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
   LARGE_WAIVER_SHARE,
@@ -30,6 +31,7 @@ import {
   readBaselineRecord,
   readConfigFile,
   readWaiversFile,
+  resolveCaseId,
   resolveCluster,
   runCases,
   saveRun,
@@ -55,7 +57,7 @@ import {
   type WaiverCoverage,
   type WaiverMatch,
 } from '@port-anything/core';
-import { display, resolveCommand, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 
 export { display } from './common.js';
@@ -69,14 +71,18 @@ export interface RunArgs {
   cluster?: string;
   /** `--smoke`: run only the smoke subset (see `smokeSubset`). */
   smoke?: boolean;
+  /** `--feature <f>`: run only the cases of that feature. */
+  feature?: string;
+  /** Run only these cases: IDs or prefixes (see `resolveCaseId`). No option sets it; the MCP server does. */
+  caseIds?: readonly string[];
   json: boolean;
   noSandbox: boolean;
 }
 
 // Documented options that later versions add.
-const NOT_YET = ['feature', 'all', 'holdout'];
+const NOT_YET = ['all', 'holdout'];
 
-export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n>] [--candidate <cmd>]… [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n> | --feature <f>] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -89,16 +95,21 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
         candidate: { type: 'string', multiple: true },
         cluster: { type: 'string' },
         smoke: { type: 'boolean' },
+        feature: { type: 'string' },
         json: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
       },
       strict: true,
       allowPositionals: false,
     });
-    if (values.smoke === true && values.cluster !== undefined) throw new Error('--smoke and --cluster run different subsets; give one of them.');
+    if ([values.smoke === true, values.cluster !== undefined, values.feature !== undefined].filter(Boolean).length > 1) {
+      throw new Error('--smoke, --cluster and --feature run different subsets; give one of them.');
+    }
+    if (values.feature === '') throw new Error('--feature needs a feature name, such as opt.n.');
     return {
       candidates: values.candidate ?? [],
       ...(values.cluster === undefined ? {} : { cluster: values.cluster }),
+      ...(values.feature === undefined ? {} : { feature: values.feature }),
       smoke: values.smoke ?? false,
       json: values.json ?? false,
       noSandbox: values['no-sandbox'] ?? false,
@@ -169,11 +180,17 @@ export async function executeRun(options: ExecuteRunOptions): Promise<CliResult>
 
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything run: ${message}\n` });
 
-async function execute({ projectDir, config, cases, waivers = [], args, probe }: ExecuteRunOptions): Promise<CliResult> {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
-  if (args.smoke === true && args.cluster !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
+/** What a run reports, as `--json` prints it. */
+export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
+
+/**
+ * Runs and saves a run as `executeRun` describes, and returns its summary, its exit code and the
+ * IDs of the cases it ran (flaky-reference cases left out), for callers that report it their own
+ * way (the MCP server). Throws a `ConfigError` or `SandboxUnavailableError` when it can't start.
+ */
+export async function performRun({ projectDir, config, cases, waivers = [], args, probe }: ExecuteRunOptions) {
+  const subsets = [args.smoke === true, args.cluster !== undefined, args.feature !== undefined, args.caseIds !== undefined].filter(Boolean).length;
+  if (subsets > 1) throw new ConfigError('--smoke, --cluster and --feature run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
   const commands =
     args.candidates.length > 0 ? args.candidates : subset !== undefined ? [subset.run.candidate_commands[subset.cluster.candidate - 1]!] : configCandidates(config).map((c) => c.cmd);
@@ -182,8 +199,32 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
+  let picked: { feature: string } | { cases: string[] } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
-  else if (args.smoke === true) {
+  else if (args.feature !== undefined) {
+    const feature = args.feature;
+    const of = cases.filter((c) => c.features.includes(feature));
+    if (of.length === 0) {
+      const known = [...new Set(cases.flatMap((c) => c.features))].sort();
+      throw new ConfigError(`No case has feature "${feature}"; the corpus has ${known.length === 0 ? 'no features' : `${known.slice(0, 20).join(', ')}${known.length > 20 ? `, and ${known.length - 20} more` : ''}`}.`);
+    }
+    cases = of;
+    picked = { feature };
+  } else if (args.caseIds !== undefined) {
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    const ids = new Set<string>();
+    for (const typed of args.caseIds) {
+      try {
+        ids.add(resolveCaseId(typed, byId.keys()));
+      } catch (e) {
+        if (e instanceof CaseIdError) throw new ConfigError(e.message);
+        throw e;
+      }
+    }
+    if (ids.size === 0) throw new ConfigError('No case given to run.');
+    cases = [...ids].map((id) => byId.get(id)!);
+    picked = { cases: [...ids] };
+  } else if (args.smoke === true) {
     const latest = await latestRun(projectDir);
     const open = latest === undefined ? [] : await openClusterCases(projectDir, latest, cases, new BlobStore(cacheDir(projectDir)));
     const picked = smokeSubset({ corpus: cases, clusterCases: open, diverged: new Set(latest?.clusters.flatMap((c) => c.cases)) });
@@ -271,6 +312,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
         const m = matches[n];
         return m === undefined || m.waived || !c.candidates[i]!.flaky ? [] : [{ case: c.caseId, fields: c.candidates[i]!.comparison.fields }];
       });
+      // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+      const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
       const score = scoreCandidate(
         result.cases.map((c, n) => ({
           caseId: c.caseId,
@@ -281,6 +324,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
           flakyCandidate: c.candidates[i]!.flaky,
           // A case the reference also times out on is compared like any other.
           candidateTimeout: timedOut(c, i),
+          timeoutRecovered: c.candidates[i]!.timeoutRecovered,
         })),
         config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
       );
@@ -306,13 +350,14 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
         waivers: waiverCoverage(waivers, matches.filter((m) => m !== undefined), result.cases.length),
         divergences,
         flaky_candidate: flakyCandidate,
+        timeout_recovered: timeoutRecovered,
         waived_cases: waivedCases,
       };
     }),
     clusters,
   };
-  const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : null, ...report, candidate_commands: commands });
-  if (subset === undefined && smoke === undefined) {
+  const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : (picked ?? null), ...report, candidate_commands: commands });
+  if (saved.subset === null) {
     const shas = await Promise.all(
       runnerOptions.candidates.map(async (c) => {
         const dir = await candidateSource(c, projectDir);
@@ -332,7 +377,13 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
   }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
   const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true) ? 1 : 0;
-  if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
+  return { summary, exitCode, ran: result.cases.map((c) => c.caseId) };
+}
+
+async function execute(options: ExecuteRunOptions): Promise<CliResult> {
+  const { summary, exitCode } = await performRun(options);
+  const { flaky_reference: flakyReference, clusters } = summary;
+  if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
     `Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`,
@@ -366,20 +417,29 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe }:
     }
     if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
     for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    if (c.timeout_recovered.length > 0) lines.push('  timeout, recovered on re-run (the re-run was compared):');
+    for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
 
-/** What running cases needs besides the cases and a scratch directory, from the config. */
+/**
+ * What running cases needs besides the cases and a scratch directory, from the config. In sandbox
+ * mode `container`, the reference's and the configured candidates' builds run in the image first.
+ */
 export async function prepareSides(
   projectDir: string,
   config: Config,
   commands: readonly (string | readonly string[])[],
   options: { noSandbox: boolean; probe?: SandboxProbe },
 ): Promise<{ runner: Omit<RunCasesOptions, 'cases' | 'workDir'>; sandbox: SandboxChoice; compare: CompareOptions }> {
+  // In container mode the builds come first: they make the programs.
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, commands, options)
+      : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const reference = await resolveCommand(config.reference.cmd, projectDir);
   const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
-  const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
   const runner = {
     reference,
@@ -410,6 +470,8 @@ export async function removeScratch(projectDir: string, workDir: string): Promis
 function describeSubset(subset: RunRecord['subset']): string {
   if (subset === null) return '';
   if ('cluster' in subset) return `, cluster ${subset.cluster} only`;
+  if ('feature' in subset) return `, feature ${subset.feature} only`;
+  if ('cases' in subset) return `, ${subset.cases.length === 1 ? '1 given case' : `${subset.cases.length} given cases`} only`;
   const { from, corpus, clusters, per_feature: perFeature, passing } = subset.smoke;
   const open = from === null ? 'no full run yet' : `${clusters} for the open clusters of run ${from}`;
   return `, smoke subset of ${corpus} case${corpus === 1 ? '' : 's'}: ${open}, ${perFeature} by feature, ${passing} passing`;
@@ -447,12 +509,13 @@ function scoreLines(score: Score): string[] {
   ];
   const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);
   if (origins.length > 1) lines.push(`  by origin: ${origins.map(([name, o]) => `${name} ${o.parity === null ? 'n/a' : percent(o.parity)} (${count(o.cases, 'case')})`).join(', ')}`);
-  const { waived, flakyReference, flakyCandidate, timeouts } = score.raw;
+  const { waived, flakyReference, flakyCandidate, timeouts, timeoutRecovered } = score.raw;
   const excluded = [
     [waived, 'waived (not scored)'],
     [flakyReference, 'flaky-reference (not scored)'],
     [flakyCandidate, 'flaky-candidate (diverge)'],
     [timeouts, 'timed out (diverge)'],
+    [timeoutRecovered, 'timeout, recovered on re-run'],
   ] as const;
   if (excluded.some(([n]) => n > 0)) lines.push(`  ${excluded.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(' · ')}`);
   const list = (names: readonly string[]) =>

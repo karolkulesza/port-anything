@@ -72,7 +72,7 @@ Name the binaries explicitly: on Ubuntu 25.10 and later, plain `sort` already *i
 
 - **Sandbox.** `compare` fuzzes a program it knows nothing about, so every case runs without network access, in a scratch directory with relative paths only: bubblewrap on Linux (`unshare` as a fallback), `sandbox-exec` on macOS. If no sandbox works, `compare` refuses to run and says how to fix it.
 - **Output.** Nothing is written unless you pass `--save`. Clusters of divergences, reproducers and the HTML report come with a project (below).
-- **Exit codes:** 0 = no divergences, 1 = divergences, 3 = usage or config error.
+- **Exit codes:** 0 = no divergences, 1 = divergences, 2 = integrity broken (`verify`, in a project), 3 = usage or config error.
 
 The score is the **mean of per-feature parity** (a feature is a flag, subcommand or input form), so a rarely used flag counts as much as the common path. Features with too few cases are shown but left out of the headline, and `--help`, `--version` and similar output, which differ between implementations by design, are reported on their own. Parity is evidence from the cases that ran, never a proof of equivalence.
 
@@ -84,6 +84,9 @@ The score is the **mean of per-feature parity** (a feature is a flag, subcommand
 npx port-anything compare ./ref/tool ./port/tool --save   # writes port-anything.yaml and port-anything/cli-spec.yaml
 npx port-anything run                      # the same generated cases, against the candidate in the config
 npx port-anything generate --budget 5000   # a bigger corpus; the budget and seed go into port-anything.yaml
+npx port-anything baseline                 # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
+npx port-anything verify                   # check the cases and the reference's output against the manifest
+npx port-anything mcp                      # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas)
 ```
 
 [`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
@@ -130,8 +133,9 @@ What v0.1 does:
 - The report lists every normalizer with the number of cases it changed, and every waiver with its reason and the cases it covers, flagging large ones. A waiver is a predicate (feature, field, diff shape), never a list of case IDs.
 - Features without enough cases are listed as untested or under-sampled instead of quietly counting as passed.
 - A candidate that answers differently when a diverging case is re-run is counted as diverging, not excluded as flaky, so randomness doesn't hide hard cases.
+- `port-anything baseline` freezes the corpus in `.port-anything/MANIFEST.json` (commit it): the hash of every case and of the reference's normalized output for each, the generator version and seed, the normalizers and an **environment fingerprint** (OS or distro, C library, locale, the reference executable's hash). `port-anything verify` regenerates the cases, re-runs the reference and compares: on a machine with the same fingerprint, any edited, added or deleted case, changed normalizer or changed output is "INTEGRITY BROKEN" (exit 2). On another machine the reference's output may legitimately differ (on macOS, `sort` is BSD sort), so a difference there is only a warning.
 
-Not in v0.1 yet: a committed manifest of case hashes with a `verify` command, an environment fingerprint, a **fresh holdout** (new cases from a seed that is never stored, compared live against the reference, which defeats a lookup table of expected outputs), and keeping the candidate from calling or linking the reference: in local mode the candidate still sees your `PATH`, so a "port" that just runs the original isn't caught yet. The report's integrity panel says which of these checks this version doesn't run (manifest verification, environment fingerprint, fresh holdout, the candidate's language composition).
+Not in v0.1 yet: a **fresh holdout** (new cases from a seed that is never stored, compared live against the reference, which defeats a lookup table of expected outputs), and keeping the candidate from calling or linking the reference: in local mode the candidate still sees your `PATH`, so a "port" that just runs the original isn't caught yet. The report's integrity panel says which of these checks this version doesn't run (fresh holdout, the candidate's language composition), and that manifest verification is `port-anything verify`, outside the report.
 
 ## Showcases
 

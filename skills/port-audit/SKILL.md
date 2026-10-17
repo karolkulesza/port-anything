@@ -77,22 +77,51 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | `candidates[].per_feature[].selfDescription` | `--help` / `--version` style features: listed, never in the headline (help text is allowed to differ). |
 | `candidates[].per_feature[].underSampled` | Too few cases to count in the headline: report the numbers, don't conclude from them. |
 | `candidates[].divergences[]` | Every diverging case: `case` (its ID), `argv` (the arguments after the program name) and `fields` (what differed: `exit` code, `signal`, `timeout`, `stdout`, `stderr`, `fs` for files created, changed or deleted). |
-| `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. An audit doesn't need `--save`. |
+| `candidates[].timeout_recovered` | Cases where the candidate's first run timed out but its re-run finished (`case`, `argv`): a busy machine can stall any program, so the re-run is what was compared and scored. Usually empty; many entries mean the machine was overloaded or the candidate is often slow, so say so. A case that times out on both runs is a divergence (`timeout`). |
+| `saved` | Files written by `--save` (a `port-anything.yaml` project and the inferred CLI spec, to keep working on the port with the full project commands); empty without it. Only step 4 uses `--save`. |
 | `duration_ms` | Wall time of the run. |
 
 The JSON doesn't include each case's stdin or input files (an `argv` may name an input file,
 such as `data.txt`, but not its contents): a divergence tells you **which arguments** and
-**which outputs**, and you rebuild the input by hand (step 4). If your version of
-the CLI prints more (clusters, minimized repros), use them.
+**which outputs**. For the inputs, get the minimized repros (step 4), or rebuild the input by
+hand (step 5).
 
-## 4. Triage the divergences
+## 4. Get minimized repros
+
+When there are divergences, turn the audit into a project to get each cluster of divergences
+with a minimized repro, inputs included. In an empty working directory (`--save` refuses to
+overwrite a project), and with **absolute paths** for every program (`--save` writes the commands
+into `port-anything.yaml` as given, and a relative path wouldn't resolve from there):
+
+```sh
+port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --save --json > audit.json
+port-anything run
+port-anything minimize 1 --json
+```
+
+- `--save` writes `port-anything.yaml` (the same programs, budget and seed) and the inferred
+  `port-anything/cli-spec.yaml`, so `port-anything run` there regenerates the same cases and
+  groups each candidate's divergences into numbered **clusters** (same fields, same kind of
+  difference), most important first. Its exit codes are those of `compare`.
+- `port-anything minimize <n> --json` shrinks cluster `n` of the latest run to a minimal case and
+  prints it under `case`: `argv`, `stdin` and `fixtures` (the input files) in full, plus whether
+  it still diverges (`reproduced`). It runs both programs many times: minimize the clusters you
+  report, not all of them.
+- With the `port-anything` MCP server connected in that directory (`port-anything mcp`), the
+  `next` tool gives the top cluster's repro and the reference vs candidate diff in one call.
+
+Use the repros as the starting point of step 5: they replace guessing the input, not reproducing
+it by hand.
+
+## 5. Triage the divergences
 
 Don't report raw divergence counts. Turn them into a few **findings**, each verified by hand:
 
 1. **Group** each candidate's `divergences` by the flags in `argv` and by `fields`. Features with
    low parity in `per_feature` tell you where to look first. Many divergences usually come from a
    handful of causes.
-2. **Reproduce** each group directly, outside `port-anything`: run the reference and the
+2. **Reproduce** each group directly (from its cluster's repro when you have one), outside
+   `port-anything`: run the reference and the
    candidate with the same `argv` under the same name, in an empty temporary directory, with a
    small stdin or input file you write. Compare exit code, stdout and stderr (`diff <(ref …)
    <(cand …)`, `echo $?`). Keep the side effects inside the temporary directory. Write probe
@@ -124,7 +153,7 @@ means "no difference on these cases", not "no difference". Report what this pass
 separate findings marked "found by hand, not by `compare`", and list what you probed in the
 caveats.
 
-## 5. Write the audit
+## 6. Write the audit
 
 Write the report to `port-audit-<program>.md` in the current directory (or where the user asks),
 and keep `audit.json` next to it. Structure:
@@ -136,8 +165,8 @@ and keep `audit.json` next to it. Structure:
    self-description features).
 3. **Findings**, most important first. For each: a one-line title, the minimized command and
    input, the reference's and the candidate's output (or exit code), which feature it falls
-   under, how many divergences it explains (inferred from the argv and fields pattern, since the
-   inputs aren't in the JSON: say so), and whether it was reproduced by hand (or found by hand
+   under, how many divergences it explains (its cluster's size, or inferred from the argv and
+   fields pattern without clusters: say which), and whether it was reproduced by hand (or found by hand
    only).
 4. **Coverage and caveats**: `untested` features, under-sampled features, `flaky_reference`
    cases, the `normalizers` applied, skipped destructive subcommands, anything you ruled out as

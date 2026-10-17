@@ -27,10 +27,12 @@ export {
   SandboxUnavailableError,
   caseCommandOptions,
   chooseSandbox,
+  containerSandbox,
   localHost,
   probeSandbox,
   sandboxCommand,
   type LocalSandbox,
+  type LocalSetup,
   type SandboxAttempt,
   type SandboxChoice,
   type SandboxCommand,
@@ -41,6 +43,26 @@ export {
   type SandboxSetup,
   SEATBELT_PROFILE,
 } from './sandbox.js';
+export {
+  CONTAINER_ENGINES,
+  ContainerError,
+  ContainerPool,
+  ContainerSession,
+  DEFAULT_CONTAINER_IMAGE,
+  RUNNER_SCRIPT,
+  RUNNER_TOOLS,
+  containerSpace,
+  buildInImage,
+  caseScript,
+  engineCpus,
+  ensureImage,
+  findContainerEngine,
+  imagePath,
+  shellQuote,
+  type ContainerPoolOptions,
+  type ContainerProcess,
+  type ContainerSetup,
+} from './container.js';
 export { checkLicense, findLicenseFiles, identifyLicenses, licenseCategory } from './license.js';
 export type { LicenseCategory, LicenseCheck } from './license.js';
 export { IMPORT_KINDS, ImportCollector, runImporter } from './import.js';
@@ -111,7 +133,7 @@ export {
   type FsChangesOptions,
   type FsSnapshot,
 } from './fs-diff.js';
-export { defaultConcurrency, mapPool } from './pool.js';
+export { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 export {
   COMPARED_FIELDS,
   DEFAULT_STDERR_SIMILARITY,
@@ -186,6 +208,7 @@ export {
   reproPath,
   parseClusterAddress,
   resolveCluster,
+  runsAfter,
   runsDir,
   saveRepro,
   saveRun,
@@ -285,6 +308,34 @@ export {
   type GeneratedCorpusSettings,
 } from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
+export {
+  FingerprintSchema,
+  environmentFingerprint,
+  fingerprintDifferences,
+  localFingerprintHost,
+  type Fingerprint,
+  type FingerprintHost,
+  type FingerprintOptions,
+} from './fingerprint.js';
+export {
+  MANIFEST_FILE,
+  checkManifest,
+  manifestCases,
+  manifestGenerator,
+  manifestNormalizers,
+  manifestPath,
+  observationHash,
+  readManifest,
+  referenceObservationHashes,
+  writeManifest,
+  type Manifest,
+  type ManifestCase,
+  type ManifestCheck,
+  type ManifestProblem,
+  type ManifestState,
+  type ObservationHashOptions,
+  type ObserveReferenceOptions,
+} from './manifest.js';
 export {
   LARGE_WAIVER_SHARE,
   WAIVERS_FILE,
