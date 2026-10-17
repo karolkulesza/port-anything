@@ -9,7 +9,8 @@ import { base } from '../../tsup.base.js';
 // and are declared here.
 export default defineConfig({
   ...base,
-  entry: ['src/index.ts', 'src/bin.ts'],
+  // `hook` runs the build and the smoke run in a worker it can stop at its time cap.
+  entry: ['src/index.ts', 'src/bin.ts', 'src/hook-worker.ts'],
   noExternal: ['@port-anything/core', '@port-anything/report', '@port-anything/mcp'],
   esbuildOptions(options) {
     options.alias = {

@@ -52,6 +52,18 @@ npx port-anything mcp          # MCP server over stdio for your agent: status, n
 npx port-anything setup        # register that server and the skills (port-loop, port-plan, port-audit, port-report) with each agent installed: Claude Code, Codex, Cursor, Gemini CLI
 ```
 
+To see the parity delta right after each edit in Claude Code, turn on the smoke hook in the port's `.claude/settings.json` (it isn't installed by `setup` or the plugin). After an Edit or Write to a file of the project outside `port-anything/`, `.port-anything/` and the reference's directory, `port-anything hook` builds the candidate (`candidate.build`), runs the smoke subset and gives the agent what got fixed or broke and the top clusters. A failed build is reported the same way; past `--timeout` seconds (default 60) it stops and says the smoke run was skipped. It never blocks the edit.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "npx -y port-anything hook", "timeout": 90 }] }
+    ]
+  }
+}
+```
+
 [`examples/wc-lite`](https://github.com/karolkulesza/port-anything/tree/main/examples/wc-lite) in the repo is a complete project to try this on.
 
 **Exit codes:** 0 = no divergences, 1 = divergences, 2 = integrity broken (`verify`), 3 = usage or config error.

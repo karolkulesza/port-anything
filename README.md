@@ -92,6 +92,18 @@ npx port-anything setup                    # register that server and the skills
 
 The repo is also a Claude Code plugin marketplace (`/plugin marketplace add karolkulesza/port-anything`, then `/plugin install port-anything@port-anything`) and a Gemini CLI extension (`gemini extensions install https://github.com/karolkulesza/port-anything`), with plugin manifests for Codex and Cursor; each brings the same skills and MCP server.
 
+To see the parity delta right after each edit in Claude Code, turn on the smoke hook in the port's `.claude/settings.json` (it isn't installed by `setup` or the plugin). After an Edit or Write to a file of the project outside `port-anything/`, `.port-anything/` and the reference's directory, `port-anything hook` builds the candidate (`candidate.build`), runs the smoke subset and gives the agent what got fixed or broke and the top clusters. A failed build is reported the same way; past `--timeout` seconds (default 60) it stops and says the smoke run was skipped. It never blocks the edit.
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [{ "type": "command", "command": "npx -y port-anything hook", "timeout": 90 }] }
+    ]
+  }
+}
+```
+
 [`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
 
 ```sh
