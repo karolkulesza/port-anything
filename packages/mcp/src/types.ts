@@ -115,9 +115,84 @@ export interface RunDelta {
   clusters: { total: number; top: readonly ClusterSummary[] };
 }
 
+/** What a program did on a case, as text: output and changed files before the normalizers. */
+export interface ObservedText {
+  exit: number | null;
+  signal: string | null;
+  timeout: boolean;
+  stdout: string;
+  stderr: string;
+  /** One line per created, modified or deleted file, such as `created out.txt 3f2a…`; empty when none. */
+  fs: string;
+}
+
+/** What the `case` tool shows: one case in full, run now on the reference and one candidate. */
+export interface CaseReport {
+  /** The full case ID. */
+  id: string;
+  origin: string;
+  features: readonly string[];
+  case: ReproCase;
+  /** The cluster of the latest full run the case is in, for this candidate; null when none. */
+  cluster: ClusterSummary | null;
+  programName: string;
+  candidate: { candidate: number; command: string };
+  reference: ObservedText;
+  observed: ObservedText;
+  /** The diverging fields after the normalizers; empty when the case matches. */
+  diff: readonly FieldDiff[];
+}
+
+/** One feature in the `features` tool's map. */
+export interface FeatureRow {
+  feature: string;
+  /** The spec's spelling of it, such as `-n, --numeric-sort INT` or `cmd add`; null when the spec doesn't define it. */
+  spec: string | null;
+  /** Cases carrying it in the latest full run; null without a run. */
+  cases: number | null;
+  /** Parity per candidate (in the run's order); null for a candidate with no scored case of it. */
+  parity: readonly (number | null)[];
+  selfDescription: boolean;
+  underSampled: boolean;
+}
+
+/** What the `features` tool shows: the CLI spec's features with per-feature parity from the latest full run. */
+export interface FeaturesReport {
+  /** The CLI spec, when the project has one. */
+  spec: { program: string; features: number } | null;
+  run: { id: string; created: string; minCasesPerFeature: number } | null;
+  candidates: readonly { candidate: number; command: string; parity: number | null }[];
+  /** The prefix the list was narrowed to, if any. */
+  prefix: string | null;
+  /** Spec features first in spec order, then features only cases carry, by name. */
+  features: readonly FeatureRow[];
+}
+
+/** What the `probe` tool is given: one invocation to run on the reference only. */
+export interface ProbeInput {
+  argv: readonly string[];
+  stdin?: string;
+  fixtures?: Readonly<Record<string, string>>;
+  env?: Readonly<Record<string, string>>;
+}
+
+/** What the `probe` tool shows. */
+export interface ProbeReport {
+  id: string;
+  /** Where it was saved, relative to the project. */
+  path: string;
+  programName: string;
+  case: ReproCase;
+  observed: ObservedText;
+}
+
 /** What the tools read and run; `port-anything mcp` implements it over a project directory. */
 export interface Backend {
   status(): Promise<StatusReport>;
   next(): Promise<NextReport>;
   run(selection: RunSelection): Promise<RunDelta>;
+  /** One case by ID or prefix, run on the reference and candidate `candidate` (from 1; default 1). */
+  case(id: string, candidate?: number): Promise<CaseReport>;
+  features(prefix?: string): Promise<FeaturesReport>;
+  probe(input: ProbeInput): Promise<ProbeReport>;
 }

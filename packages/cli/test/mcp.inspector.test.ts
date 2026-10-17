@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { probeSandbox, type SandboxProbe } from '@port-anything/core';
+import { blobRef, caseId, probeSandbox, shortCaseId, type SandboxProbe } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../mcp/test/tokens.js';
 import { runCommand } from '../src/run-command.js';
@@ -36,6 +36,7 @@ describe.runIf(inspectorRuns)('port-anything mcp under the MCP Inspector (done w
   let project: string;
   // `next` and `run` run programs, and the server has no --no-sandbox: they need a working sandbox here.
   let sandboxed = false;
+  const upperCase = shortCaseId(caseId({ argv: ['upper'], stdin: blobRef('word 0\n'), origin: 'recorded' }));
 
   const inspect = (args: readonly string[]): Promise<Inspected> =>
     new Promise((resolve) => {
@@ -67,11 +68,11 @@ describe.runIf(inspectorRuns)('port-anything mcp under the MCP Inspector (done w
   }, 60_000);
   afterAll(() => rmSync(project, { recursive: true, force: true }));
 
-  it('lists status, next and run, with schemas that pass the inspector\'s strict checks', async () => {
+  it('lists the six tools, with schemas that pass the inspector\'s strict checks', async () => {
     const listed = await inspect(['--method', 'tools/list', '--strict']);
     expect(listed.code, listed.stderr).toBe(0);
     const { tools } = JSON.parse(listed.stdout) as { tools: { name: string }[] };
-    expect(tools.map((t) => t.name)).toEqual(['status', 'next', 'run']);
+    expect(tools.map((t) => t.name)).toEqual(['status', 'next', 'run', 'case', 'features', 'probe']);
   }, 120_000);
 
   it('status answers with the headline, the clusters and the integrity state, in under 500 tokens', async () => {
@@ -89,6 +90,27 @@ describe.runIf(inspectorRuns)('port-anything mcp under the MCP Inspector (done w
     expect(run.code).not.toBe(0);
     expect(text(run)).toMatch(/has 1 cluster, so there is no cluster 9/);
   }, 120_000);
+
+  it('features shows the per-feature parity', async () => {
+    const features = await inspect(['--method', 'tools/call', '--tool-name', 'features', '--tool-arg', 'prefix=opt.']);
+    expect(features.code, features.stderr).toBe(0);
+    expect(text(features)).toContain('features starting "opt.": 2');
+    expect(text(features)).toContain('  opt.u · 3 cases · 0.0%');
+  }, 120_000);
+
+  it('case shows one case in full, and probe asks the reference', async (context) => {
+    if (!sandboxed) context.skip('no sandbox on this machine');
+    const shown = await inspect(['--method', 'tools/call', '--tool-name', 'case', '--tool-arg', `id=${upperCase}`]);
+    expect(shown.code, shown.stderr).toBe(0);
+    expect(text(shown)).toMatch(/^case c_[0-9a-f]{8} · recorded · features opt\.u\n/);
+    expect(text(shown)).toContain('reference:\n  exit 0\n  stdout: 1 line\n    | WORD 0\n');
+    expect(text(shown)).toContain('  - WORD 0\n  + word 0');
+    const probed = await inspect(['--method', 'tools/call', '--tool-name', 'probe', '--tool-arg', 'argv=["echo","a  b"]']);
+    expect(probed.code, probed.stderr).toBe(0);
+    expect(text(probed)).toMatch(/^probe \d{8}-\d{6}-[0-9a-f]{4}, reference only, saved to \.port-anything\/probes\//);
+    expect(text(probed)).toContain("  $ tool echo 'a  b'\nreference:\n  exit 0\n  stdout: 1 line\n    | a  b\n");
+    expect(readdirSync(join(project, '.port-anything', 'probes'))).toHaveLength(1);
+  }, 240_000);
 
   it('next gives the repro and diff, and run of the cluster the deltas', async (context) => {
     if (!sandboxed) context.skip('no sandbox on this machine');

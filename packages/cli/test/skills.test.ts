@@ -36,7 +36,7 @@ function invocations(skill: string): string[] {
 /** The tools the MCP server lists, with their input properties, asked over MCP as a client would. */
 async function listTools(): Promise<Map<string, string[]>> {
   const unused = () => Promise.reject(new Error('not called'));
-  const backend: Backend = { status: unused, next: unused, run: unused };
+  const backend: Backend = { status: unused, next: unused, run: unused, case: unused, features: unused, probe: unused };
   const [client, server] = InMemoryTransport.createLinkedPair();
   await createServer(backend, { version: '0.0.0' }).connect(server);
   const answers = new Map<number, (result: unknown) => void>();

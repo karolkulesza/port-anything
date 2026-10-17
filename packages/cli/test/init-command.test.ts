@@ -23,7 +23,7 @@ describe('port-anything init', () => {
         '  port-anything.yaml: created',
         '  .port-anything/: created',
         '  .gitattributes: created with .port-anything/history.jsonl merge=union',
-        '  .gitignore: created with .port-anything/cache/, .port-anything/runs/, .port-anything/tmp/',
+        '  .gitignore: created with .port-anything/cache/, .port-anything/runs/, .port-anything/probes/, .port-anything/tmp/',
         'Next: add cases to port-anything/recorded/*.jsonl, then run port-anything run.',
         '',
       ].join('\n'),

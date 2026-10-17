@@ -92,14 +92,26 @@ export const RUNNER_SCRIPT = [
   // fail <in|back>: what went wrong, from the error file.
   'fail() { echo "error $nonce $1 $(wc -c <"$p/error")"; cat "$p/error"; }',
   `p=${RUNNER_DIR}`,
+  // The container's mount points, each followed by a space: /proc/mounts escapes the spaces in them.
+  'mnt=" "; while read -r _ m _; do mnt="$mnt$m "; done </proc/self/mounts',
+  // left <dir>: fails if anything is left in it but the way to a mount (the side's program, the case
+  // directory's parent: on a Linux host they are often in /tmp). A subshell: its loop variable is its own.
+  'left() (',
+  '  for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do',
+  '    [ -e "$f" ] || [ -L "$f" ] || continue',
+  '    case "$mnt" in',
+  '      *" $f "*) ;;',
+  '      *" $f/"*) [ -d "$f" ] && [ ! -L "$f" ] && left "$f" || exit 1 ;;',
+  '      *) exit 1 ;;',
+  '    esac',
+  '  done',
+  ')',
   // wipe <dir>: empty it, dot files included (a pattern that matches nothing stays as it is), even
   // what a case made read-only or unreadable; a runner that can't stops, rather than leak a case's files.
   'wipe() {',
   // The entries, not the mount itself: it is root's, and BusyBox's chmod -R stops where it fails.
   '  chmod -R u+rwX "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null; rm -rf "$1"/* "$1"/.[!.]* "$1"/..?* 2>/dev/null',
-  '  for f in "$1"/* "$1"/.[!.]* "$1"/..?*; do',
-  '    if [ -e "$f" ] || [ -L "$f" ]; then echo "port-anything runner: cannot empty $1 after a case" >&2; exit 1; fi',
-  '  done',
+  '  left "$1" || { echo "port-anything runner: cannot empty $1 after a case" >&2; exit 1; }',
   '}',
   'while read -r cmd nonce t g bytes; do',
   '  [ "$cmd" = run ] || exit 0',
