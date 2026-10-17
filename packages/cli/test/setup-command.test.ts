@@ -116,6 +116,31 @@ describe('port-anything setup', () => {
     expect(existsSync(join(home, '.claude', 'skills', 'port-loop', 'stale.md'))).toBe(false);
   });
 
+  it('leaves a Codex server defined some other way alone and says so, rather than defining it twice', async () => {
+    install('.codex');
+    const configs = [
+      '[mcp_servers]\nport-anything = { command = "npx", args = ["-y", "port-anything", "mcp"] }\n',
+      'mcp_servers.port-anything.command = "npx"\n',
+      'mcp_servers = { port-anything = { command = "npx" } }\n',
+      '[mcp_servers.port-anything]\ncommand = "port-anything"\nargs = ["mcp"]\n',
+      '[mcp_servers."port-anything".env]\nTZ = "UTC"\n',
+    ];
+    for (const config of configs) {
+      writeFileSync(join(home, '.codex', 'config.toml'), config);
+      const result = await setup();
+      expect({ config, exitCode: result.exitCode }).toEqual({ config, exitCode: 3 });
+      expect(result.stderr).toMatch(/config\.toml already defines mcp_servers\.port-anything \(.+\); make it run "npx -y port-anything mcp" by hand/);
+      expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(config);
+    }
+    // The table setup writes, with a comment after its header and other spacing, is the same server.
+    const same = '[mcp_servers.port-anything] # for ports\ncommand="npx"\nargs = ["-y", "port-anything", "mcp"]\n\n[other]\nx = 1\n';
+    writeFileSync(join(home, '.codex', 'config.toml'), same);
+    const result = await setup();
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/MCP server port-anything in .*config\.toml: already there/);
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(same);
+  });
+
   it('refuses a settings file it cannot parse, without touching it', async () => {
     install('.cursor');
     writeFileSync(join(home, '.cursor', 'mcp.json'), '{ "mcpServers": ');

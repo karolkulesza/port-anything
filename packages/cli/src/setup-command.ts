@@ -159,8 +159,10 @@ const TOML_TABLE = `[mcp_servers.${MCP_SERVER.name}]\ncommand = ${JSON.stringify
 
 /**
  * Adds the `[mcp_servers.port-anything]` table to a TOML config. Appending a table nobody defined
- * yet keeps the file valid without parsing it; a table that is already there is left alone (and
- * said so) when it differs, since rewriting it would mean parsing TOML.
+ * yet keeps the file valid without parsing it. A table that is already there and says the same is
+ * left alone; a server defined any other way (a different table, an inline table under
+ * `[mcp_servers]`, dotted keys) is a `SetupError`, since appending would define it twice and
+ * rewriting it would mean parsing TOML.
  */
 async function mergeTomlServer(file: string): Promise<{ file: string; change: Change }> {
   let text = '';
@@ -169,11 +171,48 @@ async function mergeTomlServer(file: string): Promise<{ file: string; change: Ch
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  const header = /^\s*\[\s*mcp_servers\s*\.\s*(?:port-anything|"port-anything"|'port-anything')\s*\]/m;
-  if (header.test(text)) return { file, change: 'already there' };
+  const existing = tomlServer(text);
+  if (existing === 'table') return { file, change: 'already there' };
+  if (existing !== undefined) {
+    throw new SetupError(`${file} already defines mcp_servers.${MCP_SERVER.name} (${existing}); make it run "${[MCP_SERVER.command, ...MCP_SERVER.args].join(' ')}" by hand.`);
+  }
   const separator = text === '' ? '' : text.endsWith('\n\n') ? '' : text.endsWith('\n') ? '\n' : '\n\n';
   await writeAtomically(file, `${text}${separator}${TOML_TABLE}`);
   return { file, change: 'added' };
+}
+
+/**
+ * How a TOML text defines the server: `table` for exactly the table `setup` writes, a description
+ * for any other definition, undefined for none. Reads lines, not TOML: enough for the forms a
+ * config file uses (tables, inline tables, dotted keys), and on the safe side for the rest.
+ */
+function tomlServer(text: string): 'table' | string | undefined {
+  const name = `(?:${MCP_SERVER.name}|"${MCP_SERVER.name}"|'${MCP_SERVER.name}')`;
+  const ours = new RegExp(`^\\[\\s*mcp_servers\\s*\\.\\s*${name}\\s*\\]$`);
+  const sub = new RegExp(`^\\[\\s*mcp_servers\\s*\\.\\s*${name}\\s*\\.`);
+  const dotted = new RegExp(`^mcp_servers\\s*\\.\\s*${name}\\s*[.=]`);
+  const key = new RegExp(`^${name}\\s*[.=]`);
+  const lines = text.split('\n').map((l) => l.trim());
+  let table: string | undefined;
+  let body: string[] | undefined;
+  for (const line of lines) {
+    if (line.startsWith('[')) {
+      table = line.replace(/\s+#.*$/, '');
+      if (ours.test(table)) {
+        if (body !== undefined) return 'a second table';
+        body = [];
+      } else if (sub.test(table)) return `a ${table} table`;
+      continue;
+    }
+    if (line === '' || line.startsWith('#')) continue;
+    if (table === undefined && dotted.test(line)) return 'dotted keys';
+    if (table === undefined && /^mcp_servers\s*=/.test(line) && line.includes(MCP_SERVER.name)) return 'an inline mcp_servers table';
+    if (table !== undefined && /^\[\s*mcp_servers\s*\]$/.test(table) && key.test(line)) return 'a key under [mcp_servers]';
+    if (table !== undefined && ours.test(table)) body!.push(line.replace(/\s*=\s*/, ' = '));
+  }
+  if (body === undefined) return undefined;
+  const expected = TOML_TABLE.trim().split('\n').slice(1);
+  return body.length === expected.length && body.every((l, i) => l === expected[i]) ? 'table' : 'a table with other settings';
 }
 
 /** Copies each skill directory of `source` into `target`, replacing an older copy; what changed per skill. */
