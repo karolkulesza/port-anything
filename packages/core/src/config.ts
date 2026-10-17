@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { DEFAULT_STDERR_SIMILARITY, PROFILES } from './compare.js';
 import { NormalizersSchema } from './normalize.js';
 import { DEFAULT_TIMEOUT_MS } from './process-runner.js';
+import { GENERATOR_VERSIONS } from './rng.js';
 
 const text = z.string().refine((s) => !s.includes('\0'), 'must not contain a NUL byte');
 
@@ -78,11 +79,19 @@ const CompareSchema = z.strictObject({
   min_parity: later,
 });
 
-/** `corpus`: only `repeats` (by `baseline`) and `min_cases_per_feature` (by scoring) are read so far; the other keys are left to later commands. */
+/** `corpus`: the generated corpus's settings, `repeats` (by `baseline`) and `min_cases_per_feature` (by the generator and scoring); other keys are left to later commands. */
 const CorpusSchema = z.looseObject({
   /** Runs of each case against the reference in `baseline`. */
   repeats: z.number().int().min(2).optional(),
-  /** Features with fewer scored cases are left out of the headline. Default 20. */
+  /** The generator version the generated corpus is pinned to, independent of the tool version. */
+  generator: z.enum(GENERATOR_VERSIONS).optional(),
+  /** The generated corpus's seed: with the generator, the CLI spec and the budget, it decides the cases. */
+  generator_seed: z.int().min(0).optional(),
+  /** Most generated cases. Default 10000. */
+  budget: z.int().min(1).optional(),
+  /** Largest share of a feature's generated cases that may be error exits. Default 0.3. */
+  error_path_cap: z.number().min(0).max(1).optional(),
+  /** Features with fewer scored cases are left out of the headline, and the generator tops them up to it. Default 20. */
   min_cases_per_feature: z.int().min(1).optional(),
 });
 

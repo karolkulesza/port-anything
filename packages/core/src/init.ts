@@ -6,7 +6,7 @@ import { HISTORY_FILE, HISTORY_GITATTRIBUTES } from './history.js';
 import { parseProgramCommand } from './program.js';
 
 /** What `.gitignore` gets: the parts of `.port-anything/` that are rebuilt or per machine. */
-export const GITIGNORED = ['.port-anything/cache/', '.port-anything/runs/', '.port-anything/tmp/'] as const;
+export const GITIGNORED = ['.port-anything/cache/', '.port-anything/runs/', '.port-anything/probes/', '.port-anything/tmp/'] as const;
 
 export interface InitOptions {
   /** The reference command, as typed; a relative executable path is taken from `cwd`. */

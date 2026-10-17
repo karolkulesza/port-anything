@@ -1,8 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BlobStore, DEFAULT_STRENGTH_MUTANTS, cacheDir, loadCommittedCases, type SandboxProbe } from '@port-anything/core';
+import { BlobStore, CLI_SPEC_FILE, DEFAULT_STRENGTH_MUTANTS, cacheDir, loadCommittedCases, readConfigFile, type SandboxProbe } from '@port-anything/core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { loadCorpus } from '../src/corpus.js';
+import { run } from '../src/run.js';
 import { parseStrengthArgs, runCheck, strengthCommand, type CheckSpec } from '../src/strength-command.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
@@ -211,6 +213,29 @@ describe('strength --check', () => {
     } finally {
       process.chdir(cwdBefore);
     }
+  });
+
+  it('checks the generated cases too: in the project from its cache, in a copy without one from the original\'s', async () => {
+    const cwd = makeProject(TOOL, []);
+    writeFileSync(join(cwd, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./ref/tool.js }\ncandidate: { cmd: ./port/tool.js }\ncorpus: { generator: v1, generator_seed: 3, budget: 12, error_path_cap: 1 }\n');
+    writeFileSync(join(cwd, CLI_SPEC_FILE), 'version: 1\nprogram: tool\nflags:\n  - { names: [--x], feature: opt.x, arity: 0 }\n');
+    expect((await run(['generate', '--no-sandbox'], { cwd })).exitCode).toBe(0);
+    const generated = (await loadCorpus(cwd, await readConfigFile(cwd), 'cache-only')).map((c) => c.id);
+    expect(generated.length).toBeGreaterThan(0);
+    expect(await runCheck(spec(cwd, generated), { probe: NO_SANDBOX })).toEqual({});
+
+    // As mull does: the spec names a copy of the project (no .port-anything/) and the original as origin.
+    const copy = join(cwd, 'copy');
+    mkdirSync(join(copy, 'port-anything'), { recursive: true });
+    for (const file of ['port-anything.yaml', CLI_SPEC_FILE]) writeFileSync(join(copy, file), readFileSync(join(cwd, file)));
+    for (const dir of ['ref', 'port']) {
+      mkdirSync(join(copy, dir));
+      writeFileSync(join(copy, dir, 'tool.js'), dir === 'port' ? TOOL.replace('process.exit(2)', 'process.exit(3)') : TOOL, { mode: 0o755 });
+    }
+    expect(await runCheck({ ...spec(copy, generated), origin: cwd }, { probe: NO_SANDBOX })).toHaveProperty('diverged');
+    // Without the original's cache the copy has none of the cases.
+    rmSync(join(cwd, '.port-anything'), { recursive: true, force: true });
+    await expect(runCheck({ ...spec(copy, generated), origin: cwd }, { probe: NO_SANDBOX })).rejects.toThrow(/The corpus changed while measuring/);
   });
 
   it('exits 3 and logs why when the check cannot run, so a failure never counts as a catch', async () => {

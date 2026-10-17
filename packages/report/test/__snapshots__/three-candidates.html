@@ -164,8 +164,8 @@ tr.group th { background: var(--soft); font-weight: 600; }
 <li>sandbox: bwrap (no network)</li>
 <li>program name (argv[0], both sides): <code>tool</code></li>
 <li>compared under: default (stderr loose, similarity 0.8)</li>
-<li>manifest verification: not run by this version</li>
-<li>environment fingerprint: not recorded by this version</li>
+<li>manifest verification: not part of the report; run <code>port-anything verify</code></li>
+<li>environment fingerprint: recorded in <code>.port-anything/MANIFEST.json</code> by <code>port-anything baseline</code>, checked by <code>port-anything verify</code></li>
 <li>fresh holdout: not run by this version</li>
 <li>candidate language composition: not measured by this version</li>
 </ul>
