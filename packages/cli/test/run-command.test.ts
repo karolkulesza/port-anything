@@ -96,6 +96,7 @@ describe('parseRunArgs', () => {
     for (const bad of ['-1', '1.5', 'many', '']) expect(() => parseRunArgs([`--holdout=${bad}`]), bad).toThrow(/--holdout takes a number of cases/);
     expect(() => parseRunArgs(['--holdout', '10', '--smoke'])).toThrow(/--holdout goes with a run of the whole corpus/);
     expect(() => parseRunArgs(['--cluster', '2', '--holdout', '10'])).toThrow(/--holdout goes with a run of the whole corpus/);
+    expect(() => parseRunArgs(['--holdout', '10', '--feature', 'opt.n'])).toThrow(/--holdout goes with a run of the whole corpus, not with --smoke, --cluster or --feature/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {

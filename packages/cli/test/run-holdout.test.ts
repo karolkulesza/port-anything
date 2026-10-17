@@ -63,9 +63,10 @@ interface Holdout {
 
 interface RunJson {
   run_id: string;
+  subset: unknown;
   cases: number;
   holdout: { ran: true; requested: number; cases: number; in_corpus: number; flaky_reference: number; alpha: number; saved: number } | { ran: false; reason: string };
-  candidates: { command: string; diverge: number; score: { headline: number | null }; holdout?: Holdout }[];
+  candidates: { command: string; diverge: number; score: { headline: number | null; headlineFeatures: string[] }; holdout?: Holdout }[];
 }
 
 // Each run generates and runs a few hundred cases of a shell script, so these take seconds.
@@ -183,7 +184,7 @@ describe('run with a fresh holdout', () => {
     }
   });
 
-  it('has no holdout with holdout.fresh_cases: 0 (unless --holdout asks for one), nor in a smoke run', { timeout: 120_000 }, async () => {
+  it('has no holdout with holdout.fresh_cases: 0 (unless --holdout asks for one), nor in a smoke or feature run', { timeout: 120_000 }, async () => {
     const config = readFileSync(join(dir, 'port-anything.yaml'), 'utf8');
     try {
       writeFileSync(join(dir, 'port-anything.yaml'), `${config}holdout:\n  fresh_cases: 0\n`);
@@ -208,5 +209,10 @@ describe('run with a fresh holdout', () => {
     }
     const smoke = await cli(['run', '--smoke', '--no-sandbox']);
     expect(smoke.stdout).not.toMatch(/fresh holdout/);
+    const feature = (await json(['run', '--holdout', '0'])).out.candidates[0]!.score.headlineFeatures[0]!;
+    const one = await json(['run', '--feature', feature]);
+    expect(one.out.subset).toEqual({ feature });
+    expect(one.out.holdout).toEqual({ ran: false, reason: 'only a run of the whole corpus generates one' });
+    expect(one.out.candidates[0]!.holdout).toBeUndefined();
   });
 });
