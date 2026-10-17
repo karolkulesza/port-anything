@@ -35,6 +35,9 @@ const engine = agent ? await findContainerEngine().catch(() => undefined) : unde
 const IMAGE = 'rust:1-slim';
 type Mode = 'local' | 'container';
 const modes = (process.env.PA_AGENT_MODES ?? 'local,container').split(',').map((m) => m.trim()) as Mode[];
+for (const mode of modes) {
+  if (mode !== 'local' && mode !== 'container') throw new Error(`PA_AGENT_MODES: unknown sandbox mode "${mode}" (local, container)`);
+}
 
 interface Run {
   code: number;
