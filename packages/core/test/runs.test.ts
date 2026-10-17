@@ -7,6 +7,7 @@ import { BlobStore } from '../src/blob-store.js';
 import { canonicalCase } from '../src/model.js';
 import {
   RUN_FILE,
+  RunRecordSchema,
   inlineCase,
   latestRun,
   loadRepro,
@@ -14,6 +15,7 @@ import {
   newRunId,
   parseClusterAddress,
   resolveCluster,
+  runsAfter,
   runsDir,
   saveRepro,
   saveRun,
@@ -84,6 +86,22 @@ describe('saved runs', () => {
     await expect(loadRun(project, '20261014-190203-a1b2')).rejects.toThrow(/it says it is run/);
   });
 
+  describe('runsAfter', () => {
+    it('lists the runs saved after a run, oldest first, skipping damaged ones', async () => {
+      const first = await saveRun(project, run(), new Date('2026-10-14T19:00:00Z'));
+      const c = await saveRun(project, run({ subset: { cluster: `${first.run_id}/1` } }), new Date('2026-10-14T19:07:00Z'));
+      const b = await saveRun(project, run(), new Date('2026-10-14T19:05:00Z'));
+      await saveRun(project, run(), new Date('2026-10-14T18:00:00Z'));
+      mkdirSync(join(runsDir(project), '20261014-190800-ffff'));
+      expect((await runsAfter(project, first)).map((r) => r.run_id)).toEqual([b.run_id, c.run_id]);
+      expect(await runsAfter(project, c)).toEqual([]);
+    });
+
+    it('is empty without runs', async () => {
+      expect(await runsAfter(project, { run_id: '20261014-190000-aaaa', created: '2026-10-14T19:00:00.000Z' })).toEqual([]);
+    });
+  });
+
   describe('latestRun', () => {
     it('is undefined before any run', async () => {
       expect(await latestRun(project)).toBeUndefined();
@@ -96,9 +114,18 @@ describe('saved runs', () => {
       const smoke = { smoke: { from: second.run_id, corpus: 40, clusters: 2, per_feature: 10, passing: 5 } };
       const third = await saveRun(project, run({ subset: smoke }), new Date('2026-10-14T19:06:30Z'));
       expect((await loadRun(project, third.run_id)).subset).toEqual(smoke);
+      await saveRun(project, run({ subset: { feature: 'opt.n' } }), new Date('2026-10-14T19:06:40Z'));
+      await saveRun(project, run({ subset: { cases: [run().clusters[0]!.cases[0]!] } }), new Date('2026-10-14T19:06:50Z'));
       mkdirSync(join(runsDir(project), '20261014-190700-ffff'));
       expect((await latestRun(project))?.run_id).toBe(second.run_id);
       expect(first.run_id < second.run_id).toBe(true);
+    });
+
+    it('keeps the feature or cases a subset run ran', async () => {
+      const id = run().clusters[0]!.cases[0]!;
+      const saved = await saveRun(project, run({ subset: { cases: [id] } }));
+      expect((await loadRun(project, saved.run_id)).subset).toEqual({ cases: [id] });
+      expect(() => RunRecordSchema.parse({ ...saved, subset: { feature: '' } })).toThrow();
     });
 
     it('tells runs of the same second apart by their saved time', async () => {

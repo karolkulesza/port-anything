@@ -87,6 +87,7 @@ npx port-anything generate --budget 5000   # a bigger corpus; the budget and see
 npx port-anything baseline                 # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
 npx port-anything verify                   # check the cases and the reference's output against the manifest
 npx port-anything init . --ci              # a GitHub Actions workflow that recomputes the score on every push (see Integrity)
+npx port-anything mcp                      # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas), case, features, probe
 ```
 
 [`examples/wc-lite`](examples/wc-lite) is a complete one: a small `wc` in C, a Rust port, and bad ports with one bug each. To try it on Linux (it needs a C compiler and cargo), build the reference and a port with an off-by-one bug:
