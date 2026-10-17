@@ -167,6 +167,22 @@ describe('run with a fresh holdout', () => {
     expect(report.candidates[0]!.holdout).toMatchObject({ significant: true, gap: { corpus: 1 } });
   });
 
+  it('leaves out a holdout case as flaky-reference when the reference answers differently on a second run', { timeout: 120_000 }, async () => {
+    const config = readFileSync(join(dir, 'port-anything.yaml'), 'utf8');
+    // The reference adds its process ID, so every case diverges and every re-check of it varies.
+    writeFileSync(join(dir, 'bin', 'frob-noisy'), `#!/bin/sh\n'${join(dir, 'bin', 'frob')}' "$@"; status=$?\necho "$$"\nexit $status\n`, { mode: 0o755 });
+    try {
+      writeFileSync(join(dir, 'port-anything.yaml'), config.replace('./bin/frob }', './bin/frob-noisy }'));
+      const { out } = await json(['run', '--holdout', '40']);
+      if (!out.holdout.ran) throw new Error('the holdout did not run');
+      expect(out.holdout.cases).toBeGreaterThan(0);
+      expect(out.holdout.flaky_reference).toBe(out.holdout.cases);
+      expect(out.candidates[0]!.holdout).toMatchObject({ match: 0, diverge: 0, diverging: [], significant: false });
+    } finally {
+      writeFileSync(join(dir, 'port-anything.yaml'), config);
+    }
+  });
+
   it('has no holdout with holdout.fresh_cases: 0 (unless --holdout asks for one), nor in a smoke run', { timeout: 120_000 }, async () => {
     const config = readFileSync(join(dir, 'port-anything.yaml'), 'utf8');
     try {

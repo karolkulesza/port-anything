@@ -639,12 +639,8 @@ async function runFreshHoldout(options: {
         return observed.cases.map((c) => c.reference);
       },
     });
-    result = await runCases({ ...runner, cases: fresh.cases, workDir: join(workDir, 'run') });
-    const diverging = fresh.cases.filter((_, n) => result.cases[n]!.candidates.some((r) => r.comparison.verdict === 'diverge'));
-    if (diverging.length > 0) {
-      const again = await runCases({ ...runner, candidates: [runner.reference], cases: diverging, workDir: join(workDir, 'again'), rerun: false });
-      for (const c of again.cases) if (c.candidates[0]!.comparison.verdict === 'diverge') flaky.add(c.caseId);
-    }
+    result = await runCases({ ...runner, cases: fresh.cases, recheckReference: 1, workDir: join(workDir, 'run') });
+    for (const c of result.cases) if (c.referenceVaried !== undefined) flaky.add(c.caseId);
   } finally {
     await removeScratch(projectDir, workDir);
   }
