@@ -287,7 +287,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       // Every cat fails; the listings show only the case directory itself.
       expect(seen.stdout.toString().match(/No such file/g)).toHaveLength(9);
       expect(seen.stdout.toString()).not.toMatch(/^s$/m);
-      expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l))).toEqual(['case']);
+      expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l)).sort()).toEqual(['case', ...wayIn(dir)].sort());
     } finally {
       await pool.close();
     }
@@ -295,8 +295,9 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
 
   it.each([IMAGE, 'alpine:3'])('starts each case in %s clean when the program and the case directory are inside /tmp, as on a Linux host', async (image) => {
     await ensureImage(engine!, image);
-    // Their mounts then sit in the container's /tmp, and stay when the runner empties it.
-    const base = mkdtempSync('/tmp/pa-container-');
+    // Their mounts then sit in the container's /tmp, and stay when the runner empties it. (In /tmp
+    // already on a Linux host; the host's /tmp, not a container's own, when the tests run in one.)
+    const base = mkdtempSync(join(wayIn(dir).length > 0 ? dir : '/tmp', 'pa-container-'));
     const { pool, caseDir, proc, session } = await single(`in-tmp-${image.replace(/\W/g, '-')}`, image, base);
     try {
       const s = await session();
@@ -309,7 +310,7 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
       expect(seen.stdout.toString().match(/No such file/g)).toHaveLength(9);
       expect(seen.stdout.toString()).not.toMatch(/^s$/m);
       // /tmp holds only the way to the mounts.
-      expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l)).sort()).toEqual(['case', base.slice('/tmp/'.length)].sort());
+      expect(seen.stdout.toString().split('\n').filter((l) => l !== '' && !/No such file|:$/.test(l)).sort()).toEqual(['case', ...wayIn(base)].sort());
     } finally {
       await pool.close();
       rmSync(base, { recursive: true, force: true });
@@ -432,6 +433,11 @@ describe.runIf(engine !== undefined || required)(`container mode, in ${IMAGE}`, 
     }
   }, 180_000);
 });
+
+/** What a container's /tmp keeps of the way to mounts in `dir`: its first directory there, if it is in /tmp. */
+function wayIn(dir: string): string[] {
+  return dir.startsWith('/tmp/') ? [dir.split('/')[2]!] : [];
+}
 
 /** The names of the containers a pool started in `dir` that are still there. */
 async function containers(engine: string, dir: string): Promise<string[]> {
