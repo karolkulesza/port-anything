@@ -30,9 +30,10 @@ interface Agent {
   skillsDir(e: SetupEnvironment, found: readonly string[]): string;
 }
 
-const claudeDir = (e: SetupEnvironment) => e.env.CLAUDE_CONFIG_DIR ?? join(e.home, '.claude');
-const codexDir = (e: SetupEnvironment) => e.env.CODEX_HOME ?? join(e.home, '.codex');
-const geminiDir = (e: SetupEnvironment) => join(e.env.GEMINI_CLI_HOME ?? e.home, '.gemini');
+// An agent's environment variable set but empty counts as unset.
+const claudeDir = (e: SetupEnvironment) => e.env.CLAUDE_CONFIG_DIR || join(e.home, '.claude');
+const codexDir = (e: SetupEnvironment) => e.env.CODEX_HOME || join(e.home, '.codex');
+const geminiDir = (e: SetupEnvironment) => join(e.env.GEMINI_CLI_HOME || e.home, '.gemini');
 /** The skills directory Codex, Gemini CLI and Cursor all read (Codex's own, ~/.codex/skills, is deprecated). */
 const sharedSkills = (e: SetupEnvironment) => join(e.home, '.agents', 'skills');
 const ENTRY = { command: MCP_SERVER.command, args: [...MCP_SERVER.args] };
@@ -42,7 +43,7 @@ export const AGENTS: readonly Agent[] = [
     name: 'Claude Code',
     configDir: claudeDir,
     // User-scope servers live in ~/.claude.json, beside the config directory (inside it when CLAUDE_CONFIG_DIR moves it).
-    registerMcp: (e) => mergeJsonServer(e.env.CLAUDE_CONFIG_DIR === undefined ? join(e.home, '.claude.json') : join(e.env.CLAUDE_CONFIG_DIR, '.claude.json'), { type: 'stdio', ...ENTRY, env: {} }),
+    registerMcp: (e) => mergeJsonServer(e.env.CLAUDE_CONFIG_DIR ? join(e.env.CLAUDE_CONFIG_DIR, '.claude.json') : join(e.home, '.claude.json'), { type: 'stdio', ...ENTRY, env: {} }),
     // Claude Code reads no other agent's directory.
     skillsDir: (e) => join(claudeDir(e), 'skills'),
   },
@@ -205,7 +206,7 @@ function tomlServer(text: string): 'table' | string | undefined {
   let subTable: string | undefined;
   for (const line of lines) {
     if (line.startsWith('[')) {
-      table = line.replace(/\s*#[^"'\]]*$/, '');
+      table = tableHeader(line);
       if (ours.test(table)) {
         if (body !== undefined) return 'a second table';
         body = [];
@@ -222,6 +223,21 @@ function tomlServer(text: string): 'table' | string | undefined {
   if (body === undefined) return subTable === undefined ? undefined : `a ${subTable} table`;
   const expected = TOML_TABLE.trim().split('\n').slice(1);
   return expected.every((l) => body.includes(l)) ? 'table' : 'other table';
+}
+
+/** A table header line (`[a.b]`, `[[a.b]]`) without what follows it: up to its first `]` outside quotes, so a comment after it, `]` and all, goes. */
+function tableHeader(line: string): string {
+  const close = line.startsWith('[[') ? ']]' : ']';
+  let quote: string | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (quote !== undefined) {
+      if (c === '\\' && quote === '"') i++;
+      else if (c === quote) quote = undefined;
+    } else if (c === '"' || c === "'") quote = c;
+    else if (line.startsWith(close, i)) return line.slice(0, i + close.length);
+  }
+  return line;
 }
 
 /** Copies each skill directory of `source` into `target`, replacing an older copy; what changed per skill. */

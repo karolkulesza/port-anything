@@ -93,6 +93,14 @@ describe('port-anything setup', () => {
     expect(existsSync(join(home, '.claude.json'))).toBe(false);
   });
 
+  it('takes those variables set but empty as unset', async () => {
+    install('.claude', '.codex', '.gemini');
+    expect((await setup({ CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', GEMINI_CLI_HOME: '' })).exitCode).toBe(0);
+    expect(json('.claude.json')).toHaveProperty(['mcpServers', 'port-anything']);
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toContain('[mcp_servers.port-anything]');
+    expect(json('.gemini/settings.json')).toHaveProperty(['mcpServers', 'port-anything']);
+  });
+
   it('changes nothing the second time, and brings an outdated server entry or skill up to date', async () => {
     install('.claude', '.codex');
     await setup();
@@ -123,6 +131,8 @@ describe('port-anything setup', () => {
       'mcp_servers.port-anything.command = "npx"\n',
       'mcp_servers = { port-anything = { command = "npx" } }\n',
       '[mcp_servers."port-anything".env]\nTZ = "UTC"\n',
+      '[mcp_servers] # see [docs]\nport-anything = { command = "npx" }\n',
+      '[mcp_servers."port-anything"] # see [docs]\ncommand = "npx"\nargs = ["-y", "port-anything", "mcp"]\n\n[mcp_servers."port-anything"]\n',
     ];
     for (const config of configs) {
       writeFileSync(join(home, '.codex', 'config.toml'), config);
@@ -139,7 +149,7 @@ describe('port-anything setup', () => {
     expect(differs.stdout).toMatch(/config\.toml: there but running something else, left as it is/);
     expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(other);
     // The table setup writes, with a comment after its header, other spacing and settings of the user's, is the same server.
-    const same = '[mcp_servers.port-anything]# for ports\ncommand="npx"\nstartup_timeout_sec = 30\nargs = ["-y", "port-anything", "mcp"] # pinned later\n\n[mcp_servers.port-anything.env]\nTZ = "UTC"\n\n[other]\nx = 1\n';
+    const same = '[mcp_servers.port-anything]# for ports, see [docs]\ncommand="npx"\nstartup_timeout_sec = 30\nargs = ["-y", "port-anything", "mcp"] # pinned later\n\n[mcp_servers.port-anything.env]\nTZ = "UTC"\n\n[other]\nx = 1\n';
     writeFileSync(join(home, '.codex', 'config.toml'), same);
     const result = await setup();
     expect(result.exitCode).toBe(0);
