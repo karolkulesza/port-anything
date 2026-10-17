@@ -17,7 +17,7 @@ export interface SetupEnvironment {
 }
 
 /** What `setup` did for one agent's MCP server or skills. */
-type Change = 'added' | 'updated' | 'already there';
+type Change = 'added' | 'updated' | 'already there' | 'there but running something else, left as it is';
 
 /** An agent `setup` knows: how to tell it is installed and where its MCP servers and skills go. */
 interface Agent {
@@ -71,8 +71,8 @@ export const AGENTS: readonly Agent[] = [
 /**
  * `port-anything setup`: for each agent installed for this user (Claude Code, Codex, Cursor,
  * Gemini CLI), registers the MCP server and installs the skills, and lists what it did. Run again,
- * it changes only what differs. Exit 0, 3 for unexpected arguments, a settings file it can't
- * read, or no agent found.
+ * it changes only what differs. Exit 0; 3 for unexpected arguments, no agent found, or a settings
+ * file it can't read or safely add the server to (after setting up everything else).
  */
 export async function setupCommand(argv: readonly string[], options: { environment?: SetupEnvironment; skillsSource?: string } = {}): Promise<CliResult> {
   if (argv.length > 0) return { exitCode: 3, stdout: '', stderr: `port-anything setup: unexpected argument "${argv[0]}"; it takes none.\n${USAGE}\n` };
@@ -86,21 +86,26 @@ export async function setupCommand(argv: readonly string[], options: { environme
   const lines: string[] = [];
   // Agents may share a skills directory; each is written once, and each agent lists what happened to it.
   const installed = new Map<string, Map<string, Change>>();
-  try {
-    for (const agent of found) {
-      const mcp = await agent.registerMcp(e);
-      const dir = agent.skillsDir(e, names);
-      if (!installed.has(dir)) installed.set(dir, await installSkills(source, dir));
-      lines.push(`${agent.name}:`, `  MCP server ${MCP_SERVER.name} in ${mcp.file}: ${mcp.change}`, `  skills in ${dir}: ${describeSkills(installed.get(dir)!)}`);
+  // A settings file one agent's server can't be added to doesn't stop the others.
+  const errors: string[] = [];
+  for (const agent of found) {
+    let mcp: string;
+    try {
+      const done = await agent.registerMcp(e);
+      mcp = `MCP server ${MCP_SERVER.name} in ${done.file}: ${done.change}`;
+    } catch (err) {
+      if (!(err instanceof SetupError)) throw err;
+      errors.push(err.message);
+      mcp = `MCP server ${MCP_SERVER.name} not added: ${err.message}`;
     }
-  } catch (err) {
-    if (err instanceof SetupError) return { exitCode: 3, stdout: `${lines.join('\n')}${lines.length > 0 ? '\n' : ''}`, stderr: `port-anything setup: ${err.message}\n` };
-    throw err;
+    const dir = agent.skillsDir(e, names);
+    if (!installed.has(dir)) installed.set(dir, await installSkills(source, dir));
+    lines.push(`${agent.name}:`, `  ${mcp}`, `  skills in ${dir}: ${describeSkills(installed.get(dir)!)}`);
   }
   const missing = AGENTS.filter((a) => !found.includes(a)).map((a) => a.name);
   if (missing.length > 0) lines.push(`Not found: ${missing.join(', ')}.`);
   lines.push('Restart the agents to load the server and the skills. The server serves the Port Anything project in the directory the agent runs in.');
-  return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
+  return { exitCode: errors.length > 0 ? 3 : 0, stdout: `${lines.join('\n')}\n`, stderr: errors.map((m) => `port-anything setup: ${m}\n`).join('') };
 }
 
 class SetupError extends Error {}
@@ -159,8 +164,8 @@ const TOML_TABLE = `[mcp_servers.${MCP_SERVER.name}]\ncommand = ${JSON.stringify
 
 /**
  * Adds the `[mcp_servers.port-anything]` table to a TOML config. Appending a table nobody defined
- * yet keeps the file valid without parsing it. A table that is already there and says the same is
- * left alone; a server defined any other way (a different table, an inline table under
+ * yet keeps the file valid without parsing it. A table that is already there is left alone, and
+ * said so when it runs something else; a server defined any other way (an inline table under
  * `[mcp_servers]`, dotted keys) is a `SetupError`, since appending would define it twice and
  * rewriting it would mean parsing TOML.
  */
@@ -173,6 +178,7 @@ async function mergeTomlServer(file: string): Promise<{ file: string; change: Ch
   }
   const existing = tomlServer(text);
   if (existing === 'table') return { file, change: 'already there' };
+  if (existing === 'other table') return { file, change: 'there but running something else, left as it is' };
   if (existing !== undefined) {
     throw new SetupError(`${file} already defines mcp_servers.${MCP_SERVER.name} (${existing}); make it run "${[MCP_SERVER.command, ...MCP_SERVER.args].join(' ')}" by hand.`);
   }
@@ -182,8 +188,9 @@ async function mergeTomlServer(file: string): Promise<{ file: string; change: Ch
 }
 
 /**
- * How a TOML text defines the server: `table` for exactly the table `setup` writes, a description
- * for any other definition, undefined for none. Reads lines, not TOML: enough for the forms a
+ * How a TOML text defines the server: `table` for the table `setup` writes (other settings of the
+ * user's in it are fine), `other table` for that table with another command or arguments, a
+ * description for any other definition, undefined for none. Reads lines, not TOML: enough for the forms a
  * config file uses (tables, inline tables, dotted keys), and on the safe side for the rest.
  */
 function tomlServer(text: string): 'table' | string | undefined {
@@ -195,24 +202,26 @@ function tomlServer(text: string): 'table' | string | undefined {
   const lines = text.split('\n').map((l) => l.trim());
   let table: string | undefined;
   let body: string[] | undefined;
+  let subTable: string | undefined;
   for (const line of lines) {
     if (line.startsWith('[')) {
-      table = line.replace(/\s+#.*$/, '');
+      table = line.replace(/\s*#[^"'\]]*$/, '');
       if (ours.test(table)) {
         if (body !== undefined) return 'a second table';
         body = [];
-      } else if (sub.test(table)) return `a ${table} table`;
+      } else if (sub.test(table)) subTable ??= table;
       continue;
     }
     if (line === '' || line.startsWith('#')) continue;
     if (table === undefined && dotted.test(line)) return 'dotted keys';
     if (table === undefined && /^mcp_servers\s*=/.test(line) && line.includes(MCP_SERVER.name)) return 'an inline mcp_servers table';
     if (table !== undefined && /^\[\s*mcp_servers\s*\]$/.test(table) && key.test(line)) return 'a key under [mcp_servers]';
-    if (table !== undefined && ours.test(table)) body!.push(line.replace(/\s*=\s*/, ' = '));
+    if (table !== undefined && ours.test(table)) body!.push(line.replace(/\s+#[^"']*$/, '').replace(/\s*=\s*/, ' = '));
   }
-  if (body === undefined) return undefined;
+  // Its sub-table alone (`[mcp_servers.port-anything.env]`): the table is defined, by a form not to add to.
+  if (body === undefined) return subTable === undefined ? undefined : `a ${subTable} table`;
   const expected = TOML_TABLE.trim().split('\n').slice(1);
-  return body.length === expected.length && body.every((l, i) => l === expected[i]) ? 'table' : 'a table with other settings';
+  return expected.every((l) => body.includes(l)) ? 'table' : 'other table';
 }
 
 /** Copies each skill directory of `source` into `target`, replacing an older copy; what changed per skill. */

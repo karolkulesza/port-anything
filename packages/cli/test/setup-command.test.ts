@@ -122,7 +122,6 @@ describe('port-anything setup', () => {
       '[mcp_servers]\nport-anything = { command = "npx", args = ["-y", "port-anything", "mcp"] }\n',
       'mcp_servers.port-anything.command = "npx"\n',
       'mcp_servers = { port-anything = { command = "npx" } }\n',
-      '[mcp_servers.port-anything]\ncommand = "port-anything"\nargs = ["mcp"]\n',
       '[mcp_servers."port-anything".env]\nTZ = "UTC"\n',
     ];
     for (const config of configs) {
@@ -132,13 +131,34 @@ describe('port-anything setup', () => {
       expect(result.stderr).toMatch(/config\.toml already defines mcp_servers\.port-anything \(.+\); make it run "npx -y port-anything mcp" by hand/);
       expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(config);
     }
-    // The table setup writes, with a comment after its header and other spacing, is the same server.
-    const same = '[mcp_servers.port-anything] # for ports\ncommand="npx"\nargs = ["-y", "port-anything", "mcp"]\n\n[other]\nx = 1\n';
+    // Its own table running something else is the user's choice: said, left alone, and not an error.
+    const other = '[mcp_servers.port-anything]\ncommand = "port-anything"\nargs = ["mcp"]\n';
+    writeFileSync(join(home, '.codex', 'config.toml'), other);
+    const differs = await setup();
+    expect(differs.exitCode).toBe(0);
+    expect(differs.stdout).toMatch(/config\.toml: there but running something else, left as it is/);
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(other);
+    // The table setup writes, with a comment after its header, other spacing and settings of the user's, is the same server.
+    const same = '[mcp_servers.port-anything]# for ports\ncommand="npx"\nstartup_timeout_sec = 30\nargs = ["-y", "port-anything", "mcp"] # pinned later\n\n[mcp_servers.port-anything.env]\nTZ = "UTC"\n\n[other]\nx = 1\n';
     writeFileSync(join(home, '.codex', 'config.toml'), same);
     const result = await setup();
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/MCP server port-anything in .*config\.toml: already there/);
     expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(same);
+  });
+
+  it('sets up the other agents when one settings file refuses the server, then exits 3', async () => {
+    install('.claude', '.codex', '.gemini');
+    const config = '[mcp_servers]\nport-anything = { command = "npx" }\n';
+    writeFileSync(join(home, '.codex', 'config.toml'), config);
+    const result = await setup();
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toMatch(/^port-anything setup: .*config\.toml already defines mcp_servers\.port-anything \(a key under \[mcp_servers\]\)/);
+    expect(result.stdout).toMatch(/Codex:\n {2}MCP server port-anything not added: .*config\.toml already defines/);
+    expect(readFileSync(join(home, '.codex', 'config.toml'), 'utf8')).toBe(config);
+    expect(json('.gemini/settings.json')).toHaveProperty(['mcpServers', 'port-anything', 'command'], 'npx');
+    expectSkills('.agents/skills');
+    expectSkills('.claude/skills');
   });
 
   it('refuses a settings file it cannot parse, without touching it', async () => {
