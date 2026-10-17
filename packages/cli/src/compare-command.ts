@@ -48,6 +48,13 @@ export const DEFAULT_COMPARE_BUDGET = 500;
 export const COMPARE_SEED = DEFAULT_GENERATOR_SEED;
 /** Reference runs per case that look for output varying between runs. */
 export const COMPARE_REPEATS = 2;
+/**
+ * Further reference runs of a case a candidate diverges on, stopping at the first that differs.
+ * Output that varies by chance (`sort --random-sort` on two lines) can agree in every baseline run;
+ * a case whose reference varies here is flaky-reference too. A random order of two lines that
+ * fooled the earlier runs and made a candidate diverge still fools all 4 one time in 16.
+ */
+export const COMPARE_RECHECKS = 4;
 
 /** The arguments of `port-anything compare`. */
 export interface CompareArgs {
@@ -130,16 +137,20 @@ export interface CompareOptions {
   tmpDir?: string;
   /** Cases running at once; defaults to the number of CPU cores. */
   concurrency?: number;
+  /** Per run of a case; defaults to the runner's. */
+  timeoutMs?: number;
 }
 
 /**
  * `port-anything compare`: zero-config parity of one or more candidates against a reference. Reads
  * the reference's `--help` into a CLI spec, generates a corpus from it, runs every case twice more
  * on the reference to find output that varies between runs (normalizers for it, `flaky-reference`
- * for what still varies), then runs every candidate and reports per-feature parity. Nothing is
- * written outside a scratch directory, unless `--save` writes `port-anything.yaml` and the CLI
- * spec. Exit code 0 when every candidate matches on every case, 1 when any case diverges, 3 when
- * the run can't start (arguments, programs, sandbox, a destructive tool).
+ * for what still varies), then runs every candidate and reports per-feature parity. A case a
+ * candidate diverges on runs on the reference a few more times, and is flaky-reference too if the
+ * reference varies there. Nothing is written outside a scratch directory, unless `--save` writes
+ * `port-anything.yaml` and the CLI spec. Exit code 0 when every candidate matches on every case,
+ * 1 when any case diverges, 3 when the run can't start (arguments, programs, sandbox, a
+ * destructive tool).
  */
 export async function compareCommand(argv: readonly string[], options: CompareOptions): Promise<CliResult> {
   try {
@@ -182,7 +193,14 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
     const programName = checkPrograms([reference, ...candidates], args);
 
     const store = new BlobStore(cacheDir(scratch));
-    const common = { reference, store, sandbox, programName, ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }) };
+    const common = {
+      reference,
+      store,
+      sandbox,
+      programName,
+      ...(options.concurrency === undefined ? {} : { concurrency: options.concurrency }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    };
 
     progress(`reading ${programName} --help …`);
     const { spec, helpArgv } = await inferCliSpec({ ...common, workDir: join(scratch, 'spec') });
@@ -212,12 +230,17 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
 
     progress(`running the reference ${COMPARE_REPEATS} more times on ${cases.length} cases …`);
     const baseline = await baselineCases({ ...common, cases, repeats: COMPARE_REPEATS, workDir: join(scratch, 'baseline') });
-    const flaky = new Map(baseline.cases.filter((c) => c.status === 'flaky-reference').map((c) => [c.caseId, c.unstable]));
+    const flaky = new Map<string, string[]>(baseline.cases.filter((c) => c.status === 'flaky-reference').map((c) => [c.caseId, c.unstable]));
     const normalizers = baseline.proposals.map((p) => p.spec);
 
     progress(`running ${candidates.length === 1 ? 'the candidate' : `${candidates.length} candidates`} …`);
     const scored = cases.filter((c) => !flaky.has(c.id));
-    const result = await runCases({ ...common, candidates, cases: scored, normalizers, workDir: join(scratch, 'run') });
+    const run = await runCases({ ...common, candidates, cases: scored, normalizers, recheckReference: COMPARE_RECHECKS, workDir: join(scratch, 'run') });
+    // The reference varied on a re-check: flaky-reference after all, so out of the score and listed.
+    const late = new Map(run.cases.flatMap((c) => (c.referenceVaried === undefined ? [] : [[c.caseId, c.referenceVaried] as const])));
+    for (const [id, fields] of late) flaky.set(id, fields);
+    const result = { ...run, cases: run.cases.filter((c) => !late.has(c.caseId)) };
+    const trusted = baseline.cases.filter((c) => !late.has(c.caseId));
 
     const selfDescription = new Set(specFeatures(spec).filter((f) => f.selfDescription).map((f) => f.name));
     const byId = new Map(cases.map((c) => [c.id, c]));
@@ -242,16 +265,16 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         .filter((name) => !cases.some((c) => c.features.includes(name))),
       baseline: {
         repeats: COMPARE_REPEATS,
-        stable: baseline.cases.filter((c) => c.status === 'stable').length,
-        normalized: baseline.cases.filter((c) => c.status === 'normalized').length,
-        flaky_reference: [...flaky].map(([id, fields]) => ({ case: id, argv: byId.get(id)!.argv, fields })),
+        stable: trusted.filter((c) => c.status === 'stable').length,
+        normalized: trusted.filter((c) => c.status === 'normalized').length,
+        flaky_reference: cases.filter((c) => flaky.has(c.id)).map((c) => ({ case: c.id, argv: c.argv, fields: flaky.get(c.id)! })),
       },
       normalizers: normalizers.map((spec, n) => ({
         normalizer: normalizerLabel(spec),
         cases: result.cases.filter((c) => c.candidates.some((run) => run.normalizedBy.includes(n))).length,
       })),
       candidates: args.candidates.map((command, i) => {
-        const verdicts = result.cases.map((c) => ({ case: byId.get(c.caseId)!, comparison: c.candidates[i]!.comparison }));
+        const verdicts = result.cases.map((c) => ({ case: byId.get(c.caseId)!, comparison: c.candidates[i]!.comparison, recovered: c.candidates[i]!.timeoutRecovered }));
         const score = scoreParity(
           verdicts.map((v) => ({ features: v.case.features, match: v.comparison.verdict === 'match' })),
           selfDescription,
@@ -259,7 +282,9 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         const divergences = verdicts
           .filter((v) => v.comparison.verdict === 'diverge')
           .map((v) => ({ case: v.case.id, argv: v.case.argv, fields: v.comparison.fields }));
-        return { command, ...score, divergences };
+        // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+        const timeoutRecovered = verdicts.filter((v) => v.recovered).map((v) => ({ case: v.case.id, argv: v.case.argv }));
+        return { command, ...score, divergences, timeout_recovered: timeoutRecovered };
       }),
       saved: [],
       duration_ms: 0,
@@ -455,7 +480,12 @@ export interface CompareSummary {
   untested: string[];
   baseline: { repeats: number; stable: number; normalized: number; flaky_reference: { case: string; argv: string[]; fields: string[] }[] };
   normalizers: { normalizer: string; cases: number }[];
-  candidates: (Parity & { command: string; divergences: { case: string; argv: string[]; fields: string[] }[] })[];
+  candidates: (Parity & {
+    command: string;
+    divergences: { case: string; argv: string[]; fields: string[] }[];
+    /** Cases scored on the candidate's re-run, its first run having timed out where the reference finished. */
+    timeout_recovered: { case: string; argv: string[] }[];
+  })[];
   saved: string[];
   duration_ms: number;
 }
@@ -499,6 +529,10 @@ export function formatCompare(s: CompareSummary): string {
   if (s.baseline.flaky_reference.length > 0) {
     lines.push('', 'flaky-reference (output still varies between reference runs):');
     for (const f of s.baseline.flaky_reference) lines.push(`  ${shortCaseId(f.case)}  ${s.program_name} ${display(f.argv)}  ${f.fields.join(', ')}`);
+  }
+  for (const c of s.candidates.filter((c) => c.timeout_recovered.length > 0)) {
+    lines.push('', `${c.command}: timeout, recovered on re-run (the re-run was compared): ${c.timeout_recovered.length}`);
+    for (const r of c.timeout_recovered) lines.push(`  ${shortCaseId(r.case)}  ${s.program_name} ${display(r.argv)}`);
   }
   if (s.saved.length > 0) lines.push('', `saved ${s.saved.join(' and ')}`);
   lines.push('', `done in ${Math.round(s.duration_ms / 1000)} s`);

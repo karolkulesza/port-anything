@@ -19,6 +19,11 @@ export interface ScoredCase {
   flakyCandidate?: boolean | undefined;
   /** The candidate ran out of time where the reference finished: a divergence, whatever the verdict. */
   candidateTimeout?: boolean | undefined;
+  /**
+   * The candidate's first run timed out where the reference finished, and its re-run, compared
+   * instead, finished: scored on the re-run's verdict, and counted so it isn't silent.
+   */
+  timeoutRecovered?: boolean | undefined;
 }
 
 /** A feature the CLI spec defines (see the spec's feature list). */
@@ -51,6 +56,8 @@ export interface CaseCounts {
   flakyCandidate: number;
   /** Of the diverging cases, those where the candidate timed out. */
   timeouts: number;
+  /** Cases, whatever their outcome, scored on a candidate re-run after its first run timed out. */
+  timeoutRecovered: number;
 }
 
 export interface FeatureScore extends CaseCounts {
@@ -118,10 +125,11 @@ export function outcome(c: ScoredCase): Outcome {
   return c.waived === true ? 'waived' : 'diverge';
 }
 
-const emptyCounts = (): CaseCounts => ({ cases: 0, scored: 0, match: 0, diverge: 0, waived: 0, flakyReference: 0, flakyCandidate: 0, timeouts: 0 });
+const emptyCounts = (): CaseCounts => ({ cases: 0, scored: 0, match: 0, diverge: 0, waived: 0, flakyReference: 0, flakyCandidate: 0, timeouts: 0, timeoutRecovered: 0 });
 
 function add(counts: CaseCounts, c: ScoredCase, o: Outcome): void {
   counts.cases++;
+  if (c.timeoutRecovered === true) counts.timeoutRecovered++;
   if (o === 'waived') counts.waived++;
   else if (o === 'flaky-reference') counts.flakyReference++;
   else {

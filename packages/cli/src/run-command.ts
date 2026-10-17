@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   BlobStore,
   CLI_SPEC_FILE,
+  CaseIdError,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
   LARGE_WAIVER_SHARE,
@@ -45,6 +46,7 @@ import {
   readConfigFile,
   readSeedFixtures,
   readWaiversFile,
+  resolveCaseId,
   resolveCluster,
   runCases,
   runsDir,
@@ -90,6 +92,10 @@ export interface RunArgs {
   cluster?: string;
   /** `--smoke`: run only the smoke subset (see `smokeSubset`). */
   smoke?: boolean;
+  /** `--feature <f>`: run only the cases of that feature. */
+  feature?: string;
+  /** Run only these cases: IDs or prefixes (see `resolveCaseId`). No option sets it; the MCP server does. */
+  caseIds?: readonly string[];
   /** `--holdout N`: fresh-holdout cases for this run instead of `holdout.fresh_cases`; 0 runs none. */
   holdout?: number;
   json: boolean;
@@ -97,9 +103,9 @@ export interface RunArgs {
 }
 
 // Documented options that later versions add.
-const NOT_YET = ['feature', 'all'];
+const NOT_YET = ['all'];
 
-export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n>] [--holdout N] [--candidate <cmd>]… [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n> | --feature <f> | --holdout N] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -112,6 +118,7 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
         candidate: { type: 'string', multiple: true },
         cluster: { type: 'string' },
         smoke: { type: 'boolean' },
+        feature: { type: 'string' },
         holdout: { type: 'string' },
         json: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
@@ -119,16 +126,20 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
       strict: true,
       allowPositionals: false,
     });
-    if (values.smoke === true && values.cluster !== undefined) throw new Error('--smoke and --cluster run different subsets; give one of them.');
+    if ([values.smoke === true, values.cluster !== undefined, values.feature !== undefined].filter(Boolean).length > 1) {
+      throw new Error('--smoke, --cluster and --feature run different subsets; give one of them.');
+    }
+    if (values.feature === '') throw new Error('--feature needs a feature name, such as opt.n.');
     let holdout: number | undefined;
     if (values.holdout !== undefined) {
       if (!/^\d+$/.test(values.holdout) || !Number.isSafeInteger(Number(values.holdout))) throw new Error(`--holdout takes a number of cases (0 for none), got "${values.holdout}".`);
-      if (values.smoke === true || values.cluster !== undefined) throw new Error('--holdout goes with a run of the whole corpus, not with --smoke or --cluster.');
+      if (values.smoke === true || values.cluster !== undefined || values.feature !== undefined) throw new Error(HOLDOUT_WITH_SUBSET);
       holdout = Number(values.holdout);
     }
     return {
       candidates: values.candidate ?? [],
       ...(values.cluster === undefined ? {} : { cluster: values.cluster }),
+      ...(values.feature === undefined ? {} : { feature: values.feature }),
       smoke: values.smoke ?? false,
       ...(holdout === undefined ? {} : { holdout }),
       json: values.json ?? false,
@@ -193,7 +204,7 @@ export interface HoldoutInputs {
  * whole corpus, with holdout cases asked for, in a project that has a CLI spec.
  */
 async function holdoutInputs(projectDir: string, config: Config, args: RunArgs): Promise<HoldoutInputs | undefined> {
-  if (args.smoke === true || args.cluster !== undefined || (args.holdout ?? holdoutSettings(config).freshCases) === 0) return undefined;
+  if (!wholeCorpus(args) || (args.holdout ?? holdoutSettings(config).freshCases) === 0) return undefined;
   let spec: CliSpec;
   try {
     spec = await readCliSpecFile(projectDir);
@@ -233,11 +244,25 @@ export async function executeRun(options: ExecuteRunOptions): Promise<CliResult>
 
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything run: ${message}\n` });
 
-async function execute({ projectDir, config, cases, waivers = [], args, probe, holdout: holdoutFrom }: ExecuteRunOptions): Promise<CliResult> {
+const HOLDOUT_WITH_SUBSET = '--holdout goes with a run of the whole corpus, not with --smoke, --cluster or --feature.';
+
+/** Whether a run runs the whole corpus: no subset asked for. */
+const wholeCorpus = (args: RunArgs) => args.smoke !== true && args.cluster === undefined && args.feature === undefined && args.caseIds === undefined;
+
+/** What a run reports, as `--json` prints it. */
+export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
+
+/**
+ * Runs and saves a run as `executeRun` describes, and returns its summary, its exit code and the
+ * IDs of the cases it ran (flaky-reference cases left out), for callers that report it their own
+ * way (the MCP server). Throws a `ConfigError` or `SandboxUnavailableError` when it can't start.
+ */
+export async function performRun({ projectDir, config, cases, waivers = [], args, probe, holdout: holdoutFrom }: ExecuteRunOptions) {
   if (config.sandbox.mode === 'container') {
     throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
   }
-  if (args.smoke === true && args.cluster !== undefined) throw new ConfigError('--smoke and --cluster run different subsets; give one of them.');
+  const subsets = [args.smoke === true, args.cluster !== undefined, args.feature !== undefined, args.caseIds !== undefined].filter(Boolean).length;
+  if (subsets > 1) throw new ConfigError('--smoke, --cluster and --feature run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
   const commands =
     args.candidates.length > 0 ? args.candidates : subset !== undefined ? [subset.run.candidate_commands[subset.cluster.candidate - 1]!] : configCandidates(config).map((c) => c.cmd);
@@ -245,11 +270,35 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
-  if (args.holdout !== undefined && (args.smoke === true || args.cluster !== undefined)) throw new ConfigError('--holdout goes with a run of the whole corpus, not with --smoke or --cluster.');
+  if (args.holdout !== undefined && !wholeCorpus(args)) throw new ConfigError(HOLDOUT_WITH_SUBSET);
   const corpusIds = new Set(cases.map((c) => c.id));
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
+  let picked: { feature: string } | { cases: string[] } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
-  else if (args.smoke === true) {
+  else if (args.feature !== undefined) {
+    const feature = args.feature;
+    const of = cases.filter((c) => c.features.includes(feature));
+    if (of.length === 0) {
+      const known = [...new Set(cases.flatMap((c) => c.features))].sort();
+      throw new ConfigError(`No case has feature "${feature}"; the corpus has ${known.length === 0 ? 'no features' : `${known.slice(0, 20).join(', ')}${known.length > 20 ? `, and ${known.length - 20} more` : ''}`}.`);
+    }
+    cases = of;
+    picked = { feature };
+  } else if (args.caseIds !== undefined) {
+    const byId = new Map(cases.map((c) => [c.id, c]));
+    const ids = new Set<string>();
+    for (const typed of args.caseIds) {
+      try {
+        ids.add(resolveCaseId(typed, byId.keys()));
+      } catch (e) {
+        if (e instanceof CaseIdError) throw new ConfigError(e.message);
+        throw e;
+      }
+    }
+    if (ids.size === 0) throw new ConfigError('No case given to run.');
+    cases = [...ids].map((id) => byId.get(id)!);
+    picked = { cases: [...ids] };
+  } else if (args.smoke === true) {
     const latest = await latestRun(projectDir);
     const open = latest === undefined ? [] : await openClusterCases(projectDir, latest, cases, new BlobStore(cacheDir(projectDir)));
     const picked = smokeSubset({ corpus: cases, clusterCases: open, diverged: new Set(latest?.clusters.flatMap((c) => c.cases)) });
@@ -311,6 +360,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
         const m = matches[n];
         return m === undefined || m.waived || !c.candidates[i]!.flaky ? [] : [{ case: c.caseId, fields: c.candidates[i]!.comparison.fields }];
       });
+      // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
+      const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
       const score = scoreCandidate(scoredCases(result, cases, matches, i), minCasesPerFeature === undefined ? {} : { minCasesPerFeature });
       const max = config.compare.max_slowdown;
       const slowdown =
@@ -334,6 +385,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
         waivers: waiverCoverage(waivers, matches.filter((m) => m !== undefined), result.cases.length),
         divergences,
         flaky_candidate: flakyCandidate,
+        timeout_recovered: timeoutRecovered,
         waived_cases: waivedCases,
       };
     });
@@ -342,7 +394,7 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
   const settings = holdoutSettings(config);
   const freshCases = args.holdout ?? settings.freshCases;
   const fresh: FreshHoldoutResult =
-    subset !== undefined || smoke !== undefined
+    !wholeCorpus(args)
       ? { summary: { ran: false, reason: 'only a run of the whole corpus generates one' } }
       : freshCases === 0
         ? { summary: { ran: false, reason: args.holdout === 0 ? 'turned off with --holdout 0' : 'turned off (holdout.fresh_cases: 0)' } }
@@ -375,12 +427,12 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
     candidates: corpusCandidates.map((c, i) => (fresh.candidates === undefined ? c : { ...c, holdout: fresh.candidates[i]! })),
     clusters,
   };
-  const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : null, ...report, candidate_commands: commands });
+  const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : (picked ?? null), ...report, candidate_commands: commands });
   if (fresh.failures !== undefined && fresh.failures.length > 0) {
     const lines = await Promise.all(fresh.failures.map(async (c) => JSON.stringify({ ...(await inlineCase(c, store)), features: c.features, origin: c.origin })));
     await writeFile(join(runsDir(projectDir), saved.run_id, HOLDOUT_FAILURES_FILE), `${lines.join('\n')}\n`);
   }
-  if (subset === undefined && smoke === undefined) {
+  if (saved.subset === null) {
     const shas = await Promise.all(
       runnerOptions.candidates.map(async (c) => {
         const dir = await candidateSource(c, projectDir);
@@ -400,7 +452,13 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
   }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
   const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant)) ? 1 : 0;
-  if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
+  return { summary, exitCode, ran: result.cases.map((c) => c.caseId) };
+}
+
+async function execute(options: ExecuteRunOptions): Promise<CliResult> {
+  const { summary, exitCode } = await performRun(options);
+  const { flaky_reference: flakyReference, clusters } = summary;
+  if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
     `Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`,
@@ -435,6 +493,8 @@ async function execute({ projectDir, config, cases, waivers = [], args, probe, h
     }
     if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
     for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
+    if (c.timeout_recovered.length > 0) lines.push('  timeout, recovered on re-run (the re-run was compared):');
+    for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   if (summary.subset === null) lines.push(holdoutLine(summary.holdout));
   if (summary.holdout.ran && summary.holdout.saved > 0) {
@@ -479,6 +539,7 @@ function scoredCases(result: RunCasesResult, cases: readonly CanonicalCase[], ma
     flakyCandidate: c.candidates[i]!.flaky,
     // A case the reference also times out on is compared like any other.
     candidateTimeout: timedOut(c, i),
+    timeoutRecovered: c.candidates[i]!.timeoutRecovered,
     ...(flakyReference === undefined ? {} : { flakyReference: flakyReference.has(c.caseId) }),
   }));
 }
@@ -714,6 +775,8 @@ export async function removeScratch(projectDir: string, workDir: string): Promis
 function describeSubset(subset: RunRecord['subset']): string {
   if (subset === null) return '';
   if ('cluster' in subset) return `, cluster ${subset.cluster} only`;
+  if ('feature' in subset) return `, feature ${subset.feature} only`;
+  if ('cases' in subset) return `, ${subset.cases.length === 1 ? '1 given case' : `${subset.cases.length} given cases`} only`;
   const { from, corpus, clusters, per_feature: perFeature, passing } = subset.smoke;
   const open = from === null ? 'no full run yet' : `${clusters} for the open clusters of run ${from}`;
   return `, smoke subset of ${corpus} case${corpus === 1 ? '' : 's'}: ${open}, ${perFeature} by feature, ${passing} passing`;
@@ -751,12 +814,13 @@ function scoreLines(score: Score): string[] {
   ];
   const origins = Object.entries(score.origins).filter(([, o]) => o.cases > 0);
   if (origins.length > 1) lines.push(`  by origin: ${origins.map(([name, o]) => `${name} ${o.parity === null ? 'n/a' : percent(o.parity)} (${count(o.cases, 'case')})`).join(', ')}`);
-  const { waived, flakyReference, flakyCandidate, timeouts } = score.raw;
+  const { waived, flakyReference, flakyCandidate, timeouts, timeoutRecovered } = score.raw;
   const excluded = [
     [waived, 'waived (not scored)'],
     [flakyReference, 'flaky-reference (not scored)'],
     [flakyCandidate, 'flaky-candidate (diverge)'],
     [timeouts, 'timed out (diverge)'],
+    [timeoutRecovered, 'timeout, recovered on re-run'],
   ] as const;
   if (excluded.some(([n]) => n > 0)) lines.push(`  ${excluded.filter(([n]) => n > 0).map(([n, label]) => `${n} ${label}`).join(' · ')}`);
   const list = (names: readonly string[]) =>

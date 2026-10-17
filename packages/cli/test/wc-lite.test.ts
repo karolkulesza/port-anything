@@ -199,7 +199,7 @@ const sandboxed = process.platform === 'linux' && process.env.PA_SANDBOX_TESTS =
 
 interface RunSummary {
   cases: number;
-  candidates: { command: string; match: number; diverge: number; waived: number; score: Score; normalizers: unknown[]; waivers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[] }[];
+  candidates: { command: string; match: number; diverge: number; waived: number; score: Score; normalizers: unknown[]; waivers: unknown[]; divergences: { case: string; fields: string[] }[]; flaky_candidate: { case: string; fields: string[] }[]; timeout_recovered: { case: string }[] }[];
   clusters: SavedCluster[];
 }
 
@@ -269,6 +269,7 @@ describe.runIf(enabled)('examples/wc-lite', () => {
         waivers: [],
         divergences: [],
         flaky_candidate: [],
+        timeout_recovered: [],
         waived_cases: [],
       },
     ]);

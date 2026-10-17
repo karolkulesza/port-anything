@@ -80,7 +80,12 @@ interface SavedReport {
   waivers: ReportInput['waivers'];
   /** Absent in a run saved before the fresh holdout. */
   holdout?: HoldoutSummary;
-  candidates: (Omit<ReportCandidate, 'waivedCases' | 'holdout'> & { waived_cases: ReportCandidate['waivedCases']; holdout?: CandidateHoldout })[];
+  candidates: (Omit<ReportCandidate, 'waivedCases' | 'timeoutRecovered' | 'holdout'> & {
+    waived_cases: ReportCandidate['waivedCases'];
+    /** Absent from runs saved before recovered timeouts were listed. */
+    timeout_recovered?: { case: string }[];
+    holdout?: CandidateHoldout;
+  })[];
 }
 
 /**
@@ -147,7 +152,7 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
             ? { ran: true, cases: s.holdout.cases, inCorpus: s.holdout.in_corpus, flakyReference: s.holdout.flaky_reference, alpha: s.holdout.alpha, saved: s.holdout.saved }
             : { ran: false, reason: s.holdout.reason },
         }),
-    candidates: s.candidates.map(({ waived_cases, holdout, ...c }) => ({
+    candidates: s.candidates.map(({ waived_cases, timeout_recovered, holdout, ...c }) => ({
       command: c.command,
       match: c.match,
       diverge: c.diverge,
@@ -155,6 +160,7 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
       score: c.score,
       waivers: c.waivers,
       waivedCases: waived_cases,
+      timeoutRecovered: (timeout_recovered ?? []).map((r) => r.case),
       ...(holdout === undefined
         ? {}
         : {

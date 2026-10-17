@@ -50,11 +50,23 @@ case "$1" in
 esac
 `;
 
+// A port that stalls on its first `upper`, as a starved machine makes any program do, then answers rightly.
+const STALL = `#!/bin/sh
+state="$PA_TEST_STATE.$1"
+n=$(cat "$state" 2>/dev/null || echo 0)
+echo $((n + 1)) > "$state"
+case "$1" in
+  echo) shift; echo "$@" ;;
+  upper) if [ "$n" = 0 ]; then exec sleep 10; fi; tr 'a-z' 'A-Z' ;;
+  fail) echo "$(basename "$0"): no" >&2; exit 1 ;;
+esac
+`;
+
 /** Text output with the run ID, which differs on every run, replaced. */
 const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/m, 'run <id>');
 
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
-const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed)).*\n/gm, '');
+const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed|timeout)).*\n/gm, '');
 
 /** The line a run of the whole corpus ends with in a project without a CLI spec. */
 const NO_HOLDOUT = 'fresh holdout: not run, no port-anything/cli-spec.yaml to generate cases from (port-anything spec infer writes one)';
@@ -72,7 +84,10 @@ describe('parseRunArgs', () => {
     });
     expect(parseRunArgs([])).toEqual({ candidates: [], smoke: false, json: false, noSandbox: false });
     expect(parseRunArgs(['--smoke'])).toEqual({ candidates: [], smoke: true, json: false, noSandbox: false });
-    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke and --cluster run different subsets/);
+    expect(parseRunArgs(['--feature', 'opt.n'])).toEqual({ candidates: [], feature: 'opt.n', smoke: false, json: false, noSandbox: false });
+    expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke, --cluster and --feature run different subsets/);
+    expect(() => parseRunArgs(['--feature', 'x', '--cluster', '2'])).toThrow(/run different subsets/);
+    expect(() => parseRunArgs(['--feature='])).toThrow(/--feature needs a feature name/);
   });
 
   it('reads --holdout N, 0 for none, with a run of the whole corpus only', () => {
@@ -85,7 +100,6 @@ describe('parseRunArgs', () => {
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
     expect(() => parseRunArgs(['--all'])).toThrow(/--all is not available yet/);
-    expect(() => parseRunArgs(['--feature', 'x'])).toThrow(/--feature is not available yet/);
     expect(() => parseRunArgs(['--frobnicate'])).toThrow(/frobnicate/);
     expect(() => parseRunArgs(['extra'])).toThrow(/extra/);
   });
@@ -102,6 +116,7 @@ describe('executeRun', () => {
       writeFileSync(join(project, 'bin', file), TOOL(variant), { mode: 0o755 });
     }
     writeFileSync(join(project, 'bin', 'tool-racy'), RACY, { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-stall'), STALL, { mode: 0o755 });
     const store = new BlobStore(cacheDir(project));
     const input = await store.put('hello\n');
     cases = [{ argv: ['echo', 'hi'] }, { argv: ['upper'], stdin: input }, { argv: ['fail'] }].map((c) => canonicalCase({ ...c, origin: 'recorded' }));
@@ -181,6 +196,7 @@ describe('executeRun', () => {
           waivers: [],
           divergences: [],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
         {
@@ -196,6 +212,7 @@ describe('executeRun', () => {
             { case: cases[2]!.id, fields: ['exit'] },
           ],
           flaky_candidate: [],
+          timeout_recovered: [],
           waived_cases: [],
         },
       ],
@@ -225,6 +242,50 @@ describe('executeRun', () => {
     expect(saved).toEqual(json);
     expect([version, candidate_commands]).toEqual([1, ['./bin/tool-copy', ['./bin/tool-bad']]]);
     expect(Date.parse(created)).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('scores a case on the candidate re-run when its first run timed out, and lists it as recovered', { timeout: 60_000 }, async () => {
+    let state = 0;
+    const stall = (json: boolean) =>
+      executeRun(
+        options({
+          config: parseConfig({
+            version: 1,
+            reference: { cmd: './bin/tool' },
+            candidate: { cmd: './bin/tool-stall' },
+            sandbox: { timeout: '2s', env: { PA_TEST_STATE: join(project, `stall-state-${state++}`) } },
+          }),
+          args: { candidates: [], json, noSandbox: true },
+        }),
+      );
+    const text = await stall(false);
+    expect(text.exitCode).toBe(0);
+    expect(stable(text.stdout)).toBe(
+      [
+        'Ran 3 cases as "tool", sandbox: none (--no-sandbox)',
+        'run <id>',
+        'reference ./bin/tool',
+        'compare standard (stderr loose, similarity 0.6)',
+        'normalizers: none',
+        'candidate 1 ./bin/tool-stall: 3 of 3 cases match',
+        '  parity n/a: no feature outside self-description has 20 scored cases (corpus.min_cases_per_feature)',
+        '  1 timeout, recovered on re-run',
+        '  under-sampled, not in the parity: base 100.0% (3 cases)',
+        '  timeout, recovered on re-run (the re-run was compared):',
+        `    ${shortCaseId(cases[1]!.id)}`,
+        NO_HOLDOUT,
+        '',
+      ].join('\n'),
+    );
+    const json = JSON.parse((await stall(true)).stdout);
+    expect(json.candidates[0]).toMatchObject({
+      match: 3,
+      diverge: 0,
+      score: { raw: { scored: 3, match: 3, timeouts: 0, timeoutRecovered: 1 } },
+      divergences: [],
+      flaky_candidate: [],
+      timeout_recovered: [{ case: cases[1]!.id }],
+    });
   });
 
   it('lists the flaky-candidate cases of a racy port apart and counts them as diverging (done when)', async () => {
@@ -274,6 +335,7 @@ describe('executeRun', () => {
       waivers: [],
       divergences: [],
       flaky_candidate: [{ case: cases[1]!.id, fields: ['stdout'] }],
+      timeout_recovered: [],
       waived_cases: [],
     });
     // Kept out of the clusters, which only hold steady divergences.
@@ -932,6 +994,25 @@ describe('executeRun --smoke', () => {
   }, 30_000);
 
   it('refuses --smoke with --cluster (exit 3)', async () => {
-    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke and --cluster run different subsets/) });
+    expect(await exec({ smoke: true, cluster: '1' })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/--smoke, --cluster and --feature run different subsets/) });
+  });
+
+  it('runs the cases of one feature as a subset run', async () => {
+    const before = (await latestRun(project))?.run_id;
+    const run = await json({ feature: 'opt.e' });
+    expect(run).toMatchObject({ exitCode: 0, subset: { feature: 'opt.e' }, cases: 20 });
+    expect((await latestRun(project))?.run_id).toBe(before);
+    expect((await exec({ feature: 'error' })).stdout).toMatch(/^run \S+, feature error only\n/m);
+    const unknown = await exec({ feature: 'opt.zzz' });
+    expect(unknown).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('No case has feature "opt.zzz"; the corpus has error, opt.e, opt.u.') });
+  });
+
+  it('runs given cases, by ID or prefix', async () => {
+    const wanted = [cases[100]!.id, shortCaseId(cases[0]!.id)];
+    const run = await json({ caseIds: wanted });
+    expect(run).toMatchObject({ exitCode: 1, subset: { cases: [cases[100]!.id, cases[0]!.id] }, cases: 2 });
+    expect((await exec({ caseIds: [cases[100]!.id] })).stdout).toMatch(/^run \S+, 1 given case only\n/m);
+    expect(await exec({ caseIds: ['c_zz'] })).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('is not a case ID') });
+    expect(await exec({ caseIds: ['c_1'], smoke: true })).toMatchObject({ exitCode: 3 });
   });
 });

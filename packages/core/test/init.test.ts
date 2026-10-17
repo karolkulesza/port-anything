@@ -23,7 +23,7 @@ describe('initProject', () => {
       { path: 'port-anything.yaml', action: 'created' },
       { path: '.port-anything/', action: 'created' },
       { path: '.gitattributes', action: 'created', added: ['.port-anything/history.jsonl merge=union'] },
-      { path: '.gitignore', action: 'created', added: ['.port-anything/cache/', '.port-anything/runs/', '.port-anything/tmp/'] },
+      { path: '.gitignore', action: 'created', added: ['.port-anything/cache/', '.port-anything/runs/', '.port-anything/probes/', '.port-anything/tmp/'] },
     ]);
     // Executable paths are typed from the current directory and stored from the project's.
     expect(read('tool', 'port-anything.yaml')).toBe(
@@ -31,7 +31,7 @@ describe('initProject', () => {
     );
     expect(statSync(join(root, 'tool', '.port-anything')).isDirectory()).toBe(true);
     expect(read('tool', '.gitattributes')).toBe(`${HISTORY_GITATTRIBUTES}\n`);
-    expect(read('tool', '.gitignore')).toBe('.port-anything/cache/\n.port-anything/runs/\n.port-anything/tmp/\n');
+    expect(read('tool', '.gitignore')).toBe('.port-anything/cache/\n.port-anything/runs/\n.port-anything/probes/\n.port-anything/tmp/\n');
     expect(await readConfigFile(join(root, 'tool'))).toMatchObject({ reference: { cmd: './bin/tool' }, candidate: { cmd: '../port/target/release/tool' } });
   });
 
@@ -70,10 +70,10 @@ describe('initProject', () => {
     const first = await initProject('.', { reference: 'sort', cwd: root });
     expect(first.slice(2)).toEqual([
       { path: '.gitattributes', action: 'updated', added: [HISTORY_GITATTRIBUTES] },
-      { path: '.gitignore', action: 'updated', added: ['.port-anything/cache/', '.port-anything/tmp/'] },
+      { path: '.gitignore', action: 'updated', added: ['.port-anything/cache/', '.port-anything/probes/', '.port-anything/tmp/'] },
     ]);
     expect(read('.gitattributes')).toBe(`*.png binary\n${HISTORY_GITATTRIBUTES}\n`);
-    expect(read('.gitignore')).toBe('node_modules/\n.port-anything/runs/\n.port-anything/cache/\n.port-anything/tmp/\n');
+    expect(read('.gitignore')).toBe('node_modules/\n.port-anything/runs/\n.port-anything/cache/\n.port-anything/probes/\n.port-anything/tmp/\n');
 
     const before = [read('port-anything.yaml'), read('.gitattributes'), read('.gitignore')];
     expect(await initProject('.', { cwd: root })).toEqual([

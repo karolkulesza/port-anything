@@ -37,7 +37,7 @@ describe('reportJson', () => {
   it('carries the counting rules: per-feature flags, untested features, waivers and per-origin parity', () => {
     const c3 = json.candidates[2]!;
     expect(c3.features.find((f) => f.feature === 'base')).toEqual({
-      feature: 'base', parity: 23 / 24, cases: 25, scored: 24, match: 23, diverge: 1, waived: 1, flaky_reference: 0, flaky_candidate: 0, timeouts: 0,
+      feature: 'base', parity: 23 / 24, cases: 25, scored: 24, match: 23, diverge: 1, waived: 1, flaky_reference: 0, flaky_candidate: 0, timeouts: 0, timeout_recovered: 0,
       self_description: false, under_sampled: false, in_headline: true,
     });
     expect(c3.under_sampled).toEqual(['opt.x']);
@@ -49,6 +49,15 @@ describe('reportJson', () => {
     expect(Object.keys(c3.origins).sort()).toEqual(['generated', 'imported', 'recorded']);
     expect(json.waivers[1]).toEqual({ waiver: 2, match: { feature: 'base', field: 'exit', shape: 'exit-code' }, category: 'reference-bug', reason: 'the original exits 0 after "write error"' });
     expect(json.min_cases_per_feature).toBe(20);
+  });
+
+  it('lists the cases scored on a re-run after a candidate timeout, with their count', () => {
+    const [c1, c2] = json.candidates;
+    expect(c2!.timeout_recovered).toEqual([id(5), id(30)]);
+    expect(c2!.raw).toMatchObject({ timeout_recovered: 2, timeouts: 0 });
+    expect(c2!.features.find((f) => f.feature === 'opt.n')).toMatchObject({ timeout_recovered: 1 });
+    expect(c1!.timeout_recovered).toEqual([]);
+    expect(c1!.raw.timeout_recovered).toBe(0);
   });
 
   it('names each cluster in words, with its repro case by ID, null when the report has none', () => {

@@ -208,6 +208,7 @@ export {
   reproPath,
   parseClusterAddress,
   resolveCluster,
+  runsAfter,
   runsDir,
   saveRepro,
   saveRun,
@@ -218,6 +219,7 @@ export {
   type RunRecord,
   type SavedCluster,
 } from './runs.js';
+export { PROBE_ID_PATTERN, ProbeRecordSchema, loadProbe, probePath, probesDir, saveProbe, type ProbeRecord } from './probes.js';
 export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
 export {
   CLI_SPEC_FILE,

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { latestRun, runsDir } from '@port-anything/core';
 import { ReportJsonSchema } from '@port-anything/report';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { run } from '../src/run.js';
@@ -134,6 +135,38 @@ describe('report', () => {
       expect((await run(['report'], { cwd: project })).exitCode).toBe(0);
       html = readFileSync(join(project, 'port-anything-report.html'), 'utf8');
       expect(html).toMatch(/repro: case <code>c_[0-9a-f]{8}<\/code> \(no longer in the corpus\)/);
+    } finally {
+      writeFileSync(file, kept);
+    }
+  });
+
+  it('lists the cases a run scored on a re-run after a candidate timeout, and reads runs saved before they were listed', async () => {
+    const file = join(runsDir(project), (await latestRun(project))!.run_id, 'run.json');
+    const kept = readFileSync(file, 'utf8');
+    const saved = JSON.parse(kept);
+    const report = async () => {
+      writeFileSync(file, JSON.stringify(saved));
+      expect((await run(['report'], { cwd: project })).exitCode).toBe(0);
+      const json = ReportJsonSchema.parse(JSON.parse(readFileSync(join(project, 'port-anything-report.json'), 'utf8')));
+      return { json, html: readFileSync(join(project, 'port-anything-report.html'), 'utf8') };
+    };
+    try {
+      const recovered = `sha256:${'0'.repeat(64)}`;
+      saved.candidates[1].timeout_recovered = [{ case: recovered }];
+      saved.candidates[1].score.raw.timeoutRecovered = 1;
+      let { json, html } = await report();
+      expect(json.candidates.map((c) => c.timeout_recovered)).toEqual([[], [recovered], []]);
+      expect(json.candidates[1]!.raw.timeout_recovered).toBe(1);
+      expect(html).toContain('<li>candidate 2: 1 case (the re-run was compared): <code>c_00000000</code></li>');
+      // Saved before: neither the list nor the count.
+      for (const c of saved.candidates) {
+        delete c.timeout_recovered;
+        delete c.score.raw.timeoutRecovered;
+        for (const f of c.score.features) delete f.timeoutRecovered;
+      }
+      ({ json, html } = await report());
+      expect(json.candidates.map((c) => [c.timeout_recovered, c.raw.timeout_recovered])).toEqual([[[], 0], [[], 0], [[], 0]]);
+      expect(html).toContain('<p>None: no candidate timed out on a first run and then finished on its re-run.</p>');
     } finally {
       writeFileSync(file, kept);
     }
