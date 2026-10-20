@@ -66,7 +66,8 @@ const actionlint: ((dir: string) => { status: number | null; output: string }) |
       }
     : engine !== undefined
       ? (dir) => {
-          const r = spawnSync(engine, ['run', '--rm', '-v', `${dir}:/repo`, '-w', '/repo', ACTIONLINT_IMAGE, '-color=false', CI_WORKFLOW_FILE], { encoding: 'utf8' });
+          // --quiet: a runner without the image would otherwise print the pull notice on stderr.
+          const r = spawnSync(engine, ['run', '--rm', '--quiet', '-v', `${dir}:/repo`, '-w', '/repo', ACTIONLINT_IMAGE, '-color=false', CI_WORKFLOW_FILE], { encoding: 'utf8' });
           return { status: r.status, output: `${r.stdout}${r.stderr}` };
         }
       : undefined;
