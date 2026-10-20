@@ -66,6 +66,9 @@ const actionlint: ((dir: string) => { status: number | null; output: string }) |
       }
     : engine !== undefined
       ? (dir) => {
+          // The image runs as its own user, and mkdtemp's directory is 0700: on Linux, where the
+          // bind mount keeps permissions, it couldn't read the workflow.
+          execFileSync('chmod', ['-R', 'a+rX', dir]);
           // --quiet: a runner without the image would otherwise print the pull notice on stderr.
           const r = spawnSync(engine, ['run', '--rm', '--quiet', '-v', `${dir}:/repo`, '-w', '/repo', ACTIONLINT_IMAGE, '-color=false', CI_WORKFLOW_FILE], { encoding: 'utf8' });
           return { status: r.status, output: `${r.stdout}${r.stderr}` };
