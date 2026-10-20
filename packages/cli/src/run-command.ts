@@ -1,13 +1,15 @@
 import { randomBytes } from 'node:crypto';
-import { realpath, rm, rmdir, stat } from 'node:fs/promises';
+import { realpath, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve as resolvePath } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
   BlobStore,
+  CLI_SPEC_FILE,
   CaseIdError,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
   LARGE_WAIVER_SHARE,
+  MIN_GAP_CASES,
   PROFILE_FIELDS,
   SandboxUnavailableError,
   appendHistory,
@@ -16,11 +18,22 @@ import {
   chooseSandbox,
   clusterDivergences,
   configCandidates,
+  DEFAULT_GENERATOR,
   describeFeatures,
   describeSignature,
   describeWaiver,
   featureWeights,
+  caseOutcome,
+  freshHoldoutSeed,
+  gapCluster,
+  generateArgvCases,
+  generateFreshHoldout,
+  generatedCorpusSettings,
   gitHead,
+  holdoutGap,
+  holdoutParity,
+  holdoutSettings,
+  inlineCase,
   latestRun,
   measureSlowdown,
   matchWaivers,
@@ -29,11 +42,14 @@ import {
   openClusterCases,
   probeSandbox,
   readBaselineRecord,
+  readCliSpecFile,
   readConfigFile,
+  readSeedFixtures,
   readWaiversFile,
   resolveCaseId,
   resolveCluster,
   runCases,
+  runsDir,
   saveRun,
   scoreCandidate,
   shortCaseId,
@@ -42,12 +58,17 @@ import {
   waiverCoverage,
   type CanonicalCase,
   type CaseRun,
+  type CliSpec,
   type CompareOptions,
   type Config,
+  type GapCase,
+  type GapFeature,
   type ResolvedCluster,
   type ResolvedProgram,
+  type ScoredCase,
   type RunRecord,
   type RunCasesOptions,
+  type RunCasesResult,
   type SandboxChoice,
   type SandboxProbe,
   type SavedCluster,
@@ -75,14 +96,16 @@ export interface RunArgs {
   feature?: string;
   /** Run only these cases: IDs or prefixes (see `resolveCaseId`). No option sets it; the MCP server does. */
   caseIds?: readonly string[];
+  /** `--holdout N`: fresh-holdout cases for this run instead of `holdout.fresh_cases`; 0 runs none. */
+  holdout?: number;
   json: boolean;
   noSandbox: boolean;
 }
 
 // Documented options that later versions add.
-const NOT_YET = ['all', 'holdout'];
+const NOT_YET = ['all'];
 
-export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n> | --feature <f>] [--candidate <cmd>]… [--json] [--no-sandbox]';
+export const USAGE = 'Usage: port-anything run [--smoke | --cluster [<run-id>/]<n> | --feature <f> | --holdout N] [--candidate <cmd>]… [--json] [--no-sandbox]';
 
 /** Reads the arguments after `run`. Throws a `ConfigError` (exit 3) for anything it doesn't know. */
 export function parseRunArgs(argv: readonly string[]): RunArgs {
@@ -96,6 +119,7 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
         cluster: { type: 'string' },
         smoke: { type: 'boolean' },
         feature: { type: 'string' },
+        holdout: { type: 'string' },
         json: { type: 'boolean' },
         'no-sandbox': { type: 'boolean' },
       },
@@ -106,11 +130,18 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
       throw new Error('--smoke, --cluster and --feature run different subsets; give one of them.');
     }
     if (values.feature === '') throw new Error('--feature needs a feature name, such as opt.n.');
+    let holdout: number | undefined;
+    if (values.holdout !== undefined) {
+      if (!/^\d+$/.test(values.holdout) || !Number.isSafeInteger(Number(values.holdout))) throw new Error(`--holdout takes a number of cases (0 for none), got "${values.holdout}".`);
+      if (values.smoke === true || values.cluster !== undefined || values.feature !== undefined) throw new Error(HOLDOUT_WITH_SUBSET);
+      holdout = Number(values.holdout);
+    }
     return {
       candidates: values.candidate ?? [],
       ...(values.cluster === undefined ? {} : { cluster: values.cluster }),
       ...(values.feature === undefined ? {} : { feature: values.feature }),
       smoke: values.smoke ?? false,
+      ...(holdout === undefined ? {} : { holdout }),
       json: values.json ?? false,
       noSandbox: values['no-sandbox'] ?? false,
     };
@@ -130,7 +161,16 @@ export async function runCommand(argv: readonly string[], options: { cwd: string
     const config = await readConfigFile(options.cwd);
     const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
     const waivers = await readWaiversFile(options.cwd);
-    prepared = { projectDir: options.cwd, config, cases, waivers, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
+    const holdout = await holdoutInputs(options.cwd, config, args);
+    prepared = {
+      projectDir: options.cwd,
+      config,
+      cases,
+      waivers,
+      args,
+      ...(holdout === undefined ? {} : { holdout }),
+      ...(options.probe === undefined ? {} : { probe: options.probe }),
+    };
   } catch (e) {
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
@@ -149,6 +189,30 @@ export interface ExecuteRunOptions {
   args: RunArgs;
   /** The sandbox probe's result; probed on this machine when absent. */
   probe?: SandboxProbe;
+  /** What a fresh holdout is generated from; without it, a run has none. */
+  holdout?: HoldoutInputs;
+}
+
+/** The CLI spec and seed fixtures a fresh holdout is generated from, like the generated corpus. */
+export interface HoldoutInputs {
+  spec: CliSpec;
+  seeds: readonly Uint8Array[];
+}
+
+/**
+ * The project's CLI spec and seed fixtures, when this run generates a fresh holdout: a run of the
+ * whole corpus, with holdout cases asked for, in a project that has a CLI spec.
+ */
+async function holdoutInputs(projectDir: string, config: Config, args: RunArgs): Promise<HoldoutInputs | undefined> {
+  if (!wholeCorpus(args) || (args.holdout ?? holdoutSettings(config).freshCases) === 0) return undefined;
+  let spec: CliSpec;
+  try {
+    spec = await readCliSpecFile(projectDir);
+  } catch (e) {
+    if (e instanceof ConfigError && e.message.startsWith('No ')) return undefined;
+    throw e;
+  }
+  return { spec, seeds: await readSeedFixtures(projectDir) };
 }
 
 /**
@@ -180,6 +244,11 @@ export async function executeRun(options: ExecuteRunOptions): Promise<CliResult>
 
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything run: ${message}\n` });
 
+const HOLDOUT_WITH_SUBSET = '--holdout goes with a run of the whole corpus, not with --smoke, --cluster or --feature.';
+
+/** Whether a run runs the whole corpus: no subset asked for. */
+const wholeCorpus = (args: RunArgs) => args.smoke !== true && args.cluster === undefined && args.feature === undefined && args.caseIds === undefined;
+
 /** What a run reports, as `--json` prints it. */
 export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
 
@@ -188,7 +257,7 @@ export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
  * IDs of the cases it ran (flaky-reference cases left out), for callers that report it their own
  * way (the MCP server). Throws a `ConfigError` or `SandboxUnavailableError` when it can't start.
  */
-export async function performRun({ projectDir, config, cases, waivers = [], args, probe }: ExecuteRunOptions) {
+export async function performRun({ projectDir, config, cases, waivers = [], args, probe, holdout: holdoutFrom }: ExecuteRunOptions) {
   const subsets = [args.smoke === true, args.cluster !== undefined, args.feature !== undefined, args.caseIds !== undefined].filter(Boolean).length;
   if (subsets > 1) throw new ConfigError('--smoke, --cluster and --feature run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
@@ -198,6 +267,8 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
     throw new ConfigError('No candidate to run: set candidate (or candidates) in port-anything.yaml, or pass --candidate <cmd>.');
   }
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
+  if (args.holdout !== undefined && !wholeCorpus(args)) throw new ConfigError(HOLDOUT_WITH_SUBSET);
+  const corpusIds = new Set(cases.map((c) => c.id));
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
   let picked: { feature: string } | { cases: string[] } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
@@ -252,25 +323,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       normalizer: normalizerLabel(spec),
       cases: result.cases.filter((c) => c.candidates.some((run, i) => (candidate === undefined || i === candidate) && run.normalizedBy.includes(n))).length,
     }));
-  // Per candidate and case, the waivers covering its diverging fields; undefined for a match. A
-  // candidate that timed out where the reference finished diverges, and no waiver covers that.
-  const regexes = waivers.some((w) => w.match.regex !== undefined);
-  const timedOut = (c: CaseRun, i: number) => c.candidates[i]!.observation.timeout && !c.reference.timeout;
-  const waived: (WaiverMatch | undefined)[][] = [];
-  for (const i of commands.keys()) {
-    waived.push(
-      await Promise.all(
-        result.cases.map(async (c, n) => {
-          const run = c.candidates[i]!;
-          if (run.comparison.verdict === 'match') return undefined;
-          if (timedOut(c, i)) return { fields: run.shapes.map(() => []), waived: false, remaining: run.shapes };
-          const text = async (field: 'stdout' | 'stderr') => (await store.get(run.normalized.reference[field])).toString('utf8');
-          const reference = regexes ? { stdout: await text('stdout'), stderr: await text('stderr') } : {};
-          return matchWaivers({ features: cases[n]!.features, shapes: run.shapes, reference }, waivers);
-        }),
-      ),
-    );
-  }
+  const waived = await waiverMatches(result, cases, waivers, store, commands.length);
   // Each candidate's divergences in ranked clusters, numbered through the run, candidate by candidate;
   // a waived case is left out, and a case that still diverges is clustered on the fields no waiver covers.
   const weights = featureWeights(cases);
@@ -285,16 +338,8 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, features: cluster.features, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
     }
   }
-  const report = {
-    program_name: result.programName,
-    sandbox: sandbox.label,
-    reference: display(config.reference.cmd),
-    compare: describeCompare(compare),
-    cases: result.cases.length,
-    flaky_reference: flakyReference,
-    normalizers: changed(),
-    waivers,
-    candidates: commands.map((command, i) => {
+  const minCasesPerFeature = config.corpus?.min_cases_per_feature;
+  const corpusCandidates = commands.map((command, i) => {
       const matches = waived[i]!;
       const fieldsOf = (n: number, covered: boolean) => result.cases[n]!.candidates[i]!.shapes.filter((_, f) => (matches[n]!.fields[f]!.length > 0) === covered).map((x) => x.field);
       const divergences = result.cases.flatMap((c, n) => {
@@ -314,20 +359,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       });
       // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
       const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
-      const score = scoreCandidate(
-        result.cases.map((c, n) => ({
-          caseId: c.caseId,
-          features: cases[n]!.features,
-          origin: cases[n]!.origin,
-          verdict: c.candidates[i]!.comparison.verdict,
-          waived: matches[n]?.waived === true,
-          flakyCandidate: c.candidates[i]!.flaky,
-          // A case the reference also times out on is compared like any other.
-          candidateTimeout: timedOut(c, i),
-          timeoutRecovered: c.candidates[i]!.timeoutRecovered,
-        })),
-        config.corpus?.min_cases_per_feature === undefined ? {} : { minCasesPerFeature: config.corpus.min_cases_per_feature },
-      );
+      const score = scoreCandidate(scoredCases(result, cases, matches, i), minCasesPerFeature === undefined ? {} : { minCasesPerFeature });
       const max = config.compare.max_slowdown;
       const slowdown =
         max === undefined
@@ -353,10 +385,50 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
         timeout_recovered: timeoutRecovered,
         waived_cases: waivedCases,
       };
-    }),
+    });
+
+  // The fresh holdout, on a run of the whole corpus only.
+  const settings = holdoutSettings(config);
+  const freshCases = args.holdout ?? settings.freshCases;
+  const fresh: FreshHoldoutResult =
+    !wholeCorpus(args)
+      ? { summary: { ran: false, reason: 'only a run of the whole corpus generates one' } }
+      : freshCases === 0
+        ? { summary: { ran: false, reason: args.holdout === 0 ? 'turned off with --holdout 0' : 'turned off (holdout.fresh_cases: 0)' } }
+        : holdoutFrom === undefined
+          ? { summary: { ran: false, reason: `no ${CLI_SPEC_FILE} to generate cases from (port-anything spec infer writes one)` } }
+          : await runFreshHoldout({
+              projectDir,
+              config,
+              inputs: holdoutFrom,
+              cases: freshCases,
+              alpha: settings.gapAlpha,
+              corpus: corpusIds,
+              runner: runnerOptions,
+              waivers,
+              corpusCases: cases,
+              corpusScored: commands.map((_, i) => scoredCases(result, cases, waived[i]!, i)),
+              scores: corpusCandidates.map((c) => c.score),
+            });
+
+  const report = {
+    program_name: result.programName,
+    sandbox: sandbox.label,
+    reference: display(config.reference.cmd),
+    compare: describeCompare(compare),
+    cases: result.cases.length,
+    flaky_reference: flakyReference,
+    normalizers: changed(),
+    waivers,
+    holdout: fresh.summary,
+    candidates: corpusCandidates.map((c, i) => (fresh.candidates === undefined ? c : { ...c, holdout: fresh.candidates[i]! })),
     clusters,
   };
   const saved = await saveRun(projectDir, { subset: subset !== undefined ? { cluster: subset.address } : smoke !== undefined ? { smoke } : (picked ?? null), ...report, candidate_commands: commands });
+  if (fresh.failures !== undefined && fresh.failures.length > 0) {
+    const lines = await Promise.all(fresh.failures.map(async (c) => JSON.stringify({ ...(await inlineCase(c, store)), features: c.features, origin: c.origin })));
+    await writeFile(join(runsDir(projectDir), saved.run_id, HOLDOUT_FAILURES_FILE), `${lines.join('\n')}\n`);
+  }
   if (saved.subset === null) {
     const shas = await Promise.all(
       runnerOptions.candidates.map(async (c) => {
@@ -376,7 +448,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
     });
   }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
-  const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true) ? 1 : 0;
+  const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant)) ? 1 : 0;
   return { summary, exitCode, ran: result.cases.map((c) => c.caseId) };
 }
 
@@ -409,6 +481,7 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge${flaky}` : ''}${c.waived > 0 ? `, ${c.waived} waived` : ''}`);
     lines.push(...scoreLines(c.score));
     if (c.slowdown !== undefined) lines.push(slowdownLine(c.slowdown));
+    if ('holdout' in c) lines.push(...candidateHoldoutLines(c.holdout));
     if (c.waivers.length > 0) lines.push(`  waivers (cases covered): ${c.waivers.map(coverageLabel).join(', ')}`);
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
@@ -420,7 +493,239 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     if (c.timeout_recovered.length > 0) lines.push('  timeout, recovered on re-run (the re-run was compared):');
     for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
+  if (summary.subset === null) lines.push(holdoutLine(summary.holdout));
+  if (summary.holdout.ran && summary.holdout.saved > 0) {
+    lines.push(`fresh-holdout cases that diverge, saved for reproduction: .port-anything/runs/${summary.run_id}/${HOLDOUT_FAILURES_FILE}`);
+    lines.push(`  (in the format of ${'port-anything/recorded/*.jsonl'}: copy the file there to keep them in the corpus)`);
+  }
   return { exitCode, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+/** Per candidate and case, the waivers covering its diverging fields; undefined for a match. */
+async function waiverMatches(result: RunCasesResult, cases: readonly CanonicalCase[], waivers: readonly Waiver[], store: BlobStore, candidates: number): Promise<(WaiverMatch | undefined)[][]> {
+  const regexes = waivers.some((w) => w.match.regex !== undefined);
+  const waived: (WaiverMatch | undefined)[][] = [];
+  for (let i = 0; i < candidates; i++) {
+    waived.push(
+      await Promise.all(
+        result.cases.map(async (c, n) => {
+          const run = c.candidates[i]!;
+          if (run.comparison.verdict === 'match') return undefined;
+          // A candidate that timed out where the reference finished diverges, and no waiver covers that.
+          if (timedOut(c, i)) return { fields: run.shapes.map(() => []), waived: false, remaining: run.shapes };
+          const text = async (field: 'stdout' | 'stderr') => (await store.get(run.normalized.reference[field])).toString('utf8');
+          const reference = regexes ? { stdout: await text('stdout'), stderr: await text('stderr') } : {};
+          return matchWaivers({ features: cases[n]!.features, shapes: run.shapes, reference }, waivers);
+        }),
+      ),
+    );
+  }
+  return waived;
+}
+
+const timedOut = (c: CaseRun, i: number) => c.candidates[i]!.observation.timeout && !c.reference.timeout;
+
+/** One candidate's cases as scoring sees them. */
+function scoredCases(result: RunCasesResult, cases: readonly CanonicalCase[], matches: readonly (WaiverMatch | undefined)[], i: number, flakyReference?: ReadonlySet<string>): ScoredCase[] {
+  return result.cases.map((c, n) => ({
+    caseId: c.caseId,
+    features: cases[n]!.features,
+    origin: cases[n]!.origin,
+    verdict: c.candidates[i]!.comparison.verdict,
+    waived: matches[n]?.waived === true,
+    flakyCandidate: c.candidates[i]!.flaky,
+    // A case the reference also times out on is compared like any other.
+    candidateTimeout: timedOut(c, i),
+    timeoutRecovered: c.candidates[i]!.timeoutRecovered,
+    ...(flakyReference === undefined ? {} : { flakyReference: flakyReference.has(c.caseId) }),
+  }));
+}
+
+/** Where a run saves the fresh-holdout cases that diverged, next to its `run.json`. */
+export const HOLDOUT_FAILURES_FILE = 'holdout-failures.jsonl';
+
+/** Whether a run had a fresh holdout and, if it did, what it ran. */
+export type HoldoutSummary =
+  | { ran: false; reason: string }
+  | {
+      ran: true;
+      /** Cases asked for (`holdout.fresh_cases`, `--holdout`). */
+      requested: number;
+      /** New cases run: the generated ones the corpus doesn't have. */
+      cases: number;
+      /** Generated cases left out because the corpus has them. */
+      in_corpus: number;
+      /** New cases left out because the reference's own output varied on them. */
+      flaky_reference: number;
+      alpha: number;
+      /** Diverging cases saved in the run's directory (see `HOLDOUT_FAILURES_FILE`). */
+      saved: number;
+    };
+
+/** One candidate's fresh holdout, and its gap to the corpus. */
+export interface CandidateHoldout {
+  match: number;
+  diverge: number;
+  waived: number;
+  /** Mean of per-feature parity over the holdout's cases of the corpus headline's features; null when it has none. */
+  parity: number | null;
+  ci95: [number, number] | null;
+  /** Features `parity` is the mean over. */
+  features: number;
+  /**
+   * The gap test, on the byte-mutated cases of both sides (see `holdoutGap`); null when either
+   * side has none of the headline's features (`no_gap` says why).
+   */
+  gap: { corpus: number; holdout: number; gap: number; p_value: number; features: GapFeature[]; clusters: { corpus: number; holdout: number } } | null;
+  no_gap?: string;
+  /** The gap is significant at `holdout.gap_alpha`: the run fails. */
+  significant: boolean;
+  /** IDs of the holdout cases it diverged on. */
+  diverging: string[];
+}
+
+interface FreshHoldoutResult {
+  summary: HoldoutSummary;
+  candidates?: CandidateHoldout[];
+  /** The cases any candidate diverged on, to save. */
+  failures?: CanonicalCase[];
+}
+
+/**
+ * Generates a fresh holdout from a new seed that is never stored, the way the corpus is generated,
+ * and runs it against the reference and every candidate. A case a candidate diverges on runs on
+ * the reference once more: when the reference's own output changes, the case is left out as
+ * flaky-reference (the corpus learns those from baseline; new cases can't). Waivers apply as on
+ * the corpus. Each candidate's holdout is then compared with its corpus score (see `holdoutGap`).
+ */
+async function runFreshHoldout(options: {
+  projectDir: string;
+  config: Config;
+  inputs: HoldoutInputs;
+  cases: number;
+  alpha: number;
+  corpus: ReadonlySet<string>;
+  runner: Omit<RunCasesOptions, 'cases' | 'workDir'>;
+  waivers: readonly Waiver[];
+  /** The corpus as it ran (flaky-reference cases left out), and each candidate's outcomes on it. */
+  corpusCases: readonly CanonicalCase[];
+  corpusScored: readonly (readonly ScoredCase[])[];
+  scores: readonly Score[];
+}): Promise<FreshHoldoutResult> {
+  const { projectDir, config, inputs, runner, waivers } = options;
+  const { store } = runner;
+  const generated = generatedCorpusSettings(config);
+  const minCasesPerFeature = config.corpus?.min_cases_per_feature;
+  const workDir = scratchDir(projectDir);
+  let fresh;
+  let result: RunCasesResult;
+  const flaky = new Set<string>();
+  try {
+    fresh = await generateFreshHoldout(inputs.spec, {
+      seed: freshHoldoutSeed(),
+      cases: options.cases,
+      corpus: options.corpus,
+      generator: generated?.generator ?? DEFAULT_GENERATOR,
+      iKnow: false,
+      ...(generated === undefined ? {} : { errorPathCap: generated.errorPathCap }),
+      ...(minCasesPerFeature === undefined ? {} : { minCasesPerFeature }),
+      seeds: inputs.seeds,
+      observe: async (cases, blobs) => {
+        for (const c of cases) for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) await store.put(blobs.get(ref)!);
+        const observed = await runCases({ ...runner, candidates: [], cases, workDir: join(workDir, 'observe') });
+        return observed.cases.map((c) => c.reference);
+      },
+    });
+    result = await runCases({ ...runner, cases: fresh.cases, recheckReference: 1, workDir: join(workDir, 'run') });
+    for (const c of result.cases) if (c.referenceVaried !== undefined) flaky.add(c.caseId);
+  } finally {
+    await removeScratch(projectDir, workDir);
+  }
+  const cases = fresh.cases;
+  const waived = await waiverMatches(result, cases, waivers, store, options.scores.length);
+  // The gap compares byte mutants only: argv cases come first and take a share of a corpus that
+  // depends on its budget (most of a small holdout for a large CLI, little of a 10000-case
+  // corpus). The corpus's argv cases are the ones its seed generates; recorded and imported cases
+  // aren't generated at all.
+  const argvIds =
+    generated === undefined ? new Set<string>() : new Set(generateArgvCases(inputs.spec, { seed: generated.seed, generator: generated.generator, iKnow: false }).cases.map((c) => c.case.id));
+  const corpusMutant = options.corpusCases.map((c) => generated !== undefined && c.origin === 'generated' && !argvIds.has(c.id));
+  const holdoutMutant = fresh.strategies.map((s) => s === 'mutation');
+  const toGap = (c: CanonicalCase, scored: ScoredCase): GapCase => {
+    const o = caseOutcome(scored);
+    return { features: c.features, cluster: gapCluster(c), outcome: o === 'match' ? 'match' : o === 'diverge' ? 'diverge' : 'excluded' };
+  };
+  const failing = new Set<string>();
+  const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {
+    const scored = scoredCases(result, cases, waived[i]!, i, flaky);
+    const score = scoreCandidate(scored, { minCasesPerFeature: 1 });
+    const headline = new Set(corpusScore.headlineFeatures);
+    const holdoutGapCases = cases.map((c, n) => toGap(c, scored[n]!));
+    const parity = holdoutParity(holdoutGapCases, headline);
+    const corpusGapCases = options.corpusCases.flatMap((c, n) => (corpusMutant[n] ? [toGap(c, options.corpusScored[i]![n]!)] : []));
+    const gap = holdoutGap(
+      corpusGapCases,
+      holdoutGapCases.filter((_, n) => holdoutMutant[n]),
+      { alpha: options.alpha, features: headline },
+    );
+    const noGap =
+      gap.gap !== null
+        ? undefined
+        : corpusGapCases.length === 0
+          ? 'the corpus has no generated byte-mutated cases to compare with (port-anything generate makes them)'
+          : !holdoutMutant.some(Boolean)
+            ? 'the holdout has no byte-mutated cases (raise holdout.fresh_cases)'
+            : `no feature of the parity has ${MIN_GAP_CASES} byte-mutated cases on both sides (a larger corpus.budget or holdout.fresh_cases gives more)`;
+    const diverging = result.cases.flatMap((c, n) => (caseOutcome(scored[n]!) === 'diverge' ? [c.caseId] : []));
+    for (const id of diverging) failing.add(id);
+    return {
+      match: score.raw.match,
+      diverge: score.raw.diverge,
+      waived: score.raw.waived,
+      parity: parity.parity,
+      ci95: parity.ci95,
+      features: parity.features,
+      gap:
+        gap.gap === null
+          ? null
+          : { corpus: gap.corpus!, holdout: gap.holdout!, gap: gap.gap, p_value: gap.pValue!, features: gap.features, clusters: gap.clusters },
+      ...(noGap === undefined ? {} : { no_gap: noGap }),
+      significant: gap.significant,
+      diverging,
+    };
+  });
+  const failures = cases.filter((c) => failing.has(c.id));
+  return {
+    summary: { ran: true, requested: options.cases, cases: cases.length, in_corpus: fresh.inCorpus, flaky_reference: flaky.size, alpha: options.alpha, saved: failures.length },
+    candidates,
+    failures,
+  };
+}
+
+/** Whether the run had a fresh holdout, for the text output. */
+function holdoutLine(h: HoldoutSummary): string {
+  if (!h.ran) return `fresh holdout: not run, ${h.reason}`;
+  const parts = [`fresh holdout: ${count(h.cases, 'new case')} from a seed that is not stored`];
+  if (h.in_corpus > 0) parts.push(`${h.in_corpus} more generated were in the corpus already`);
+  if (h.flaky_reference > 0) parts.push(`${h.flaky_reference} left out as flaky-reference (the reference varied)`);
+  return parts.join(', ');
+}
+
+/** A candidate's fresh-holdout parity and its gap to the corpus. */
+function candidateHoldoutLines(h: CandidateHoldout): string[] {
+  const ci = h.ci95 === null ? '' : ` (95% CI ${percent(h.ci95[0])}–${percent(h.ci95[1])})`;
+  const lines = [h.parity === null ? "  fresh holdout: no new case of the parity's features" : `  fresh holdout ${percent(h.parity)}${ci}, mean of ${count(h.features, 'feature')}`];
+  if (h.gap === null) {
+    lines.push(`  gap to the corpus not tested: ${h.no_gap}`);
+    return lines;
+  }
+  const g = h.gap;
+  const p = g.p_value < 0.0001 ? 'p < 0.0001' : `p = ${g.p_value.toPrecision(2)}`;
+  lines.push(
+    `  gap to the corpus ${(g.gap * 100).toFixed(1)} points on byte-mutated cases of ${count(g.features.length, 'feature')} (corpus ${percent(g.corpus)}, holdout ${percent(g.holdout)}): ${h.significant ? 'SIGNIFICANT' : 'not significant'} (${p})`,
+  );
+  if (h.significant) lines.push('  the candidate does better on the corpus than on cases it has never seen, beyond chance: it may be fitted to the corpus (a lookup table of expected outputs)');
+  return lines;
 }
 
 /**

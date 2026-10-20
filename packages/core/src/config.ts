@@ -95,6 +95,14 @@ const CorpusSchema = z.looseObject({
   min_cases_per_feature: z.int().min(1).optional(),
 });
 
+/** `holdout`: the fresh holdout every full `run` generates and compares live against the reference. */
+const HoldoutSchema = z.strictObject({
+  /** Cases generated from a new, unstored seed on each full run; 0 turns the holdout off. Default 1000. */
+  fresh_cases: z.int().min(0).optional(),
+  /** The corpus-vs-holdout gap fails the run only when significant at this level. Default 0.01. */
+  gap_alpha: z.number().gt(0).lt(1).optional(),
+});
+
 /** `port-anything.yaml`, after parsing. Unknown keys are errors, so a typo doesn't go unnoticed. */
 export const ConfigSchema = z
   .strictObject({
@@ -110,7 +118,7 @@ export const ConfigSchema = z
     /** Applied in order to both sides before comparing. */
     normalizers: NormalizersSchema.default([]),
     corpus: CorpusSchema.optional(),
-    holdout: later,
+    holdout: HoldoutSchema.optional(),
     report: later,
   })
   .refine((c) => c.candidate === undefined || c.candidates === undefined, {

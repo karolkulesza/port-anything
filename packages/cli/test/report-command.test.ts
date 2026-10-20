@@ -59,6 +59,7 @@ describe('report', () => {
     expect(html).toMatch(/^<!DOCTYPE html>/);
     expect(html).toContain(`run ${runId}`);
     expect(html).not.toMatch(/<script|<link|<img|@import|url\(|\b(?:src|href)\s*=|https?:\/\//i);
+    expect(html).toContain('<li>fresh holdout: not run, no port-anything/cli-spec.yaml to generate cases from (port-anything spec infer writes one)</li>');
     const matrix = /<section id="matrix">[\s\S]*?<\/section>/.exec(html)![0];
     expect(matrix.match(/<th scope="col">candidate \d<br><code>[^<]*<\/code><\/th>/g)).toEqual([
       '<th scope="col">candidate 1<br><code>./bin/tool-copy</code></th>',

@@ -173,8 +173,10 @@ export {
 export {
   DEFAULT_MIN_CASES_PER_FEATURE,
   isSelfDescriptionFeature,
+  outcome as caseOutcome,
   scoreCandidate,
   type CaseCounts,
+  type Outcome,
   type FeatureScore,
   type KnownFeature,
   type OriginScore,
@@ -182,6 +184,26 @@ export {
   type ScoreOptions,
   type ScoredCase,
 } from './score.js';
+export {
+  DEFAULT_FRESH_CASES,
+  DEFAULT_GAP_ALPHA,
+  MIN_GAP_CASES,
+  freshHoldoutSeed,
+  gapCluster,
+  generateFreshHoldout,
+  holdoutGap,
+  holdoutParity,
+  holdoutSettings,
+  normalCdf,
+  studentTCdf,
+  type FreshHoldout,
+  type GapCase,
+  type GapFeature,
+  type GenerateHoldoutOptions,
+  type HoldoutGap,
+  type HoldoutParity,
+  type HoldoutSettings,
+} from './holdout.js';
 export { measureSlowdown, type Slowdown, type TimedCase } from './slowdown.js';
 export {
   DEFAULT_MINIMIZE_RUNS,

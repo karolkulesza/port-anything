@@ -90,7 +90,7 @@ describe('a project with a generated corpus', () => {
     expect(ids).toHaveLength(compared.out.corpus.cases);
 
     const check = async () => {
-      const ran = await json<RunJson>(['run', '--json', '--no-sandbox']);
+      const ran = await json<RunJson>(['run', '--json', '--no-sandbox', '--holdout', '0']);
       expect(ran.exitCode).toBe(1);
       expect(ran.out.cases).toBe(compared.out.corpus.cases);
       const [r] = ran.out.candidates;
@@ -112,7 +112,7 @@ describe('a project with a generated corpus', () => {
     await json<CompareJson>(['compare', './bin/frob', './bin/frob-bad', '--budget', '200', '--save', '--json', '--no-sandbox']);
     const ids = cachedIds();
     rmSync(join(dir, '.port-anything'), { recursive: true, force: true });
-    expect((await json<RunJson>(['run', '--json', '--no-sandbox'])).out.cases).toBe(ids.length);
+    expect((await json<RunJson>(['run', '--json', '--no-sandbox', '--holdout', '0'])).out.cases).toBe(ids.length);
     expect(cachedIds()).toEqual(ids);
   });
 
@@ -144,7 +144,7 @@ describe('a project with a generated corpus', () => {
     const baseline = await cli(['baseline', '--no-sandbox']);
     expect(baseline.stdout).toMatch(/^Ran 40 cases 3 times each/);
 
-    const ran = await json<RunJson>(['run', '--json', '--no-sandbox']);
+    const ran = await json<RunJson>(['run', '--json', '--no-sandbox', '--holdout', '0']);
     expect(ran.out.cases).toBe(40);
     expect(ran.out.clusters.length).toBeGreaterThan(0);
 

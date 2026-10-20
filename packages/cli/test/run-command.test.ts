@@ -71,6 +71,9 @@ const stable = (stdout: string) => stdout.replace(/^run \d{8}-\d{6}-[0-9a-f]{4}/
 /** Text output without each candidate's parity lines, for tests about other parts of it. */
 const unscored = (stdout: string) => stdout.replace(/^ {2}(parity|by origin|under-sampled|self-description|untested|slowdown|\d+ (waived|flaky|timed|timeout)).*\n/gm, '');
 
+/** The line a run of the whole corpus ends with in a project without a CLI spec. */
+const NO_HOLDOUT = 'fresh holdout: not run, no port-anything/cli-spec.yaml to generate cases from (port-anything spec infer writes one)';
+
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 describe('parseRunArgs', () => {
@@ -88,6 +91,15 @@ describe('parseRunArgs', () => {
     expect(() => parseRunArgs(['--smoke', '--cluster', '2'])).toThrow(/--smoke, --cluster and --feature run different subsets/);
     expect(() => parseRunArgs(['--feature', 'x', '--cluster', '2'])).toThrow(/run different subsets/);
     expect(() => parseRunArgs(['--feature='])).toThrow(/--feature needs a feature name/);
+  });
+
+  it('reads --holdout N, 0 for none, with a run of the whole corpus only', () => {
+    expect(parseRunArgs(['--holdout', '250'])).toEqual({ candidates: [], smoke: false, holdout: 250, json: false, noSandbox: false });
+    expect(parseRunArgs(['--holdout=0']).holdout).toBe(0);
+    for (const bad of ['-1', '1.5', 'many', '']) expect(() => parseRunArgs([`--holdout=${bad}`]), bad).toThrow(/--holdout takes a number of cases/);
+    expect(() => parseRunArgs(['--holdout', '10', '--smoke'])).toThrow(/--holdout goes with a run of the whole corpus/);
+    expect(() => parseRunArgs(['--cluster', '2', '--holdout', '10'])).toThrow(/--holdout goes with a run of the whole corpus/);
+    expect(() => parseRunArgs(['--holdout', '10', '--feature', 'opt.n'])).toThrow(/--holdout goes with a run of the whole corpus, not with --smoke, --cluster or --feature/);
   });
 
   it('says which documented options are not available yet, and rejects unknown ones', () => {
@@ -144,6 +156,7 @@ describe('executeRun', () => {
         `    ${shortCaseId(cases[2]!.id)}`,
         '  cluster 2: 1 case · stdout other · features base (1)',
         `    ${shortCaseId(cases[1]!.id)}`,
+        NO_HOLDOUT,
         '',
       ].join('\n'),
     );
@@ -175,6 +188,7 @@ describe('executeRun', () => {
       flaky_reference: [],
       normalizers: [],
       waivers: [],
+      holdout: { ran: false, reason: expect.stringMatching(/^no port-anything\/cli-spec\.yaml/) },
       candidates: [
         {
           command: './bin/tool-copy',
@@ -263,6 +277,7 @@ describe('executeRun', () => {
         '  under-sampled, not in the parity: base 100.0% (3 cases)',
         '  timeout, recovered on re-run (the re-run was compared):',
         `    ${shortCaseId(cases[1]!.id)}`,
+        NO_HOLDOUT,
         '',
       ].join('\n'),
     );
@@ -309,6 +324,7 @@ describe('executeRun', () => {
         '  under-sampled, not in the parity: base 66.6% (3 cases)',
         '  flaky-candidate, a re-run gave a different result:',
         `    ${shortCaseId(cases[1]!.id)}  stdout`,
+        NO_HOLDOUT,
         '',
       ].join('\n'),
     );
@@ -529,7 +545,7 @@ describe('executeRun profiles', () => {
     const standard = await run(undefined).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
     expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
-    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
+    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\n$/);
 
     const strict = await run({ profile: 'strict' }).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
@@ -862,7 +878,7 @@ describe('runCommand', () => {
       writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
-      expect(unscored(result.stdout)).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\n$/);
+      expect(unscored(result.stdout)).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\n$/);
       const runId = /^run (\S+)$/m.exec(result.stdout)![1]!;
       expect((await loadRun(project, runId)).clusters).toHaveLength(1);
     } finally {
