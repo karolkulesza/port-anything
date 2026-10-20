@@ -48,6 +48,7 @@ npx port-anything report       # the latest run as port-anything-report.html (wi
 npx port-anything waive --from-cluster 1   # a waiver for an accepted difference, to paste into port-anything/waivers.yaml
 npx port-anything baseline     # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
 npx port-anything verify       # check the cases and the reference's output against the manifest
+npx port-anything init . --ci  # a GitHub Actions workflow that recomputes the score on every push, and CODEOWNERS lines to add
 npx port-anything mcp          # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas), case, features, probe
 npx port-anything setup        # register that server and the skills (port-loop, port-plan, port-audit, port-report) with each agent installed: Claude Code, Codex, Cursor, Gemini CLI
 ```
@@ -66,7 +67,7 @@ To see the parity delta right after each edit in Claude Code, turn on the smoke 
 
 [`examples/wc-lite`](https://github.com/karolkulesza/port-anything/tree/main/examples/wc-lite) in the repo is a complete project to try this on.
 
-**Exit codes:** 0 = no divergences, 1 = divergences, 2 = integrity broken (`verify`), 3 = usage or config error.
+**Exit codes:** 0 = no divergences, 1 = divergences (or parity below `compare.min_parity` when it is set, or a significant fresh-holdout gap), 2 = integrity broken (`verify`), 3 = usage or config error.
 
 More, including the integrity threat model: [github.com/karolkulesza/port-anything](https://github.com/karolkulesza/port-anything)
 

@@ -332,11 +332,18 @@ export {
 } from './generated-corpus.js';
 export { BASELINE_RECORD_FILE, baselineRecord, readBaselineRecord, writeBaselineRecord, type BaselineRecord } from './baseline-record.js';
 export {
+  ContainerFingerprintSchema,
   FingerprintSchema,
+  LocalFingerprintSchema,
+  containerFingerprint,
   environmentFingerprint,
+  fingerprintField,
   fingerprintDifferences,
   localFingerprintHost,
+  type ContainerFingerprint,
   type Fingerprint,
+  type FingerprintField,
+  type LocalFingerprint,
   type FingerprintHost,
   type FingerprintOptions,
 } from './fingerprint.js';

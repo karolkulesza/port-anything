@@ -7,13 +7,16 @@ import {
   DEFAULT_CONTAINER_IMAGE,
   buildInImage,
   configCandidates,
+  containerFingerprint,
   containerSandbox,
   engineCpus,
   ensureImage,
+  environmentFingerprint,
   findContainerEngine,
   parseProgramCommand,
   resolveProgram,
   type Config,
+  type Fingerprint,
   type ResolvedProgram,
   type SandboxChoice,
 } from '@port-anything/core';
@@ -95,6 +98,20 @@ export async function prepareContainer(
       if (!built.ok) throw new ConfigError(`${key} failed in the image ${image}: ${command}\n${built.output}`);
     }
     return sandbox;
+  } catch (e) {
+    if (e instanceof ContainerError) throw new ConfigError(e.message);
+    throw e;
+  }
+}
+
+/**
+ * The environment fingerprint of running `reference` in `sandbox`: the image's in sandbox mode
+ * `container`, this machine's otherwise.
+ */
+export async function sandboxFingerprint(sandbox: SandboxChoice, reference: ResolvedProgram, caseEnv: Readonly<Record<string, string>>): Promise<Fingerprint> {
+  if (sandbox.kind !== 'container') return environmentFingerprint({ reference, caseEnv });
+  try {
+    return await containerFingerprint(sandbox, caseEnv);
   } catch (e) {
     if (e instanceof ContainerError) throw new ConfigError(e.message);
     throw e;

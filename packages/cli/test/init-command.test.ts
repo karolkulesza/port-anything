@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readHistory } from '@port-anything/core';
+import { readHistory, writeManifest } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { run } from '../src/run.js';
 
@@ -40,18 +40,110 @@ describe('port-anything init', () => {
   });
 
   it('exits 3 for bad arguments and for what it would overwrite', async () => {
-    const usage = /Usage: port-anything init <dir> --ref <cmd> \[--candidate <cmd>\]…/;
+    const usage = /Usage: port-anything init <dir> --ref <cmd> \[--candidate <cmd>\]… \[--ci\]/;
     expect(await run(['init', '--ref', 'sort'], { cwd: root })).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(usage) });
     expect(await run(['init', 'a', 'b', '--ref', 'sort'], { cwd: root })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/Give one project directory/) });
     expect(await run(['init', '.', '--frobnicate'], { cwd: root })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(usage) });
-    expect(await run(['init', '.', '--ref', 'sort', '--ci'], { cwd: root })).toEqual({
-      exitCode: 3,
-      stdout: '',
-      stderr: 'port-anything init: --ci is not available yet in this version of port-anything init.\n',
-    });
     expect(await run(['init', '.'], { cwd: root })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/^port-anything init: No port-anything\.yaml in .* give the reference with --ref/) });
     expect((await run(['init', '.', '--ref', 'sort'], { cwd: root })).exitCode).toBe(0);
     expect(await run(['init', '.', '--ref', 'other'], { cwd: root })).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/already exists; edit it/) });
+  });
+
+  it('with --ci, writes the workflow at the root of the repository and suggests CODEOWNERS lines', async () => {
+    mkdirSync(join(root, '.git'));
+    const result = await run(['init', 'tools/port', '--ref', 'sort', '--ci'], { cwd: root });
+    expect(result).toEqual({
+      exitCode: 0,
+      stdout: [
+        'Set up tools/port:',
+        '  port-anything.yaml: created',
+        '  .port-anything/: created',
+        '  .gitattributes: created with .port-anything/history.jsonl merge=union',
+        '  .gitignore: created with .port-anything/cache/, .port-anything/runs/, .port-anything/probes/, .port-anything/tmp/',
+        '  ../../.github/workflows/port-anything.yml: created',
+        'Next: add cases to port-anything/recorded/*.jsonl, then run port-anything run.',
+        'CI runs the cases in sandbox mode container, so that its environment fingerprint can match the manifest: set sandbox.mode to container in port-anything.yaml (with sandbox.image, reference.build and candidate.build), then freeze the corpus with port-anything baseline and commit .port-anything/MANIFEST.json.',
+        'Without compare.min_parity in port-anything.yaml, the CI run fails on any divergence: set it to the parity the port must keep.',
+        'Suggested CODEOWNERS lines (in .github/CODEOWNERS, with your handle or team for @your-github-handle), so that every change to what defines the score needs a review:',
+        '  /tools/port/port-anything.yaml @your-github-handle',
+        '  /tools/port/port-anything/ @your-github-handle',
+        '  /tools/port/.port-anything/MANIFEST.json @your-github-handle',
+        '  /.github/workflows/port-anything.yml @your-github-handle',
+        '',
+      ].join('\n'),
+      stderr: '',
+    });
+    const workflow = readFileSync(join(root, '.github', 'workflows', 'port-anything.yml'), 'utf8');
+    expect(workflow).toContain('        working-directory: "tools/port"\n');
+
+    // An edited workflow is kept; the notes on sandbox mode and min_parity go once the config has them.
+    writeFileSync(join(root, '.github', 'workflows', 'port-anything.yml'), `${workflow}# edited\n`);
+    writeFileSync(join(root, 'tools', 'port', 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./ref/tool }\nsandbox: { mode: container }\ncompare: { min_parity: 0.95 }\n');
+    const again = await run(['init', 'tools/port', '--ci'], { cwd: root });
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).toContain('  ../../.github/workflows/port-anything.yml: already there\n');
+    expect(again.stdout).toContain('Suggested CODEOWNERS lines');
+    expect(again.stdout).not.toMatch(/sandbox\.mode|min_parity in/);
+    expect(readFileSync(join(root, '.github', 'workflows', 'port-anything.yml'), 'utf8')).toBe(`${workflow}# edited\n`);
+  });
+
+  it('with --ci, runs CI on the architecture the manifest was frozen on, and asks for the image pinned by its digest', async () => {
+    mkdirSync(join(root, '.git'));
+    mkdirSync(join(root, 'port'));
+    writeFileSync(join(root, 'port', 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./ref/tool }\nsandbox: { mode: container, image: debian:12-slim }\ncompare: { min_parity: 0.95 }\n');
+    const digest = `sha256:${'a'.repeat(64)}`;
+    const freeze = (arch: string) =>
+      writeManifest(join(root, 'port'), {
+        version: 1,
+        tool_version: '0.0.1',
+        generator: null,
+        normalizers: [],
+        fingerprint: { mode: 'container', image: `debian@${digest}`, arch, locale: null },
+        cases: [],
+      });
+    const workflow = join(root, '.github', 'workflows', 'port-anything.yml');
+
+    // No manifest yet: the default runner, and what verify will need.
+    const before = await run(['init', 'port', '--ci'], { cwd: root });
+    expect(before.exitCode).toBe(0);
+    expect(before.stdout).toContain("CI's verify checks .port-anything/MANIFEST.json, frozen by port-anything baseline in sandbox mode container on the architecture CI runs on (amd64 for runs-on: ubuntu-latest; arm64 needs ubuntu-24.04-arm)");
+    expect(before.stdout).toContain('sandbox.image debian:12-slim is a tag, which moves when the image is published again, and then CI\'s verify only warns: pin it by digest (image: <name>@sha256:<digest>).\n');
+    expect(readFileSync(workflow, 'utf8')).toContain('    runs-on: ubuntu-latest\n');
+
+    // Frozen on an Apple Silicon Mac: the workflow there runs on amd64, so it says to change it.
+    await freeze('arm64');
+    const mismatch = await run(['init', 'port', '--ci'], { cwd: root });
+    expect(mismatch.stdout).toContain(`The manifest was frozen on arm64: set runs-on: ubuntu-24.04-arm in .github/workflows/port-anything.yml, or CI's verify will only warn.\n`);
+    expect(mismatch.stdout).toContain(`pin it by digest (image: debian:12-slim@${digest}, the one the manifest was frozen with).\n`);
+
+    // Written afresh, it runs on arm64; with the image pinned, nothing more to say.
+    rmSync(workflow);
+    writeFileSync(join(root, 'port', 'port-anything.yaml'), `version: 1\nreference: { cmd: ./ref/tool }\nsandbox: { mode: container, image: 'debian:12-slim@${digest}' }\ncompare: { min_parity: 0.95 }\n`);
+    const arm = await run(['init', 'port', '--ci'], { cwd: root });
+    expect(readFileSync(workflow, 'utf8')).toContain('    runs-on: ubuntu-24.04-arm\n');
+    expect(arm.stdout).toMatch(/: created\nSuggested CODEOWNERS lines/);
+
+    // An architecture GitHub has no runner for.
+    await freeze('s390x');
+    expect((await run(['init', 'port', '--ci'], { cwd: root })).stdout).toContain('The manifest was frozen on s390x, which no GitHub-hosted runner has');
+  });
+
+  it('with --ci, refuses a project path the workflow or CODEOWNERS would misread, before writing anything', async () => {
+    mkdirSync(join(root, '.git'));
+    const result = await run(['init', 'my port #2', '--ref', 'sort', '--ci'], { cwd: root });
+    expect(result).toMatchObject({ exitCode: 3, stdout: '', stderr: expect.stringContaining('"my port #2" would be misread in the workflow or CODEOWNERS') });
+    expect(existsSync(join(root, 'my port #2'))).toBe(false);
+    expect(existsSync(join(root, '.github'))).toBe(false);
+    expect((await run(['init', 'tools/my-port_2.x', '--ref', 'sort', '--ci'], { cwd: root })).exitCode).toBe(0);
+  });
+
+  it('with --ci outside a git repository, writes the workflow in the project directory and says to move it', async () => {
+    const result = await run(['init', 'tool', '--ref', 'sort', '--ci'], { cwd: root });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('  .github/workflows/port-anything.yml: created\n');
+    expect(result.stdout).toContain('Not in a git repository: move .github/ to the root of the repository, where GitHub looks for workflows.\n');
+    expect(result.stdout).toContain('  /port-anything.yaml @your-github-handle\n');
+    expect(readFileSync(join(root, 'tool', '.github', 'workflows', 'port-anything.yml'), 'utf8')).not.toContain('working-directory');
   });
 
   it('lets two branches that each ran the corpus merge without conflict (done when)', async () => {

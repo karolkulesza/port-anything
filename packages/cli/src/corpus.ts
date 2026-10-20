@@ -23,12 +23,15 @@ import {
   type SandboxChoice,
   type SandboxProbe,
 } from '@port-anything/core';
-import { resolveCommand, withScratchDir } from './common.js';
+import { prepareContainer, resolveCommand, withScratchDir } from './common.js';
 
 /** How a command may get the generated cases when the cache doesn't have them. */
 export type Regenerate =
-  /** Run the reference to regenerate them, in the sandbox `noSandbox` and `probe` choose. */
-  | { noSandbox: boolean; probe?: SandboxProbe }
+  /**
+   * Run the reference to regenerate them, in `sandbox` when given (already prepared), else in the
+   * sandbox the config, `noSandbox` and `probe` choose.
+   */
+  | { noSandbox: boolean; probe?: SandboxProbe; sandbox?: SandboxChoice }
   /** Only from the cache: none when it misses (`report`, which runs no program). */
   | 'cache-only'
   /** Only from the cache of the project this one is a copy of (a mutant check in a copy); none when it misses. */
@@ -62,6 +65,8 @@ export async function loadCorpus(projectDir: string, config: Config, regenerate:
 export interface GenerateProjectOptions {
   noSandbox: boolean;
   probe?: SandboxProbe;
+  /** The sandbox to run the reference in, already prepared (in container mode: image pulled, reference built). */
+  sandbox?: SandboxChoice;
   /** Regenerate even when the cache holds the corpus (`port-anything generate`). */
   force: boolean;
 }
@@ -83,17 +88,19 @@ export interface ProjectCorpus {
  * reference give the same cases on any checkout.
  */
 export async function generateProjectCorpus(projectDir: string, config: Config, settings: GeneratedCorpusSettings, options: GenerateProjectOptions): Promise<ProjectCorpus> {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   const inputs = (await keyInputs(projectDir, config, settings, 'required'))!;
   const store = new BlobStore(cacheDir(projectDir));
   if (!options.force) {
     const cached = await readGeneratedCorpusCache(projectDir, inputs.key, store);
     if (cached !== undefined) return { corpus: cached, fromCache: true, programName: inputs.programName, spec: inputs.spec };
   }
+  // In container mode the reference is built in the image first.
+  const sandbox =
+    options.sandbox ??
+    (config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, [], options)
+      : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox }));
   const reference = await resolveCommand(config.reference.cmd, projectDir);
-  const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const stored = new Set<string>();
   const generated = await withScratchDir(projectDir, 'generate', (workDir) =>
     generateCorpus(inputs.spec, {

@@ -76,7 +76,11 @@ const CompareSchema = z.strictObject({
     .default(() => ({ stderr: { similarity: DEFAULT_STDERR_SIMILARITY } })),
   /** Optional gate: the run fails when a candidate's median time ratio is above this factor. */
   max_slowdown: SlowdownSchema.optional(),
-  min_parity: later,
+  /**
+   * Optional gate: a full run fails when a candidate's parity (the mean of per-feature parity) is
+   * below this share, and no longer on any divergence. CI's threshold on corpus parity.
+   */
+  min_parity: z.number().min(0).max(1).optional(),
 });
 
 /** `corpus`: the generated corpus's settings, `repeats` (by `baseline`) and `min_cases_per_feature` (by the generator and scoring); other keys are left to later commands. */

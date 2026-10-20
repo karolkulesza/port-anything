@@ -448,13 +448,26 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
     });
   }
   const summary = { run_id: saved.run_id, subset: saved.subset, ...report };
-  const exitCode = summary.candidates.some((c) => c.diverge > 0 || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant)) ? 1 : 0;
+  // With compare.min_parity set, a full run fails on a candidate's parity below it rather than on
+  // any divergence; a smoke, cluster, feature or given-cases run's parity is of a subset, so it still
+  // fails on any.
+  const minParity = minParityOf(config, summary.subset);
+  const exitCode = summary.candidates.some(
+    (c) => (minParity === undefined ? c.diverge > 0 : belowMinParity(c.score, minParity)) || c.slowdown?.exceeded === true || ('holdout' in c && c.holdout.significant),
+  )
+    ? 1
+    : 0;
   return { summary, exitCode, ran: result.cases.map((c) => c.caseId) };
 }
+
+/** The parity a run's candidates must reach: `compare.min_parity`, on a run of the whole corpus only. */
+const minParityOf = (config: Config, subset: RunRecord['subset']) => (subset === null ? config.compare.min_parity : undefined);
+const belowMinParity = (score: Score, minParity: number) => score.headline === null || score.headline < minParity;
 
 async function execute(options: ExecuteRunOptions): Promise<CliResult> {
   const { summary, exitCode } = await performRun(options);
   const { flaky_reference: flakyReference, clusters } = summary;
+  const minParity = minParityOf(options.config, summary.subset);
   if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
   const lines = [
@@ -480,6 +493,9 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     const flaky = c.flaky_candidate.length > 0 ? ` (${c.flaky_candidate.length} flaky-candidate)` : '';
     lines.push(`candidate ${i + 1} ${c.command}: ${c.match} of ${summary.cases} cases match${c.diverge > 0 ? `, ${c.diverge} diverge${flaky}` : ''}${c.waived > 0 ? `, ${c.waived} waived` : ''}`);
     lines.push(...scoreLines(c.score));
+    if (minParity !== undefined) {
+      lines.push(belowMinParity(c.score, minParity) ? `  BELOW compare.min_parity ${percent(minParity)}: the run fails` : `  compare.min_parity ${percent(minParity)}: met`);
+    }
     if (c.slowdown !== undefined) lines.push(slowdownLine(c.slowdown));
     if ('holdout' in c) lines.push(...candidateHoldoutLines(c.holdout));
     if (c.waivers.length > 0) lines.push(`  waivers (cases covered): ${c.waivers.map(coverageLabel).join(', ')}`);
