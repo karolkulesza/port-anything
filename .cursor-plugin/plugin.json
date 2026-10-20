@@ -1,0 +1,23 @@
+{
+  "name": "port-anything",
+  "version": "0.0.1",
+  "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports.",
+  "author": {
+    "name": "Karol Kulesza"
+  },
+  "homepage": "https://portanything.com",
+  "repository": "https://github.com/karolkulesza/port-anything",
+  "license": "Apache-2.0",
+  "keywords": [
+    "port",
+    "rewrite",
+    "parity",
+    "differential-testing",
+    "mcp",
+    "claude-code",
+    "codex",
+    "agents"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./plugins/mcp.json"
+}

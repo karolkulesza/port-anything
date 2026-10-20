@@ -28,7 +28,7 @@ describe('run', () => {
   });
 
   it('exits 3 for a command this version does not have', async () => {
-    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify", "strength" and "mcp" are/) });
+    expect(await run(['record', '--cmd', 'x'])).toEqual({ exitCode: 3, stdout: '', stderr: expect.stringMatching(/"record" is not available yet in this version; only "init", "setup", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify", "strength", "mcp" and "hook" are/) });
   });
 
   it('routes spec to the spec command', async () => {

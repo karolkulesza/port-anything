@@ -3,9 +3,11 @@ import { compareCommand, USAGE as COMPARE_USAGE } from './compare-command.js';
 import { generateCommand, USAGE as GENERATE_USAGE } from './generate-command.js';
 import { minimizeCommand, USAGE as MINIMIZE_USAGE } from './minimize-command.js';
 import { reportCommand, USAGE as REPORT_USAGE } from './report-command.js';
+import { hookCommand, USAGE as HOOK_USAGE } from './hook-command.js';
 import { initCommand, USAGE as INIT_USAGE } from './init-command.js';
 import { mcpCommand, USAGE as MCP_USAGE } from './mcp-command.js';
 import { runCommand, USAGE as RUN_USAGE } from './run-command.js';
+import { setupCommand, USAGE as SETUP_USAGE } from './setup-command.js';
 import { waiveCommand, USAGE as WAIVE_USAGE } from './waive-command.js';
 import { specCommand, USAGE as SPEC_USAGE } from './spec-command.js';
 import { strengthCommand, USAGE as STRENGTH_USAGE } from './strength-command.js';
@@ -25,7 +27,7 @@ export interface RunOptions {
 }
 
 // Each command's own usage line, so the overview can't drift from what the command accepts.
-const USAGES = [COMPARE_USAGE, INIT_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE];
+const USAGES = [COMPARE_USAGE, INIT_USAGE, SETUP_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE, HOOK_USAGE];
 
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
@@ -65,5 +67,7 @@ async function dispatch(argv: readonly string[], options: RunOptions): Promise<R
   if (command === 'verify') return verifyCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'strength') return strengthCommand(rest, { cwd: options.cwd ?? process.cwd() });
   if (command === 'mcp') return mcpCommand(rest, { cwd: options.cwd ?? process.cwd() });
-  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify", "strength" and "mcp" are.\n` };
+  if (command === 'setup') return setupCommand(rest);
+  if (command === 'hook') return hookCommand(rest);
+  return { exitCode: 3, stdout: '', stderr: `port-anything: "${command}" is not available yet in this version; only "init", "setup", "compare", "spec infer", "generate", "baseline", "run", "minimize", "waive", "report", "verify", "strength", "mcp" and "hook" are.\n` };
 }

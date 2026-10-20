@@ -1,0 +1,14 @@
+{
+  "name": "port-anything",
+  "owner": {
+    "name": "Karol Kulesza"
+  },
+  "description": "Port Anything: differential parity testing for AI-driven ports, with its MCP server and agent skills.",
+  "plugins": [
+    {
+      "name": "port-anything",
+      "source": "./",
+      "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports."
+    }
+  ]
+}

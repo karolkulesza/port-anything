@@ -84,15 +84,15 @@ export async function removeCheckout(checkout: Pick<GitCheckout, 'worktree' | 'r
   }
 }
 
-/** Runs `reference.build` with `sh -c` in `dir`; a failed build is a `ConfigError` with the end of its output. */
-export async function runBuild(build: string, dir: string): Promise<void> {
+/** Runs a build (`key` names it: `reference.build`) with `sh -c` in `dir`; a failed build is a `ConfigError` with the end of its output. */
+export async function runBuild(build: string, dir: string, key = 'reference.build'): Promise<void> {
   try {
     await exec('sh', ['-c', build], { cwd: dir, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   } catch (e) {
     const err = e as NodeJS.ErrnoException & { stdout?: string; stderr?: string; code?: number | string; signal?: string | null };
     const output = `${err.stdout ?? ''}${err.stderr ?? ''}`.trimEnd().split('\n').slice(-BUILD_TAIL_LINES);
     const status = typeof err.code === 'number' ? `exit code ${err.code}` : err.signal ? `signal ${err.signal}` : err.message;
-    throw new ConfigError([`reference.build failed (${status}): ${build}`, ...output.filter((l) => l !== '').map((l) => `  ${l}`)].join('\n'));
+    throw new ConfigError([`${key} failed (${status}): ${build}`, ...output.filter((l) => l !== '').map((l) => `  ${l}`)].join('\n'));
   }
 }
 

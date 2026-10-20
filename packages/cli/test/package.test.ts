@@ -58,13 +58,15 @@ describe('published package (run `pnpm build` first)', () => {
     for (const [name, range] of Object.entries(core.dependencies ?? {})) expect(pkg.dependencies?.[name], name).toBe(range);
   });
 
-  it('packs the built CLI, a README with the compare quickstart and the license, and no sources', async () => {
+  it('packs the built CLI, the agent skills, a README with the compare quickstart and the license, and no sources', async () => {
     const { stdout } = await promisify(execFile)('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: pkgDir });
     const [result] = JSON.parse(stdout) as [{ version: string; files: { path: string }[] }];
     const paths = result.files.map((f) => f.path);
     expect(result.version).toBe(pkg.version);
     expect(paths).toEqual(expect.arrayContaining(['package.json', 'README.md', 'LICENSE', pkg.bin['port-anything']!, 'dist/index.js', 'dist/index.d.ts']));
     expect(paths.filter((p) => p.startsWith('src/') || p.startsWith('test/'))).toEqual([]);
+    // `setup` installs the agent skills from the package.
+    expect(paths).toEqual(expect.arrayContaining(['port-audit', 'port-loop', 'port-plan', 'port-report'].map((name) => `dist/skills/${name}/SKILL.md`)));
     expect(readFileSync(new URL('../README.md', import.meta.url), 'utf8')).toContain('npx port-anything compare');
     expect(readFileSync(new URL('../LICENSE', import.meta.url), 'utf8')).toBe(readFileSync(new URL('../../../LICENSE', import.meta.url), 'utf8'));
    }, 30_000); // npm pack takes a few seconds, more under load

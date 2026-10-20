@@ -18,7 +18,8 @@
     "test": "pnpm -r test",
     "test:linux": "scripts/dev-linux.sh sh -c 'scripts/dev-linux-smoke.sh && pnpm -r build && pnpm -r test'",
     "lint:workflows": "docker run --rm -v \"$PWD:/repo\" -w /repo rhysd/actionlint:1.7.12 -color",
-    "changeset": "changeset"
+    "changeset": "changeset",
+    "version-packages": "changeset version && node scripts/sync-manifest-versions.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "~3.0.3",
