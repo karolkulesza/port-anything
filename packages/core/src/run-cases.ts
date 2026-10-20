@@ -2,11 +2,12 @@ import { mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { BlobStore } from './blob-store.js';
 import { compareExact, compareObservations, type ComparedField, type CompareOptions, type Comparison } from './compare.js';
+import { ContainerPool } from './container.js';
 import { classifyDiff, type FieldShape } from './diff-shape.js';
 import { fsChanges } from './fs-diff.js';
 import { canonicalObservation, type CanonicalCase, type Observation } from './model.js';
 import { normalizePair, type NormalizerSpec, type SideContext } from './normalize.js';
-import { defaultConcurrency, mapPool } from './pool.js';
+import { defaultConcurrency, defaultContainerConcurrency, mapPool } from './pool.js';
 import { caseEnvironment, runProcess } from './process-runner.js';
 import { pinPrograms, pinnedProcess, type PinnedProgram, type ResolvedProgram } from './program.js';
 import type { SandboxSetup } from './sandbox.js';
@@ -26,7 +27,11 @@ export interface RunCasesOptions {
   workDir: string;
   /** The argv[0] every side runs as (`program_name`); see `defaultProgramName` for the default. */
   programName?: string;
-  /** Cases running at once. Defaults to the number of CPU cores. */
+  /**
+   * Cases running at once. Defaults to the number of CPU cores; in sandbox mode `container`, to
+   * fewer when there are many candidates, or when the engine has fewer CPUs than the host
+   * (`defaultContainerConcurrency`).
+   */
   concurrency?: number;
   timeoutMs?: number;
   outputCapBytes?: number;
@@ -122,12 +127,18 @@ export interface RunCasesResult {
  */
 export async function runCases(options: RunCasesOptions): Promise<RunCasesResult> {
   const runner = await openCaseRunner(options);
-  const cases = await mapPool(options.cases, options.concurrency ?? defaultConcurrency(), async (c, _index, slot) => {
-    const result = await runner.run(c, slot);
-    options.onCase?.(result);
-    return result;
-  });
-  return { programName: runner.programName, cases };
+  try {
+    const sides = 1 + options.candidates.length;
+    const concurrency = options.concurrency ?? (options.sandbox.kind === 'container' ? defaultContainerConcurrency(sides, options.sandbox.cpus) : defaultConcurrency());
+    const cases = await mapPool(options.cases, concurrency, async (c, _index, slot) => {
+      const result = await runner.run(c, slot);
+      options.onCase?.(result);
+      return result;
+    });
+    return { programName: runner.programName, cases };
+  } finally {
+    await runner.close();
+  }
 }
 
 /** The programs of a run, pinned once, to run cases on one at a time or from a worker pool. */
@@ -139,11 +150,14 @@ export interface CaseRunner {
    * that run at the same time need different slots (each slot is one scratch directory).
    */
   run(c: CanonicalCase, slot?: number): Promise<CaseRun>;
+  /** Stops what the runner started (in sandbox mode `container`, its containers). */
+  close(): Promise<void>;
 }
 
 /**
  * Pins the reference and candidates under `options.workDir` for running cases one by one (as the
- * minimizer does); `options.cases`, `concurrency` and `onCase` are not used.
+ * minimizer does); `options.cases`, `concurrency` and `onCase` are not used. In sandbox mode
+ * `container`, each side gets a long-lived container per slot, started on first use; `close` stops them.
  */
 export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'concurrency' | 'onCase'>): Promise<CaseRunner> {
   const workDir = resolve(options.workDir);
@@ -152,10 +166,12 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
   const pinOptions = options.programName === undefined ? {} : { name: options.programName };
   const { name, sides } = await pinPrograms(join(workDir, 'programs'), programs, pinOptions);
   const context = await sideContexts(workDir, programs, name, sides);
+  const containers = openContainers(options, workDir);
+  const observeOptions = { ...options, ...(containers === undefined ? {} : { containers }) };
 
   const run = async (c: CanonicalCase, slot = 0): Promise<CaseRun> => {
     const caseDir = join(workDir, `slot-${slot}`, 'case');
-    const observe = (side: PinnedProgram) => observeCase(c, caseDir, name, side, options);
+    const observe = (side: PinnedProgram) => observeCase(c, caseDir, name, side, observeOptions);
     const reference = await observe(sides[0]!);
     const candidates: CandidateRun[] = [];
     for (const [i, side] of sides.entries()) {
@@ -214,7 +230,18 @@ export async function openCaseRunner(options: Omit<RunCasesOptions, 'cases' | 'c
     }
     return { caseId: c.id, reference, candidates };
   };
-  return { programName: name, run };
+  return { programName: name, run, close: async () => containers?.close() };
+}
+
+/** In sandbox mode `container`, the pool of containers cases run in; undefined otherwise. */
+export function openContainers(options: Pick<RunCasesOptions, 'sandbox' | 'timeoutMs' | 'outputCapBytes'>, workDir: string): ContainerPool | undefined {
+  if (options.sandbox.kind !== 'container') return undefined;
+  return new ContainerPool({
+    setup: options.sandbox,
+    dir: join(workDir, 'containers'),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    ...(options.outputCapBytes === undefined ? {} : { outputCapBytes: options.outputCapBytes }),
+  });
 }
 
 /**
@@ -237,9 +264,16 @@ export async function sideContexts(
 }
 
 /** The options `observeCase` reads. */
-export type ObserveOptions = Pick<RunCasesOptions, 'store' | 'sandbox' | 'timeoutMs' | 'outputCapBytes' | 'envAllowlist' | 'env' | 'hostEnv'>;
+export type ObserveOptions = Pick<RunCasesOptions, 'store' | 'sandbox' | 'timeoutMs' | 'outputCapBytes' | 'envAllowlist' | 'env' | 'hostEnv'> & {
+  /** Required in sandbox mode `container`: the containers to run in (see `openContainers`). */
+  containers?: ContainerPool;
+};
 
-/** Runs one side on one case in a fresh copy of the case's directory and builds its observation. */
+/**
+ * Runs one side on one case in a fresh copy of the case's directory and builds its observation. In
+ * sandbox mode `container`, the case directory is at that path in the side's container, on a tmpfs,
+ * and the case gets the image's PATH instead of the host's.
+ */
 export async function observeCase(
   c: CanonicalCase,
   caseDir: string,
@@ -248,30 +282,46 @@ export async function observeCase(
   options: ObserveOptions,
 ): Promise<Observation> {
   const { store } = options;
-  await rm(caseDir, { recursive: true, force: true });
-  await mkdir(caseDir, { recursive: true });
+  if (options.sandbox.kind === 'container' && options.containers === undefined) throw new Error('Sandbox mode "container" needs a container pool.');
+  const prepared = options.containers === undefined ? undefined : await (await options.containers.session(side, caseDir)).prepare(caseDir);
+  // A container case's files go in a new, empty directory: never rewrite a path the container reads.
+  const hostDir = prepared === undefined ? caseDir : prepared.files;
+  if (prepared === undefined) {
+    await rm(hostDir, { recursive: true, force: true });
+    await mkdir(hostDir, { recursive: true });
+  }
   for (const [path, ref] of Object.entries(c.fixtures)) {
-    const file = join(caseDir, path);
+    const file = join(hostDir, path);
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, await store.get(ref));
   }
   const stdin = c.stdin === null ? null : await store.get(c.stdin);
+  const hostEnv = options.hostEnv ?? process.env;
   const env = caseEnvironment({
     home: caseDir,
     ...(options.envAllowlist === undefined ? {} : { allowlist: options.envAllowlist }),
     ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.hostEnv === undefined ? {} : { hostEnv: options.hostEnv }),
+    hostEnv: prepared === undefined ? hostEnv : { ...hostEnv, PATH: await options.containers!.imagePath() },
     caseEnv: c.env,
   });
-  const result = await runProcess({
-    ...pinnedProcess(name, side, c.argv, env),
-    cwd: caseDir,
-    stdin,
-    sandbox: options.sandbox,
+  const limits = {
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     ...(options.outputCapBytes === undefined ? {} : { outputCapBytes: options.outputCapBytes }),
-  });
-  const fs = await fsChanges(caseDir, c.fixtures, { store });
+  };
+  const proc = { ...pinnedProcess(name, side, c.argv, env), cwd: caseDir, stdin };
+  let result;
+  let fs;
+  if (prepared === undefined) {
+    result = await runProcess({ ...proc, sandbox: options.sandbox, ...limits });
+    fs = await fsChanges(caseDir, c.fixtures, { store });
+  } else {
+    try {
+      result = await prepared.run(proc, limits);
+      fs = await fsChanges(result.result, c.fixtures, { store });
+    } finally {
+      await prepared.dispose();
+    }
+  }
   return canonicalObservation({
     exit: result.exit,
     signal: result.signal,

@@ -78,7 +78,7 @@ import {
   type WaiverCoverage,
   type WaiverMatch,
 } from '@port-anything/core';
-import { display, resolveCommand, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 
 export { display } from './common.js';
@@ -258,9 +258,6 @@ export type RunSummary = Awaited<ReturnType<typeof performRun>>['summary'];
  * way (the MCP server). Throws a `ConfigError` or `SandboxUnavailableError` when it can't start.
  */
 export async function performRun({ projectDir, config, cases, waivers = [], args, probe, holdout: holdoutFrom }: ExecuteRunOptions) {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   const subsets = [args.smoke === true, args.cluster !== undefined, args.feature !== undefined, args.caseIds !== undefined].filter(Boolean).length;
   if (subsets > 1) throw new ConfigError('--smoke, --cluster and --feature run different subsets; give one of them.');
   const subset = args.cluster === undefined ? undefined : await resolveCluster(projectDir, args.cluster);
@@ -731,16 +728,23 @@ function candidateHoldoutLines(h: CandidateHoldout): string[] {
   return lines;
 }
 
-/** What running cases needs besides the cases and a scratch directory, from the config. */
+/**
+ * What running cases needs besides the cases and a scratch directory, from the config. In sandbox
+ * mode `container`, the reference's and the configured candidates' builds run in the image first.
+ */
 export async function prepareSides(
   projectDir: string,
   config: Config,
   commands: readonly (string | readonly string[])[],
   options: { noSandbox: boolean; probe?: SandboxProbe },
 ): Promise<{ runner: Omit<RunCasesOptions, 'cases' | 'workDir'>; sandbox: SandboxChoice; compare: CompareOptions }> {
+  // In container mode the builds come first: they make the programs.
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, commands, options)
+      : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const reference = await resolveCommand(config.reference.cmd, projectDir);
   const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
-  const sandbox = chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
   const runner = {
     reference,

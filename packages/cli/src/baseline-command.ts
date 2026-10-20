@@ -30,7 +30,7 @@ import {
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
-import { display, resolveCommand, withScratchDir, type CliResult } from './common.js';
+import { display, prepareContainer, resolveCommand, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
@@ -113,12 +113,12 @@ export async function executeBaseline(options: ExecuteBaselineOptions): Promise<
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything baseline: ${message}\n` });
 
 async function execute({ projectDir, config, cases, args, probe }: ExecuteBaselineOptions): Promise<CliResult> {
-  if (config.sandbox.mode === 'container') {
-    throw new ConfigError('sandbox mode "container" is not available yet; set sandbox.mode to local.');
-  }
   if (cases.length === 0) throw new ConfigError('No cases to baseline: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
+  const sandbox =
+    config.sandbox.mode === 'container'
+      ? await prepareContainer(projectDir, config, [], { noSandbox: args.noSandbox })
+      : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const reference = await resolveCommand(config.reference.cmd, projectDir);
-  const sandbox = chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const repeats = args.repeats ?? config.corpus?.repeats ?? DEFAULT_REPEATS;
 
   const result = await withScratchDir(projectDir, 'baseline', (workDir) =>
