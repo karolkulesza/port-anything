@@ -89,6 +89,7 @@ npx port-anything verify                   # check the cases and the reference's
 npx port-anything init . --ci              # a GitHub Actions workflow that recomputes the score on every push (see Integrity)
 npx port-anything mcp                      # MCP server over stdio for your agent: status, next (repro + diff), run (fixed/broke deltas), case, features, probe
 npx port-anything setup                    # register that server and the skills (port-loop, port-plan, port-audit, port-report) with each agent installed: Claude Code, Codex, Cursor, Gemini CLI
+npx port-anything --version                # the installed version
 ```
 
 The repo is also a Claude Code plugin marketplace (`/plugin marketplace add karolkulesza/port-anything`, then `/plugin install port-anything@port-anything`) and a Gemini CLI extension (`gemini extensions install https://github.com/karolkulesza/port-anything`), with plugin manifests for Codex and Cursor; each brings the same skills and MCP server.
