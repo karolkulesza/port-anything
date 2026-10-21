@@ -20,6 +20,12 @@ describe('built bin (run `pnpm build` first)', () => {
     expect(stdout).not.toContain('Not released yet');
   });
 
+  it('prints the published version with --version (done when)', async () => {
+    const pkg = JSON.parse(await readFile(pkgUrl, 'utf8')) as { version: string };
+    const { stdout } = await promisify(execFile)(process.execPath, [binPath, '--version']);
+    expect(stdout).toBe(`port-anything ${pkg.version}\n`);
+  });
+
   it('starts with a node shebang so npx can run it', async () => {
     const source = await readFile(binPath, 'utf8');
     expect(source.startsWith('#!/usr/bin/env node\n')).toBe(true);

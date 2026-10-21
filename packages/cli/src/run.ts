@@ -12,6 +12,7 @@ import { waiveCommand, USAGE as WAIVE_USAGE } from './waive-command.js';
 import { specCommand, USAGE as SPEC_USAGE } from './spec-command.js';
 import { strengthCommand, USAGE as STRENGTH_USAGE } from './strength-command.js';
 import { verifyCommand, USAGE as VERIFY_USAGE } from './verify-command.js';
+import { TOOL_VERSION } from './version.js';
 
 export interface RunResult {
   exitCode: number;
@@ -27,7 +28,7 @@ export interface RunOptions {
 }
 
 // Each command's own usage line, so the overview can't drift from what the command accepts.
-const USAGES = [COMPARE_USAGE, INIT_USAGE, SETUP_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE, HOOK_USAGE];
+const USAGES = [COMPARE_USAGE, INIT_USAGE, SETUP_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE, HOOK_USAGE, 'Usage: port-anything --version'];
 
 const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
 
@@ -53,6 +54,7 @@ export async function run(argv: readonly string[], options: RunOptions = {}): Pr
 async function dispatch(argv: readonly string[], options: RunOptions): Promise<RunResult> {
   const [command, ...rest] = argv;
   if (command === undefined || command === '--help' || command === '-h') return { exitCode: 0, stdout: NOTICE, stderr: '' };
+  if (command === '--version' || command === '-V') return { exitCode: 0, stdout: `port-anything ${TOOL_VERSION}\n`, stderr: '' };
   if (command === 'compare') {
     return compareCommand(rest, { cwd: options.cwd ?? process.cwd(), ...(options.progress === undefined ? {} : { progress: options.progress }) });
   }

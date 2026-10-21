@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -11,6 +11,13 @@ describe('run', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('rewrite it in any language and show nothing changed');
       expect(result.stdout).toContain('Usage: port-anything compare');
+    }
+  });
+
+  it('prints its name and version and exits 0 with --version or -V', async () => {
+    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    for (const flag of ['--version', '-V']) {
+      expect(await run([flag]), flag).toEqual({ exitCode: 0, stdout: `port-anything ${version}\n`, stderr: '' });
     }
   });
 
