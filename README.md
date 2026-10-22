@@ -6,6 +6,8 @@ v0.1 covers non-interactive CLIs.
 
 Port Anything records what a program actually does, generates thousands more test cases, runs the original and the port side by side, and reports a parity score with a minimal reproducer for every difference. It is packaged so a coding agent (Claude Code, Codex, Cursor, Gemini CLI) can drive the whole port.
 
+**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 12 differences nobody had reported; 8 are already fixed upstream. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
+
 ![port-anything compare gnusort 'coreutils sort': GNU sort against uutils sort with no configuration, a parity score and a per-feature matrix in under a minute](docs/demo/compare.gif)
 
 One command, no configuration: `compare` infers the command-line spec from the reference, generates test cases, runs them in a sandbox against the reference and each candidate, and scores parity per feature. The demo runs in the Linux dev container and is recorded from [`docs/demo/compare.tape`](docs/demo/compare.tape) with `docs/demo/record.sh`.

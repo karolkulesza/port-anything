@@ -32,6 +32,12 @@ describe('README', () => {
     for (const title of ['Prior art', 'Integrity', 'Showcases']) expect(headings.some((h) => h.startsWith(title)), title).toBe(true);
   });
 
+  it('points to the showcase write-up above the quickstart', () => {
+    const link = readme.indexOf('](https://github.com/port-anything/showcases/blob/main/WRITEUP.md)');
+    expect(link).toBeGreaterThan(0);
+    expect(link).toBeLessThan(readme.indexOf('## Quickstart'));
+  });
+
   it('shows the compare GIF above the quickstart', () => {
     const slot = readme.indexOf('](docs/demo/compare.gif)');
     expect(slot).toBeGreaterThan(0);
