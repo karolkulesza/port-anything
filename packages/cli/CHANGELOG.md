@@ -1,5 +1,22 @@
 # port-anything
 
+## 0.1.0
+
+### Minor Changes
+
+- First feature release: audit a rewrite against the program it replaces.
+  
+  - `compare`: zero-config. Infers a CLI spec from `--help`, generates a corpus, baselines the reference and prints per-feature parity and a feature × candidate matrix for any number of candidates; `--json`, and `--ref git:<rev>` to compare against another commit of the same program.
+  - Generated cases: argv from the spec (forms, boundary values, pairwise flags, invalid calls) and byte mutation of seed inputs, de-duplicated by observation, with a budget and a minimum per feature.
+  - Sandboxed runs (bubblewrap on Linux, `sandbox-exec` on macOS) with a pinned `argv[0]` and a fixed environment; candidate re-runs tell flaky from wrong, reference re-runs catch nondeterminism.
+  - Divergences clustered by field, diff shape and feature, and delta-debugged to a minimal repro (`minimize`).
+  - Score: mean of per-feature parity; under-sampled and self-description features (`--help`, `--version`) reported apart.
+  - Projects: `init`, `spec infer`, `generate`, `baseline` (normalizer proposals), `run` (`--smoke`, `--cluster`, `--feature`), predicate waivers (`waive --from-cluster`), parity history, slowdown gate (`compare.max_slowdown`).
+  - Reports: a self-contained HTML report with a repro per cluster, `report.json` with a JSON Schema, and a parity badge.
+  - `port-audit` skill for coding agents; `port-anything --version`.
+  
+  Also included (preview; formats may still change): `baseline`'s frozen manifest and `verify`, a fresh holdout on every full run with a significance-gated gap, `compare.min_parity`, sandbox mode `container`, `init --ci`, the `port-anything mcp` server, the `port-loop`, `port-plan` and `port-report` skills, `setup` for Claude Code, Codex, Cursor and Gemini CLI, the smoke `hook`, and `strength`.
+
 ## 0.0.1
 
 ### Patch Changes

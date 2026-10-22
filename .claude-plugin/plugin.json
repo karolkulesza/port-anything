@@ -1,6 +1,6 @@
 {
   "name": "port-anything",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports.",
   "author": {
     "name": "Karol Kulesza"
