@@ -220,6 +220,26 @@ Short options:\t\tGNU long options: (extensions)
     ]);
   });
 
+  it('takes a usage-line flag\'s value from its option line, skips an options group, and keeps prose out of the forms', () => {
+    const cp = parseHelp(
+      'Usage: cp [OPTION]... [-T] SOURCE DEST\n  or:  cp [OPTION]... -t DIRECTORY SOURCE...\n\n  -t, --target-directory=DIRECTORY  copy all SOURCE arguments into DIRECTORY\n  -T, --no-target-directory    treat DEST as a normal file\n',
+      { program: 'cp' },
+    );
+    expect(cp.forms.map((f) => [f.flags, f.args.map((a) => `${a.name}${a.arity}`)])).toEqual([
+      [[], ['SOURCE1', 'DEST1']],
+      [['-t'], ['SOURCE+']],
+    ]);
+    expect(parseHelp('Usage: bash [GNU long option] [option] script-file ...\n', { program: 'bash' }).forms[0]!.args.map((a) => a.name)).toEqual(['script-file']);
+    expect(parseHelp('Usage: bar [options] file\nUsage: see the man page for details\n', { program: 'bar' }).forms).toHaveLength(1);
+  });
+
+  it('reads a bare a|b as choices, but not a pair of placeholders', () => {
+    const help = parseHelp('Usage: frob [OPTION]...\n\n  -i FILE|DIR      input path\n  -p HOST|IP       peer\n  -f, --format=pem|der  format\n');
+    expect(flag(help.flags, '-i').values).toEqual([{ name: 'FILE|DIR', type: 'path' }]);
+    expect(flag(help.flags, '-p').values[0]!.type).toBe('string');
+    expect(flag(help.flags, '-f').values).toEqual([{ name: 'pem|der', type: 'enum', choices: ['pem', 'der'] }]);
+  });
+
   it('reads argparse-style choices and Go-style empty placeholders', () => {
     const help = parseHelp(`usage: frob [-h] [--mode {fast,slow}] [--indent=] path
 

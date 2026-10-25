@@ -68,10 +68,11 @@ function readUsage(lines: string[], program: string | undefined): { program?: st
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     // gawk: `Usage: …` once per form, each line starting with it.
+    // A prose line (`Usage: see the man page`) doesn't start with the program's name.
     const again = /^\s*usage:\s*(.*)$/i.exec(line);
-    if (again) {
+    if (again && name !== undefined && sameProgram(firstWord(again[1]!), name)) {
       used.add(i);
-      if (again[1]!.trim() !== '') forms.push(again[1]!.trim());
+      forms.push(again[1]!.trim());
       continue;
     }
     // An option line right under the usage (curl) ends it; a usage line goes on with `[`, `{`, `<`.
@@ -324,6 +325,8 @@ function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[
         break;
       }
     }
+    // `--file=progfile` reads as the value `progfile` here because `--file` is new; a long name an
+    // earlier line defined stays a literal choice of that flag (`-C		--check=quiet`).
     const long = longColumn === undefined || items.length === 0 ? undefined : parseFlagItem(longColumn, true);
     if (long !== undefined && long.rest === '') items.push(long);
     // `--expression=script` next to `-e script` is a placeholder; it names a value only when the
@@ -471,8 +474,10 @@ function valueFor(word: string): CliValue {
   const inner = word.replace(/\.\.\.$/, '');
   const braces = /^\{([^}]*)\}$/.exec(inner);
   const angle = /^<([^>]*)>$/.exec(inner);
-  // `{a,b}`, `<a|b>`, and bare `a|b` (gawk's `--lint[=fatal|invalid|no-ext]`) list choices.
-  const options = braces ? braces[1]!.split(',') : angle && angle[1]!.includes('|') ? angle[1]!.split('|') : inner.includes('|') ? inner.split('|') : undefined;
+  // `{a,b}`, `<a|b>`, and bare `a|b` (gawk's `--lint[=fatal|invalid|no-ext]`) list choices; a bare
+  // `FILE|DIR` or `HOST|IP` names placeholders instead.
+  const bare = inner.includes('|') && !inner.split('|').some((o) => /^[A-Z][A-Z0-9_]*$/.test(o) || valueType(o) !== 'string') ? inner.split('|') : undefined;
+  const options = braces ? braces[1]!.split(',') : angle && angle[1]!.includes('|') ? angle[1]!.split('|') : bare;
   if (options && options.length > 1 && options.every((o) => CHOICE.test(o.trim()))) {
     return { name: inner, type: 'enum', choices: options.map((o) => o.trim()) };
   }
