@@ -120,6 +120,8 @@ export const ReportJsonSchema = z.strictObject({
       weight: z.number().nonnegative(),
       cases: z.array(CaseIdSchema).min(1),
       repro: CaseIdSchema.nullable(),
+      /** The repro's diverging fields as a line diff (reference -, candidate +, after normalizers); null when the run didn't keep them. */
+      diff: z.array(z.string()).nullable(),
     }),
   ),
 });
@@ -216,6 +218,7 @@ export function reportJson(input: ReportInput): ReportJson {
       weight: k.weight,
       cases: k.cases,
       repro: k.repro ?? null,
+      diff: k.diff === undefined ? null : [...k.diff],
     })),
   };
   // Checked on the way out, so a report.json that doesn't match its schema is never written.

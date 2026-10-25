@@ -1,7 +1,7 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, latestRun, loadCommittedCases, readConfigFile, type CanonicalCase, type RunRecord } from '@port-anything/core';
+import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, fieldDiffLines, latestRun, loadCommittedCases, readConfigFile, savedFieldDiffs, type CanonicalCase, type RunRecord, type SavedFieldOutputs } from '@port-anything/core';
 import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
 import { loadCorpus } from './corpus.js';
 import type { CandidateHoldout, CliResult, HoldoutSummary } from './run-command.js';
@@ -84,6 +84,8 @@ interface SavedReport {
     waived_cases: ReportCandidate['waivedCases'];
     /** Absent from runs saved before recovered timeouts were listed. */
     timeout_recovered?: { case: string }[];
+    /** `outputs` is absent from runs saved before the diverging outputs were kept. */
+    divergences?: { case: string; outputs?: SavedFieldOutputs[] }[];
     holdout?: CandidateHoldout;
   })[];
 }
@@ -121,7 +123,11 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
         const n = await size(c);
         if (best === undefined || n < best.size) best = { id, size: n };
       }
-      return { ...k, repro: best?.id ?? k.cases[0]! };
+      const repro = best?.id ?? k.cases[0]!;
+      // What the repro case's diverging fields were, as the run saved them.
+      const outputs = s.candidates[k.candidate - 1]?.divergences?.find((d) => d.case === repro)?.outputs;
+      const diff = outputs === undefined ? undefined : (await savedFieldDiffs(outputs, store)).flatMap(fieldDiffLines);
+      return { ...k, repro, ...(diff === undefined ? {} : { diff }) };
     }),
   );
   const shown = new Set(clusters.map((k) => k.repro));

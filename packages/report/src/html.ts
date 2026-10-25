@@ -82,8 +82,11 @@ export interface ReportInput {
   /** Absent for a run saved by a version without the fresh holdout. */
   holdout?: ReportHoldout;
   candidates: readonly ReportCandidate[];
-  /** Ranked, numbered through the run; `repro` names the case shown for it. */
-  clusters: readonly (SavedCluster & { repro?: string })[];
+  /**
+   * Ranked, numbered through the run; `repro` names the case shown for it, and `diff` what its
+   * diverging fields were (reference `-`, candidate `+`, after the normalizers), when the run kept them.
+   */
+  clusters: readonly (SavedCluster & { repro?: string; diff?: readonly string[] })[];
   /** The cases shown as repros, by case ID; one missing from here is shown by its ID only. */
   repros: Readonly<Record<string, ReportRepro>>;
 }
@@ -295,7 +298,7 @@ ${groups.join('\n')}
 </section>`;
 }
 
-function clusterBlock(input: ReportInput, k: SavedCluster & { repro?: string }): string {
+function clusterBlock(input: ReportInput, k: ReportInput['clusters'][number]): string {
   const listed = k.cases.slice(0, LISTED_CASES).map((id) => `<code>${esc(shortCaseId(id))}</code>`).join(' ');
   const more = k.size > LISTED_CASES ? ` … and ${k.size - LISTED_CASES} more` : '';
   return [
@@ -303,6 +306,7 @@ function clusterBlock(input: ReportInput, k: SavedCluster & { repro?: string }):
     `<h3>cluster ${k.cluster}: ${count(k.size, 'case')} · ${esc(describeSignature(k.signature))}</h3>`,
     `<p>features ${esc(describeFeatures(k.features))}</p>`,
     ...(k.repro === undefined ? [] : [reproBlock(input, k.repro)]),
+    ...(k.diff === undefined || k.diff.length === 0 ? [] : ['<p class="note">what differs (reference -, candidate +, after normalizers):</p>', `<pre>${esc(k.diff.join('\n'))}</pre>`]),
     `<p class="note">cases: ${listed}${more}</p>`,
     '</div>',
   ].join('\n');

@@ -905,6 +905,19 @@
                 "type": "null"
               }
             ]
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -917,7 +930,8 @@
           "size",
           "weight",
           "cases",
-          "repro"
+          "repro",
+          "diff"
         ],
         "additionalProperties": false
       }

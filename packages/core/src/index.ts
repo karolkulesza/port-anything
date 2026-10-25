@@ -416,3 +416,4 @@ export {
   type SourceMutant,
   type StrengthScore,
 } from './strength.js';
+export { fieldDiffLines, fieldOutputs, lineDiff, observationFieldText, savedFieldDiffs, showLine, type FieldDiff, type SavedFieldOutputs } from './diff-text.js';

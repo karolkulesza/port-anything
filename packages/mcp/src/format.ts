@@ -1,5 +1,5 @@
-import { LARGE_WAIVER_SHARE, type InlineContent } from '@port-anything/core';
-import type { CaseReport, ClusterSummary, FeaturesReport, FieldDiff, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
+import { LARGE_WAIVER_SHARE, fieldDiffLines, showLine, type InlineContent } from '@port-anything/core';
+import type { CaseReport, ClusterSummary, FeaturesReport, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
 
 // The tools answer an agent, so their text is short and bounded: long commands, signatures and
 // feature lists are cut, and lists stop after a few items. `status` stays within a few hundred tokens.
@@ -87,12 +87,6 @@ export function formatStatus(s: StatusReport): string {
 
 /** Characters shown per stdin or file of a repro. */
 const REPRO_CHARACTERS = 300;
-/** Lines shown per side of a diff, and characters per line. */
-const DIFF_LINES = 12;
-const LINE_CHARACTERS = 160;
-/** Unchanged lines shown before a difference. */
-const CONTEXT_LINES = 2;
-
 /** A word as a POSIX shell would need it written. */
 function shellWord(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
@@ -105,35 +99,6 @@ function content(c: InlineContent): string {
   return text.length <= REPRO_CHARACTERS ? text : `${cut(text, REPRO_CHARACTERS)} (${c.length} chars)`;
 }
 
-/** A line as is, or as a JSON string when it holds a character that wouldn't show; cut. */
-function showLine(line: string): string {
-  return cut(/^[ -~]*$/.test(line) && !/\s$/.test(line) ? line : JSON.stringify(line), LINE_CHARACTERS);
-}
-
-/**
- * A compact line diff of two texts: the unchanged lines at the start and end are left out (but a
- * couple before the change, for context), then the reference's lines (`-`) and the candidate's
- * (`+`) in between. Lines are shown as JSON strings when they hold a character that wouldn't
- * show, such as a trailing space or a tab.
- */
-export function lineDiff(reference: string, candidate: string): string[] {
-  if (reference === candidate) return [];
-  const a = reference.split('\n');
-  const b = candidate.split('\n');
-  let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  let end = 0;
-  while (end < a.length - start && end < b.length - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
-  const show = showLine;
-  const side = (lines: string[], mark: string) => {
-    const shown = lines.slice(0, DIFF_LINES).map((l) => `${mark} ${show(l)}`);
-    if (lines.length > DIFF_LINES) shown.push(`${mark} … ${lines.length - DIFF_LINES} more lines`);
-    return shown;
-  };
-  const context = a.slice(Math.max(0, start - CONTEXT_LINES), start).map((l) => `  ${show(l)}`);
-  return [`@@ line ${start + 1}`, ...context, ...side(a.slice(start, a.length - end), '-'), ...side(b.slice(start, b.length - end), '+')];
-}
-
 /** A case as a shell line, with its variables, files and stdin, indented. */
 function invocationLines(programName: string, c: ReproCase): string[] {
   const lines = [`  $ ${[programName, ...c.argv].map(shellWord).join(' ')}`];
@@ -143,10 +108,6 @@ function invocationLines(programName: string, c: ReproCase): string[] {
   return lines;
 }
 
-function diffLines(d: FieldDiff): string[] {
-  if (d.field === 'stdout' || d.field === 'stderr' || d.field === 'fs') return [`${d.field}:`, ...lineDiff(d.reference, d.candidate).map((l) => `  ${l}`)];
-  return [`${d.field}: reference ${d.reference}, candidate ${d.candidate}`];
-}
 
 /** The `next` tool's answer: the highest-priority open cluster, its repro and the diff. */
 export function formatNext(n: NextReport): string {
@@ -164,7 +125,7 @@ export function formatNext(n: NextReport): string {
     lines.push(`The repro no longer diverges: fixed already? Call run with cluster "${k.run}/${k.cluster}".`);
   } else {
     lines.push('diff (reference -, candidate +, after normalizers):');
-    for (const d of n.diff) lines.push(...diffLines(d));
+    for (const d of n.diff) lines.push(...fieldDiffLines(d));
     lines.push(`After a fix, call run with cluster "${k.run}/${k.cluster}", then smoke for regressions.`);
   }
   return `${lines.join('\n')}\n`;
@@ -222,7 +183,7 @@ export function formatCase(r: CaseReport): string {
   if (r.diff.length === 0) lines.push('match: the same after normalizers');
   else {
     lines.push('diff (reference -, candidate +, after normalizers):');
-    for (const d of r.diff) lines.push(...diffLines(d));
+    for (const d of r.diff) lines.push(...fieldDiffLines(d));
   }
   return `${lines.join('\n')}\n`;
 }

@@ -10,6 +10,7 @@ import {
   DestructiveToolError,
   assertNotDestructive,
   cacheDir,
+  observationFieldText,
   canonicalCase,
   configCandidates,
   inlineCase,
@@ -124,44 +125,12 @@ async function openClusters(projectDir: string, run: SavedRun): Promise<SavedClu
   return run.clusters.filter((k) => !fixed.has(k.cluster));
 }
 
-/** The first 12 hex digits of a blob's hash. */
-const shortHash = (ref: string) => ref.replace(/^blob:sha256:/, '').slice(0, 12);
-
-/** A field of an observation, as text for a diff. */
-async function fieldText(o: Observation, field: FieldDiff['field'], store: BlobStore): Promise<string> {
-  switch (field) {
-    case 'exit':
-      return o.exit === null ? 'none (signal)' : String(o.exit);
-    case 'signal':
-      return o.signal ?? 'none';
-    case 'timeout':
-      return o.timeout ? 'timed out' : 'finished';
-    case 'stdout':
-    case 'stderr': {
-      const bytes = await store.get(o[field]);
-      try {
-        return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      } catch {
-        return `<${bytes.length} bytes, not UTF-8, sha256 ${shortHash(o[field])}>`;
-      }
-    }
-    case 'fs': {
-      const lines = [
-        ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${shortHash(ref)}`),
-        ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${shortHash(ref)}`),
-        ...o.fs.deleted.map((path) => `deleted ${path}`),
-      ];
-      return `${lines.sort().join('\n')}\n`;
-    }
-  }
-}
-
 /** The diverging fields of a candidate's run of a case, both sides after the normalizers. */
 async function fieldDiffs(run: CaseRun, store: BlobStore): Promise<FieldDiff[]> {
   const c = run.candidates[0]!;
   if (c.comparison.verdict === 'match') return [];
   return Promise.all(
-    c.comparison.fields.map(async (field) => ({ field, reference: await fieldText(c.normalized.reference, field, store), candidate: await fieldText(c.normalized.candidate, field, store) })),
+    c.comparison.fields.map(async (field) => ({ field, reference: await observationFieldText(c.normalized.reference, field, store), candidate: await observationFieldText(c.normalized.candidate, field, store) })),
   );
 }
 
@@ -172,9 +141,9 @@ async function observedText(o: Observation, store: BlobStore): Promise<ObservedT
     exit: o.exit,
     signal: o.signal,
     timeout: o.timeout,
-    stdout: await fieldText(o, 'stdout', store),
-    stderr: await fieldText(o, 'stderr', store),
-    fs: changed ? await fieldText(o, 'fs', store) : '',
+    stdout: await observationFieldText(o, 'stdout', store),
+    stderr: await observationFieldText(o, 'stderr', store),
+    fs: changed ? await observationFieldText(o, 'fs', store) : '',
   };
 }
 

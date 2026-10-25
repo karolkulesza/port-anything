@@ -15,6 +15,8 @@ import {
   appendHistory,
   WAIVERS_FILE,
   cacheDir,
+  fieldDiffLines,
+  fieldOutputs,
   chooseSandbox,
   clusterDivergences,
   configCandidates,
@@ -52,6 +54,7 @@ import {
   runCases,
   runsDir,
   saveRun,
+  savedFieldDiffs,
   scoreCandidate,
   shortCaseId,
   smokeSubset,
@@ -349,7 +352,11 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
         const m = matches[n];
         if (m === undefined || m.waived || c.candidates[i]!.flaky) return [];
         const partly = fieldsOf(n, true);
-        return [{ case: c.caseId, fields: fieldsOf(n, false), ...(partly.length === 0 ? {} : { waived_fields: partly }) }];
+        const fields = fieldsOf(n, false);
+        // Both sides of the diverging fields after the normalizers, so that the diff can be shown later.
+        const { normalized } = c.candidates[i]!;
+        const outputs = fieldOutputs(normalized.reference, normalized.candidate, fields);
+        return [{ case: c.caseId, fields, ...(partly.length === 0 ? {} : { waived_fields: partly }), outputs }];
       });
       const waivedCases = result.cases.flatMap((c, n) => {
         const m = matches[n];
@@ -470,6 +477,7 @@ const belowMinParity = (score: Score, minParity: number) => score.headline === n
 async function execute(options: ExecuteRunOptions): Promise<CliResult> {
   const { summary, exitCode } = await performRun(options);
   const { flaky_reference: flakyReference, clusters } = summary;
+  const store = new BlobStore(cacheDir(options.projectDir));
   const minParity = minParityOf(options.config, summary.subset);
   if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
 
@@ -506,6 +514,12 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
       lines.push(`  cluster ${cluster.cluster}: ${cluster.size} case${cluster.size === 1 ? '' : 's'} · ${describeSignature(cluster.signature)} · features ${describeFeatures(cluster.features)}`);
       const listed = cluster.cases.slice(0, LISTED_CASES).map((id) => shortCaseId(id));
       lines.push(`    ${listed.join('  ')}${cluster.size > LISTED_CASES ? `  … and ${cluster.size - LISTED_CASES} more` : ''}`);
+      // A run of one cluster shows what differs, on the cluster's first case.
+      const outputs = summary.subset !== null && 'cluster' in summary.subset ? c.divergences.find((d) => d.case === cluster.cases[0])?.outputs : undefined;
+      if (outputs !== undefined) {
+        lines.push(`    ${shortCaseId(cluster.cases[0]!)}, reference -, candidate + (after normalizers):`);
+        for (const d of await savedFieldDiffs(outputs, store)) lines.push(...fieldDiffLines(d).map((l) => `      ${l}`));
+      }
     }
     if (flaky !== '') lines.push('  flaky-candidate, a re-run gave a different result:');
     for (const d of c.flaky_candidate) lines.push(`    ${shortCaseId(d.case)}  ${d.fields.join(', ')}`);
@@ -513,6 +527,9 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   if (summary.subset === null) lines.push(holdoutLine(summary.holdout));
+  if (clusters.length > 0 && !(summary.subset !== null && 'cluster' in summary.subset)) {
+    lines.push(`what a cluster's cases do differently: port-anything run --cluster <n>, or port-anything report`);
+  }
   if (summary.holdout.ran && summary.holdout.saved > 0) {
     lines.push(`fresh-holdout cases that diverge, saved for reproduction: .port-anything/runs/${summary.run_id}/${HOLDOUT_FAILURES_FILE}`);
     lines.push(`  (in the format of ${'port-anything/recorded/*.jsonl'}: copy the file there to keep them in the corpus)`);

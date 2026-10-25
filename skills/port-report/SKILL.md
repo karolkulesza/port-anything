@@ -44,7 +44,7 @@ In the project directory (the one with `port-anything.yaml`):
    port-anything report
    ```
 
-   It writes `port-anything-report.html` (self-contained, a repro per cluster),
+   It writes `port-anything-report.html` (self-contained, a repro and a diff per cluster),
    `port-anything-report.json` and a badge per candidate (`port-anything-badge.svg`,
    `port-anything-badge-2.svg`…), from the latest full run.
 

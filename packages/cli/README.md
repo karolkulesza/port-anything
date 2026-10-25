@@ -45,8 +45,8 @@ A port you work on for weeks gets a project: `port-anything.yaml` (how to build 
 
 ```sh
 npx port-anything generate --budget 5000   # a bigger corpus; the budget and seed go into port-anything.yaml
-npx port-anything run          # parity, and the divergences grouped into clusters
-npx port-anything report       # the latest run as port-anything-report.html (with a repro per cluster), port-anything-report.json and a parity badge
+npx port-anything run          # parity, and the divergences grouped into clusters (run --cluster <n> shows what one cluster does differently)
+npx port-anything report       # the latest run as port-anything-report.html (with a repro and a diff per cluster), port-anything-report.json and a parity badge
 npx port-anything waive --from-cluster 1   # a waiver for an accepted difference, to paste into port-anything/waivers.yaml
 npx port-anything baseline     # run the reference 3 times per case, propose normalizers, freeze .port-anything/MANIFEST.json
 npx port-anything verify       # check the cases and the reference's output against the manifest

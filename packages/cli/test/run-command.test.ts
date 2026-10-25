@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BlobStore,
+  blobRef,
   RUN_ID_PATTERN,
   cacheDir,
   canonicalCase,
@@ -157,6 +158,7 @@ describe('executeRun', () => {
         '  cluster 2: 1 case · stdout other · features base (1)',
         `    ${shortCaseId(cases[1]!.id)}`,
         NO_HOLDOUT,
+        "what a cluster's cases do differently: port-anything run --cluster <n>, or port-anything report",
         '',
       ].join('\n'),
     );
@@ -212,8 +214,8 @@ describe('executeRun', () => {
           normalizers: [],
           waivers: [],
           divergences: [
-            { case: cases[1]!.id, fields: ['stdout'] },
-            { case: cases[2]!.id, fields: ['exit'] },
+            { case: cases[1]!.id, fields: ['stdout'], outputs: [{ field: 'stdout', reference: blobRef('HELLO\n'), candidate: blobRef('hello\n') }] },
+            { case: cases[2]!.id, fields: ['exit'], outputs: [{ field: 'exit', reference: '1', candidate: '2' }] },
           ],
           flaky_candidate: [],
           timeout_recovered: [],
@@ -468,7 +470,12 @@ describe('executeRun waivers', () => {
   it('waives fields, not cases: a case still diverges in the fields no waiver covers, and is clustered on them', async () => {
     const json = await run([w({ field: 'stdout' })]);
     const bad = json.candidates[1];
-    expect(bad.divergences.find((d: { case: string }) => d.case === cases[4]!.id)).toEqual({ case: cases[4]!.id, fields: ['exit'], waived_fields: ['stdout'] });
+    expect(bad.divergences.find((d: { case: string }) => d.case === cases[4]!.id)).toEqual({
+      case: cases[4]!.id,
+      fields: ['exit'],
+      waived_fields: ['stdout'],
+      outputs: [{ field: 'exit', reference: '0', candidate: '3' }],
+    });
     const both = json.clusters.find((k: { cases: string[] }) => k.cases.includes(cases[4]!.id));
     expect(both.signature).toEqual({ fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs 3' }] });
     // It covers a field of 2 of the 5 cases: more than 10%.
@@ -545,7 +552,7 @@ describe('executeRun profiles', () => {
     const standard = await run(undefined).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(standard.stdout).toContain('compare standard (stderr loose, similarity 0.6)\n');
     expect(standard.stdout).toContain('candidate 1 ./bin/tool-copy: 1 of 1 cases match\ncandidate 2 ./bin/tool-bad: 0 of 1 cases match, 1 diverge\n');
-    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\n$/);
+    expect(standard.stdout).toMatch(/\n {2}cluster 1: 1 case · stderr message-text · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\nwhat a cluster's cases do differently: .*\n$/);
 
     const strict = await run({ profile: 'strict' }).then((r) => ({ ...r, stdout: unscored(r.stdout) }));
     expect(strict.stdout).toContain('compare strict (stderr exact)\nnormalizers: none\ncandidate 1 ./bin/tool-copy: 0 of 1 cases match, 1 diverge\n');
@@ -631,6 +638,20 @@ describe('executeRun clusters', () => {
     // The cluster runs were saved, but the latest run of the whole corpus is still the full one.
     expect((await json({ cluster: '1' })).subset).toEqual({ cluster: `${full.run_id}/1` });
     expect((await loadRun(project, two.run_id)).subset).toEqual({ cluster: `${full.run_id}/2` });
+  });
+
+  it('keeps both sides of every divergence, and a cluster run shows the diff of its first case', async () => {
+    const full = await exec();
+    expect(full.stdout).toContain("what a cluster's cases do differently: port-anything run --cluster <n>, or port-anything report\n");
+    expect(full.stdout).not.toContain('reference -, candidate +');
+    const { candidates } = await json();
+    expect(candidates[1].divergences.find((d: { case: string }) => d.case === cases[10]!.id).outputs).toEqual([{ field: 'exit', reference: '1', candidate: '2' }]);
+
+    const one = await exec({ cluster: '1' });
+    expect(one.stdout).toContain([`    ${shortCaseId(cases[10]!.id)}, reference -, candidate + (after normalizers):`, '      exit: reference 1, candidate 2', ''].join('\n'));
+    const two = await exec({ cluster: '2' });
+    expect(two.stdout).toContain([`    ${shortCaseId(cases[0]!.id)}, reference -, candidate + (after normalizers):`, '      stdout:', '        @@ line 1', '        - A', '        + a', ''].join('\n'));
+    expect(two.stdout).not.toContain("what a cluster's cases do differently");
   });
 
   it('exits 3 for a cluster it cannot find, or whose cases the corpus no longer has', async () => {
@@ -923,7 +944,7 @@ describe('runCommand', () => {
       writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), '{"argv":["upper"],"stdin":"hello\\n","origin":"recorded"}\n');
       const result = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
       expect(result.exitCode).toBe(1);
-      expect(unscored(result.stdout)).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\n$/);
+      expect(unscored(result.stdout)).toMatch(/candidate 1 \.\/bin\/tool-bad: 0 of 1 cases match, 1 diverge\n {2}cluster 1: 1 case · stdout other · features base \(1\)\n {4}c_[0-9a-f]{8}\nfresh holdout: not run, .*\nwhat a cluster's cases do differently: .*\n$/);
       const runId = /^run (\S+)$/m.exec(result.stdout)![1]!;
       expect((await loadRun(project, runId)).clusters).toHaveLength(1);
     } finally {

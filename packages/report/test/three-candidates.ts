@@ -61,7 +61,7 @@ export const INPUT: ReportInput = {
     },
   ],
   clusters: [
-    { cluster: 1, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'number-value' }] }, features: [{ feature: 'base', cases: 2 }, { feature: 'opt.n', cases: 1 }], size: 3, weight: 0.12, cases: [id(2), id(3), id(30)], repro: id(3) },
+    { cluster: 1, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'number-value' }] }, features: [{ feature: 'base', cases: 2 }, { feature: 'opt.n', cases: 1 }], size: 3, weight: 0.12, cases: [id(2), id(3), id(30)], repro: id(3), diff: ['stdout:', '  @@ line 1', '  - 10', '  + 1e+01'] },
     { cluster: 2, candidate: 2, signature: { fields: ['stdout'], shapes: [{ field: 'stdout', shape: 'other' }] }, features: [{ feature: 'opt.help', cases: 2 }], size: 2, weight: 0.6, cases: [id(53), id(54)] },
     { cluster: 3, candidate: 3, signature: { fields: ['exit'], shapes: [{ field: 'exit', shape: 'exit-code', detail: '0 vs 2' }] }, features: [{ feature: 'opt.n', cases: 3 }, { feature: 'base', cases: 1 }], size: 4, weight: 0.17, cases: [id(4), id(26), id(27), id(28)], repro: id(26) },
   ],
