@@ -3,7 +3,7 @@
   "version": "0.1.1",
   "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports.",
   "keywords": ["port", "rewrite", "parity", "differential-testing", "mcp", "claude-code", "codex", "agents"],
-  "homepage": "https://portanything.com",
+  "homepage": "https://github.com/karolkulesza/port-anything#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/karolkulesza/port-anything.git",
