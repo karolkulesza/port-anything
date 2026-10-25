@@ -6,6 +6,8 @@ v0.1 covers non-interactive CLIs.
 
 Port Anything records what a program actually does, generates thousands more test cases, runs the original and the port side by side, and reports a parity score with a minimal reproducer for every difference.
 
+**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 12 differences nobody had reported; 8 are already fixed upstream. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
+
 Requires Node 22.15+. Linux and macOS. Programs run with pipes (argv, stdin, environment, input files), never a terminal; TUIs, interactive prompts, network services and GUI apps are out of scope for now.
 
 ## Quickstart: `compare`

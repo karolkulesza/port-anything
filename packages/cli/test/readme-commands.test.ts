@@ -60,4 +60,11 @@ describe('packages/cli/README.md', () => {
   it('does not describe what this version ships as still to come', () => {
     expect(npm).not.toMatch(/come in v0\.1|early release: `compare` works/);
   });
+
+  it("has the repo README's first-results line, above the quickstart", () => {
+    const line = readmes['README.md'].match(/^\*\*First results:\*\*.*$/m)?.[0];
+    expect(line).toBeDefined();
+    expect(npm).toContain(line!);
+    expect(npm.indexOf(line!)).toBeLessThan(npm.indexOf('## Quickstart'));
+  });
 });
