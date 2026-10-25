@@ -41,7 +41,7 @@ The first argument is the reference; every other argument is a candidate. Name p
 
 ## A project, for a real port
 
-A port you work on for weeks gets a project: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. In a project directory:
+A port you work on for weeks gets a project: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. `generate` also mutates the cases recorded in `port-anything/recorded/`: one token at a time in an argument that holds a program or a query, and byte by byte in stdin and input files. That's how a program whose input is code (awk, sed, a SQL shell) gets a generated corpus and a fresh holdout, since its `--help` can't write a valid program. In a project directory:
 
 ```sh
 npx port-anything generate --budget 5000   # a bigger corpus; the budget and seed go into port-anything.yaml

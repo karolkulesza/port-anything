@@ -4,11 +4,19 @@ import { createHash } from 'node:crypto';
  * Generator versions this release can run. A corpus pins one (`corpus.generator`), and every
  * release keeps shipping the old ones, so upgrading never silently changes a committed corpus.
  */
-export const GENERATOR_VERSIONS = ['v1'] as const;
+export const GENERATOR_VERSIONS = ['v1', 'v2'] as const;
 export type GeneratorVersion = (typeof GENERATOR_VERSIONS)[number];
 
 /** Generator version a new corpus starts on. */
-export const DEFAULT_GENERATOR: GeneratorVersion = 'v1';
+export const DEFAULT_GENERATOR: GeneratorVersion = 'v2';
+
+/**
+ * The version whose random streams the argv cases and byte mutants draw from. v2 is v1 plus the
+ * mutation of committed cases, so without committed cases a v2 corpus is the v1 corpus.
+ */
+export function baseGenerator(generator: GeneratorVersion): GeneratorVersion {
+  return generator === 'v2' ? 'v1' : generator;
+}
 
 /** Deterministic random source: the same seed and generator version always give the same sequence. */
 export interface Rng {

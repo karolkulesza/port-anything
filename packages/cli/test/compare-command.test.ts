@@ -129,7 +129,7 @@ describe('formatCompare', () => {
     sandbox: 'bwrap, no network',
     reference: '/usr/bin/sort',
     spec: { help: '--help', flags: 3, forms: 1, subcommands: 0, features: 4 },
-    corpus: { cases: 60, budget: 60, generator: 'v1', seed: 42, stop: 'budget', observed: 70, dropped: { duplicate: 10, errorCap: 0, budget: 0 }, skipped: [] },
+    corpus: { cases: 60, budget: 60, generator: 'v2', seed: 42, stop: 'budget', observed: 70, dropped: { duplicate: 10, errorCap: 0, budget: 0 }, skipped: [] },
     untested: ['opt.z'],
     baseline: {
       repeats: 2,
@@ -260,7 +260,7 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     expect(exitCode).toBe(1);
     expect(summary).toMatchObject({ program_name: 'frob', sandbox: 'none (--no-sandbox)', reference: './bin/frob', untested: [] });
     expect(summary.spec).toEqual({ help: '--help', flags: 4, forms: 1, subcommands: 0, features: 4 });
-    expect(summary.corpus).toMatchObject({ cases: 80, budget: 80, generator: 'v1', seed: 42, stop: 'budget', skipped: [] });
+    expect(summary.corpus).toMatchObject({ cases: 80, budget: 80, generator: 'v2', seed: 42, stop: 'budget', skipped: [] });
     const [good, worse] = summary.candidates;
     expect(good).toMatchObject({ command: './bin/frob-copy', parity: 1, match: 80, cases: 80, divergences: [] });
     expect(worse!.command).toBe('./bin/frob-bad');
@@ -372,7 +372,7 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
       reference: { cmd: './bin/frob-flaky' },
       candidates: [{ cmd: './bin/frob-copy' }, { cmd: './bin/frob-bad' }],
       sandbox: { mode: 'local' },
-      corpus: { generator: 'v1', generator_seed: 42, budget: 40 },
+      corpus: { generator: 'v2', generator_seed: 42, budget: 40 },
     });
     expect(readFileSync(join(dir, 'port-anything.yaml'), 'utf8')).toMatch(/^# Written by port-anything compare --save\.\n/);
     expect((await readCliSpecFile(dir)).flags.map((f) => f.feature)).toEqual(['opt.quiet', 'opt.upper', 'opt.count', 'opt.help']);

@@ -34,7 +34,7 @@ const HoldoutSchema = z.strictObject({
   ci95: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]).nullable(),
   /** Features `parity` is the mean over. */
   features: Count,
-  /** The gap test, on the byte-mutated cases of the corpus and the holdout; null when it couldn't run (`no_gap` says why). */
+  /** The gap test, on the mutated cases of the corpus and the holdout; null when it couldn't run (`no_gap` says why). */
   gap: z
     .strictObject({
       /** Mean of per-feature parity over the compared features, on each side. */

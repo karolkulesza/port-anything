@@ -188,7 +188,7 @@ describe('verify on a generated corpus', () => {
     const baseline = await cli(['baseline', '--no-sandbox']);
     expect(baseline.exitCode).toBe(0);
     const m = (await readManifest(dir))!;
-    expect(m.generator).toMatchObject({ version: 'v1', seed: 42, budget: 30 });
+    expect(m.generator).toMatchObject({ version: 'v2', seed: 42, budget: 30 });
     expect(m.cases.length).toBeGreaterThan(5);
 
     rmSync(cacheDir(dir), { recursive: true }); // a fresh clone has no cache
@@ -200,7 +200,7 @@ describe('verify on a generated corpus', () => {
     writeFileSync(join(dir, 'port-anything.yaml'), readFileSync(join(dir, 'port-anything.yaml'), 'utf8').replace(/generator_seed: 42/, 'generator_seed: 43'));
     const reseeded = await cli(['verify', '--no-sandbox']);
     expect(reseeded.exitCode).toBe(2);
-    expect(reseeded.stdout).toContain('  generated corpus settings: v1, seed 42, budget 30, error path cap 0.3, min cases per feature 20 frozen, v1, seed 43, budget 30');
+    expect(reseeded.stdout).toContain('  generated corpus settings: v2, seed 42, budget 30, error path cap 0.3, min cases per feature 20 frozen, v2, seed 43, budget 30');
   });
 });
 

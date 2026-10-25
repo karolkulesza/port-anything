@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateArgvCases } from '../src/argv-generator.js';
+import { generateArgvCases, isSafeArgvToken } from '../src/argv-generator.js';
 import { blobRef } from '../src/blob-store.js';
 import { parseCliSpec, type CliSpec } from '../src/cli-spec.js';
 import {
@@ -10,7 +10,7 @@ import {
   type GenerateCorpusOptions,
   type ObserveReference,
 } from '../src/corpus-generator.js';
-import { canonicalObservation, type CanonicalCase, type Observation } from '../src/model.js';
+import { canonicalCase, canonicalObservation, type CanonicalCase, type Observation } from '../src/model.js';
 
 const frob: CliSpec = parseCliSpec({
   version: 1,
@@ -295,5 +295,76 @@ describe('generateCorpus: options', { timeout: SLOW }, () => {
 
   it('refuses an observe that loses cases', async () => {
     await expect(generateCorpus(frob, options({ observe: async () => [] }))).rejects.toThrow(/observations/);
+  });
+});
+
+describe('generateCorpus: committed cases (generator v2)', { timeout: SLOW }, () => {
+  // A program whose input is code: every argv case the spec gives is a syntax error.
+  const calc: CliSpec = parseCliSpec({
+    version: 1,
+    program: 'calc',
+    flags: [{ names: ['-p'], feature: 'opt.p', arity: 1, values: [{ name: 'DIGITS', type: 'int' }] }],
+    forms: [{ usage: 'calc [-p DIGITS] EXPR', args: [{ name: 'EXPR', type: 'string', arity: '1' }] }],
+  });
+  const encoder = new TextEncoder();
+  const recorded = (argv: string[], features: string[], stdin?: string): CanonicalCase =>
+    canonicalCase({ argv, features, origin: 'recorded', ...(stdin === undefined ? {} : { stdin: blobRef(stdin) }) });
+  const committedCases = [
+    recorded(['1 + 2'], ['arith']),
+    recorded(['(4 - 1) * 3'], ['arith']),
+    recorded(['max(1, 2)'], ['fn']),
+    recorded(['-p', '2', 'sqrt(2) / 3'], ['fn', 'opt.p']),
+    recorded(['sum(x)'], [], 'x = 1\n'),
+  ];
+  const committed = {
+    cases: committedCases,
+    blobs: new Map([[blobRef('x = 1\n'), encoder.encode('x = 1\n')]]),
+  };
+  // Rejects every argv case of the spec (their EXPR is not an expression), accepts any argument with an operator or a call.
+  const valid = (c: CanonicalCase) => c.argv.some((a) => /[-+*/(]/.test(a) && !a.startsWith('-'));
+  const calcReference = () => reference((c) => !valid(c));
+
+  it('with no committed cases, gives exactly the v1 corpus', async () => {
+    const ids = async (generator: 'v1' | 'v2') => (await generateCorpus(frob, options({ generator, observe: reference() }))).cases.map((c) => c.case.id);
+    expect(await ids('v2')).toEqual(await ids('v1'));
+  });
+
+  it('mutates the committed cases into a corpus that argv generation alone leaves empty', async () => {
+    const v1 = await generateCorpus(calc, options({ generator: 'v1', observe: calcReference(), committed }));
+    expect(v1.cases.filter((c) => !isErrorObservation(c.observation))).toEqual([]);
+
+    const v2 = await generateCorpus(calc, options({ generator: 'v2', observe: calcReference(), committed }));
+    const tokenMutants = v2.cases.filter((c) => c.strategy === 'token-mutation');
+    expect(tokenMutants.length).toBeGreaterThan(10);
+    expect(v2.cases.filter((c) => !isErrorObservation(c.observation)).length).toBeGreaterThan(10);
+    const committedIds = new Set(committedCases.map((c) => c.id));
+    for (const m of tokenMutants) {
+      expect(committedIds.has(m.case.id)).toBe(false);
+      expect(m.case.origin).toBe('generated');
+      // One argument changed, the flags left alone, and the parent's features kept (base for an untagged one).
+      const tags = (p: CanonicalCase) => (p.features.length > 0 ? p.features : ['base']);
+      const parent = committedCases.find(
+        (p) => p.argv.length === m.case.argv.length && p.argv.filter((a, i) => a !== m.case.argv[i]).length === 1 && tags(p).join() === m.case.features.join(),
+      );
+      expect(parent, JSON.stringify(m.case)).toBeDefined();
+      expect(m.case.argv.filter((a) => a.startsWith('-'))).toEqual(parent!.argv.filter((a) => a.startsWith('-')));
+    }
+    expect(v2.cases.some((c) => c.strategy === 'mutation' && c.case.stdin !== null && committedCases.some((p) => p.argv.join() === c.case.argv.join()))).toBe(true);
+    for (const { case: c } of v2.cases) for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) expect(v2.blobs.has(ref)).toBe(true);
+  });
+
+  it('is deterministic for the committed cases, and v1 ignores them', async () => {
+    const ids = async (generator: 'v1' | 'v2', cases = committedCases) =>
+      (await generateCorpus(calc, options({ generator, observe: calcReference(), committed: { ...committed, cases } }))).cases.map((c) => c.case.id);
+    const first = await ids('v2');
+    expect(await ids('v2')).toEqual(first);
+    expect(await ids('v2', committedCases.slice(1))).not.toEqual(first);
+    expect(await ids('v1')).toEqual(await ids('v1', []));
+  });
+
+  it('never writes an absolute or parent path into an argument', async () => {
+    const paths = { ...committed, cases: [...committedCases, recorded(['1 / 2'], ['arith']), recorded(['.. + /x'], ['arith'])] };
+    const corpus = await generateCorpus(calc, options({ generator: 'v2', budget: 500, observe: calcReference(), committed: paths }));
+    for (const c of corpus.cases.filter((c) => c.strategy === 'token-mutation')) for (const a of c.case.argv) expect(isSafeArgvToken(a), a).toBe(true);
   });
 });

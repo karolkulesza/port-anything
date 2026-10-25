@@ -20,6 +20,7 @@ import {
   type Config,
   type GeneratedCorpusCache,
   type GeneratedCorpusSettings,
+  type GeneratorVersion,
   type SandboxChoice,
   type SandboxProbe,
 } from '@port-anything/core';
@@ -111,6 +112,7 @@ export async function generateProjectCorpus(projectDir: string, config: Config, 
       errorPathCap: settings.errorPathCap,
       minCasesPerFeature: settings.minCasesPerFeature,
       seeds: inputs.seeds,
+      committed: inputs.committed,
       observe: async (cases, blobs) => {
         for (const c of cases) {
           for (const ref of [c.stdin, ...Object.values(c.fixtures)]) {
@@ -149,7 +151,7 @@ async function keyInputs(
   config: Config,
   settings: GeneratedCorpusSettings,
   spec: 'required' | 'cache-only',
-): Promise<{ key: string; spec: CliSpec; seeds: Uint8Array[]; programName: string } | undefined> {
+): Promise<{ key: string; spec: CliSpec; seeds: Uint8Array[]; committed: CommittedParents; programName: string } | undefined> {
   let cliSpec: CliSpec;
   try {
     cliSpec = await readCliSpecFile(projectDir);
@@ -161,6 +163,7 @@ async function keyInputs(
     throw e;
   }
   const seeds = await readSeedFixtures(projectDir);
+  const committed = await committedParents(projectDir, settings.generator);
   // The name the reference runs as: the configured one, else the one the spec was read as.
   const programName = config.program_name ?? cliSpec.program;
   const key = generatedCorpusKey({
@@ -172,8 +175,27 @@ async function keyInputs(
     timeoutMs: config.sandbox.timeout,
     envAllowlist: config.sandbox.env_allowlist,
     env: config.sandbox.env,
+    committed: committed.cases,
   });
-  return { key, spec: cliSpec, seeds, programName };
+  return { key, spec: cliSpec, seeds, committed, programName };
+}
+
+/** The committed cases and their stdin and fixture content, as mutation parents for the generator. */
+export type CommittedParents = { cases: CanonicalCase[]; blobs: Map<string, Uint8Array> };
+
+/**
+ * The project's committed cases with the content of their inputs, which generator v2 mutates
+ * (v1 doesn't, so it gets none and its corpus stays as it was).
+ */
+export async function committedParents(projectDir: string, generator: GeneratorVersion): Promise<CommittedParents> {
+  if (generator === 'v1') return { cases: [], blobs: new Map() };
+  const store = new BlobStore(cacheDir(projectDir));
+  const cases = await loadCommittedCases(projectDir, store);
+  const blobs = new Map<string, Uint8Array>();
+  for (const c of cases) {
+    for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null && !blobs.has(ref)) blobs.set(ref, await store.get(ref));
+  }
+  return { cases, blobs };
 }
 
 /**
