@@ -65,6 +65,23 @@ describe('fieldOutputs and savedFieldDiffs', () => {
   });
 });
 
+describe('fieldOutputs: changed files', () => {
+  it('keeps only the files that differ, so a difference past the 50th file still shows', () => {
+    const files = (changed: string) => Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`f${String(i).padStart(2, '0')}`, i === 55 ? changed : 'same']));
+    const [saved] = fieldOutputs(observation(0, '', '', files('one')), observation(0, '', '', files('two')), ['fs']);
+    const hash = (text: string) => blobRef(text).slice('blob:sha256:'.length, 'blob:sha256:'.length + 12);
+    expect(saved).toEqual({ field: 'fs', reference: `(59 unchanged)\ncreated f55 ${hash('one')}\n`, candidate: `(59 unchanged)\ncreated f55 ${hash('two')}\n` });
+    expect(fieldDiffLines(saved!)).toEqual(['fs:', '  @@ line 2', '    (59 unchanged)', `  - created f55 ${hash('one')}`, `  + created f55 ${hash('two')}`]);
+  });
+
+  it('counts what differs past 50 files a side', () => {
+    const many = Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`f${i}`, `x${i}`]));
+    const [saved] = fieldOutputs(observation(0, '', '', many), observation(0, ''), ['fs']);
+    expect(saved!.reference.split('\n').slice(-2)).toEqual(['(20 more)', '']);
+    expect(saved!.candidate).toBe('\n');
+  });
+});
+
 describe('lineDiff', () => {
   it('shows only the changed lines, with a little context, and makes invisible characters visible', () => {
     expect(lineDiff('same\n', 'same\n')).toEqual([]);

@@ -27,8 +27,38 @@ export function fieldOutputs(reference: Observation, candidate: Observation, fie
   return fields.map((field) =>
     field === 'stdout' || field === 'stderr'
       ? { field, reference: reference[field], candidate: candidate[field] }
-      : { field, reference: scalarText(reference, field), candidate: scalarText(candidate, field) },
+      : field === 'fs'
+        ? { field, ...savedFsLines(reference, candidate) }
+        : { field, reference: scalarText(reference, field), candidate: scalarText(candidate, field) },
   );
+}
+
+/**
+ * Both sides' changed files as saved: only the lines that differ, at most `FS_LINES` per side, so
+ * a case that writes thousands of files doesn't put all of them into the run file, and the
+ * difference is never cut off.
+ */
+function savedFsLines(reference: Observation, candidate: Observation): { reference: string; candidate: string } {
+  const a = fsLines(reference);
+  const b = fsLines(candidate);
+  const inA = new Set(a);
+  const inB = new Set(b);
+  const shared = a.filter((l) => inB.has(l)).length;
+  const side = (lines: string[], other: Set<string>) => {
+    const own = lines.filter((l) => !other.has(l));
+    const kept = [...(shared > 0 ? [`(${shared} unchanged)`] : []), ...own.slice(0, FS_LINES), ...(own.length > FS_LINES ? [`(${own.length - FS_LINES} more)`] : [])];
+    return `${kept.join('\n')}\n`;
+  };
+  return { reference: side(a, inB), candidate: side(b, inA) };
+}
+
+/** An observation's created, modified and deleted files, one sorted line each. */
+function fsLines(o: Observation): string[] {
+  return [
+    ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${shortHash(ref)}`),
+    ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${shortHash(ref)}`),
+    ...o.fs.deleted.map((path) => `deleted ${path}`),
+  ].sort();
 }
 
 /** Saved field outputs as text, the stdout and stderr read from the store. */
@@ -50,16 +80,8 @@ function scalarText(o: Observation, field: Exclude<ComparedField, 'stdout' | 'st
       return o.signal ?? 'none';
     case 'timeout':
       return o.timeout ? 'timed out' : 'finished';
-    case 'fs': {
-      const lines = [
-        ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${shortHash(ref)}`),
-        ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${shortHash(ref)}`),
-        ...o.fs.deleted.map((path) => `deleted ${path}`),
-      ].sort();
-      // A case that writes thousands of files would otherwise put all of them into the run file.
-      const more = lines.length > FS_LINES ? [`… ${lines.length - FS_LINES} more`] : [];
-      return `${[...lines.slice(0, FS_LINES), ...more].join('\n')}\n`;
-    }
+    case 'fs':
+      return `${fsLines(o).join('\n')}\n`;
   }
 }
 
@@ -79,7 +101,7 @@ async function blobText(ref: string, store: BlobStore): Promise<string> {
   }
 }
 
-/** Changed files listed per side; the rest are counted. */
+/** Differing changed files a run saves per side; the rest are counted. */
 const FS_LINES = 50;
 
 /** The first 12 hex digits of a blob's hash. */
