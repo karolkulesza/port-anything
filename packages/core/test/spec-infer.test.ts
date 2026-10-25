@@ -88,7 +88,8 @@ describe('inferCliSpec', () => {
   });
 
   it('falls back to -h, and refuses a program without help text', async () => {
-    expect((await infer('mute')).helpArgv).toEqual(['-h']);
+    const mute = await infer('mute');
+    expect(mute.helpArgv).toEqual(['-h']);
     mkdirSync(join(root, 'silent'));
     writeFileSync(join(root, 'silent', 'frob'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     await expect(infer('silent')).rejects.toThrow(ConfigError);

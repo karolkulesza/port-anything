@@ -358,6 +358,26 @@ describe('isSelfDescription', () => {
     expect(isSelfDescription({ names: ['-h'], description: 'compare human readable numbers' })).toBe(false);
     expect(isSelfDescription({ names: ['-V', '--version-sort'], description: 'show version numbers in order' })).toBe(false);
   });
+
+  it('marks copyright and license notices that take no value, and the option the help was read with', () => {
+    expect(isSelfDescription({ names: ['-C', '--copyright'] })).toBe(true);
+    expect(isSelfDescription({ names: ['--license'], values: [] })).toBe(true);
+    expect(isSelfDescription({ names: ['--license'], values: [{ name: 'SPDX', type: 'string' }] })).toBe(false);
+    expect(isSelfDescription({ names: ['-L'], description: 'print the license and exit' })).toBe(true);
+    // A short-only `-h` without a description is the help only when that is how the help was read.
+    expect(isSelfDescription({ names: ['-h'] })).toBe(false);
+    expect(isSelfDescription({ names: ['-h'] }, '-h')).toBe(true);
+    expect(isSelfDescription({ names: ['-h'] }, '--help')).toBe(false);
+  });
+
+  it('marks the flag the help was read with in the spec, and gawk\'s notices', () => {
+    const bsd = parseHelp('usage: frob [-h] [-q] file\n');
+    const self = (spec: ReturnType<typeof cliSpecFromHelp>) => spec.flags.filter((f) => f.self_description === true).map((f) => f.names[0]);
+    expect(self(cliSpecFromHelp('frob', bsd, {}, '-h'))).toEqual(['-h']);
+    expect(self(cliSpecFromHelp('frob', bsd))).toEqual([]);
+    const gawk = parseHelp('Usage: gawk [POSIX or GNU style options] -f progfile [--] file ...\nShort options:\t\tGNU long options: (extensions)\n\t-C\t\t\t--copyright\n\t-h\t\t\t--help\n\t-L[fatal|invalid]\t--lint[=fatal|invalid]\n\t-V\t\t\t--version\n');
+    expect(self(cliSpecFromHelp('gawk', gawk, {}, '--help'))).toEqual(['-C', '-h', '-V']);
+  });
 });
 
 describe('cliSpecFromHelp', () => {
