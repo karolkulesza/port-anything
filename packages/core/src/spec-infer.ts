@@ -54,7 +54,9 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
   await readHelp([['--help'], ['-h']]);
   // Called with nothing, a program may do what it is for (a denylisted one too: `shutdown`), so
   // only when the help options gave nothing, and never for a tool known to be destructive.
-  if (!help && destructiveCommand([program]) === null) await readHelp([[]]);
+  const { reference } = options;
+  const destructive = [[program], [reference.path, ...(reference.tool === undefined ? [] : [reference.tool]), ...reference.args]].some((argv) => destructiveCommand(argv) !== null);
+  if (!help && !destructive) await readHelp([[]]);
   if (!help) throw new ConfigError(NO_HELP_MESSAGE);
 
   const subcommands = help.subcommands.slice(0, options.maxSubcommands ?? 20).map((s) => s.name);
