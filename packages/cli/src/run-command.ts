@@ -53,6 +53,7 @@ import {
   resolveCluster,
   runCases,
   runsDir,
+  reproPicker,
   saveRun,
   savedFieldDiffs,
   scoreCandidate,
@@ -344,6 +345,13 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       clusters.push({ cluster: clusters.length + 1, candidate: i + 1, signature: cluster.signature, features: cluster.features, size: cluster.cases.length, weight: cluster.weight, cases: cluster.cases });
     }
   }
+  // Both sides of a divergence are kept for the cases a cluster is shown by: its first case
+  // (`run --cluster`) and its smallest (the report's repro), not for every case, which would make
+  // the run file grow with the corpus.
+  const pick = reproPicker(store);
+  const byId = new Map(cases.map((c) => [c.id, c]));
+  const shown = commands.map(() => new Set<string>());
+  for (const k of clusters) shown[k.candidate - 1]!.add(k.cases[0]!).add(await pick(k.cases, byId));
   const minCasesPerFeature = config.corpus?.min_cases_per_feature;
   const corpusCandidates = commands.map((command, i) => {
       const matches = waived[i]!;
@@ -355,8 +363,8 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
         const fields = fieldsOf(n, false);
         // Both sides of the diverging fields after the normalizers, so that the diff can be shown later.
         const { normalized } = c.candidates[i]!;
-        const outputs = fieldOutputs(normalized.reference, normalized.candidate, fields);
-        return [{ case: c.caseId, fields, ...(partly.length === 0 ? {} : { waived_fields: partly }), outputs }];
+        const outputs = shown[i]!.has(c.caseId) ? { outputs: fieldOutputs(normalized.reference, normalized.candidate, fields) } : {};
+        return [{ case: c.caseId, fields, ...(partly.length === 0 ? {} : { waived_fields: partly }), ...outputs }];
       });
       const waivedCases = result.cases.flatMap((c, n) => {
         const m = matches[n];
@@ -477,9 +485,9 @@ const belowMinParity = (score: Score, minParity: number) => score.headline === n
 async function execute(options: ExecuteRunOptions): Promise<CliResult> {
   const { summary, exitCode } = await performRun(options);
   const { flaky_reference: flakyReference, clusters } = summary;
-  const store = new BlobStore(cacheDir(options.projectDir));
   const minParity = minParityOf(options.config, summary.subset);
   if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
+  const store = new BlobStore(cacheDir(options.projectDir));
 
   const lines = [
     `Ran ${summary.cases} case${summary.cases === 1 ? '' : 's'} as "${summary.program_name}", sandbox: ${summary.sandbox}`,
@@ -527,7 +535,8 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
     for (const d of c.timeout_recovered) lines.push(`    ${shortCaseId(d.case)}`);
   }
   if (summary.subset === null) lines.push(holdoutLine(summary.holdout));
-  if (clusters.length > 0 && !(summary.subset !== null && 'cluster' in summary.subset)) {
+  // Cluster numbers of a smoke, feature or given-cases run aren't the ones `--cluster <n>` resolves.
+  if (clusters.length > 0 && summary.subset === null) {
     lines.push(`what a cluster's cases do differently: port-anything run --cluster <n>, or port-anything report`);
   }
   if (summary.holdout.ran && summary.holdout.saved > 0) {

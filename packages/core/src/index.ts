@@ -417,3 +417,4 @@ export {
   type StrengthScore,
 } from './strength.js';
 export { fieldDiffLines, fieldOutputs, lineDiff, observationFieldText, savedFieldDiffs, showLine, type FieldDiff, type SavedFieldOutputs } from './diff-text.js';
+export { reproPicker } from './repro-case.js';

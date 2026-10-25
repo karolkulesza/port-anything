@@ -55,8 +55,10 @@ function scalarText(o: Observation, field: Exclude<ComparedField, 'stdout' | 'st
         ...Object.entries(o.fs.created).map(([path, ref]) => `created ${path} ${shortHash(ref)}`),
         ...Object.entries(o.fs.modified).map(([path, ref]) => `modified ${path} ${shortHash(ref)}`),
         ...o.fs.deleted.map((path) => `deleted ${path}`),
-      ];
-      return `${lines.sort().join('\n')}\n`;
+      ].sort();
+      // A case that writes thousands of files would otherwise put all of them into the run file.
+      const more = lines.length > FS_LINES ? [`… ${lines.length - FS_LINES} more`] : [];
+      return `${[...lines.slice(0, FS_LINES), ...more].join('\n')}\n`;
     }
   }
 }
@@ -67,7 +69,7 @@ async function blobText(ref: string, store: BlobStore): Promise<string> {
   try {
     bytes = await store.get(ref);
   } catch (e) {
-    if (e instanceof BlobError) return `<no longer in the cache, sha256 ${shortHash(ref)}>`;
+    if (e instanceof BlobError) return `<not readable from the cache (${e.code === 'not-found' ? 'no longer there' : e.code}), sha256 ${shortHash(ref)}>`;
     throw e;
   }
   try {
@@ -76,6 +78,9 @@ async function blobText(ref: string, store: BlobStore): Promise<string> {
     return `<${bytes.length} bytes, not UTF-8, sha256 ${shortHash(ref)}>`;
   }
 }
+
+/** Changed files listed per side; the rest are counted. */
+const FS_LINES = 50;
 
 /** The first 12 hex digits of a blob's hash. */
 const shortHash = (ref: string) => ref.replace(/^blob:sha256:/, '').slice(0, 12);

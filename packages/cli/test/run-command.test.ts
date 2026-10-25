@@ -646,6 +646,9 @@ describe('executeRun clusters', () => {
     expect(full.stdout).not.toContain('reference -, candidate +');
     const { candidates } = await json();
     expect(candidates[1].divergences.find((d: { case: string }) => d.case === cases[10]!.id).outputs).toEqual([{ field: 'exit', reference: '1', candidate: '2' }]);
+    // Of cluster 2's 7 cases only the first and the smallest (here the same one) keep their outputs.
+    const kept = candidates[1].divergences.filter((d: { outputs?: unknown }) => d.outputs !== undefined).map((d: { case: string }) => d.case);
+    expect(kept.sort()).toEqual([cases[0]!.id, cases[10]!.id].sort());
 
     const one = await exec({ cluster: '1' });
     expect(one.stdout).toContain([`    ${shortCaseId(cases[10]!.id)}, reference -, candidate + (after normalizers):`, '      exit: reference 1, candidate 2', ''].join('\n'));

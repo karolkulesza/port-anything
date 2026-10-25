@@ -76,6 +76,8 @@ describe('report', () => {
     expect(clusters).toContain('<pre>$ tool count -n</pre>');
     expect(clusters).toContain('<h3>cluster 2: 1 case · exit 1 vs 2</h3>');
     expect(clusters).toContain('<pre>$ tool fail</pre>');
+    // What the repro did differently, as the run kept it.
+    expect(clusters).toContain('<p class="note">what differs (reference -, candidate +, after normalizers):</p>\n<pre>exit: reference 1, candidate 2</pre>');
   });
 
   it('writes report.json, valid against its schema, and a badge per candidate whose text matches the headline (done when)', async () => {
@@ -98,6 +100,8 @@ describe('report', () => {
       [2, 'stdout number-value', 2],
       [3, 'exit 1 vs 2', 1],
     ]);
+    expect(json.clusters[0]!.diff![0]).toBe('stdout:');
+    expect(json.clusters[1]!.diff).toEqual(['exit: reference 1, candidate 2']);
 
     // The headline row of the HTML report: 100.0%, 75.0%, 75.0%.
     const html = readFileSync(join(project, 'port-anything-report.html'), 'utf8');
@@ -166,6 +170,12 @@ describe('report', () => {
       }
       ({ json, html } = await report());
       expect(json.candidates.map((c) => [c.timeout_recovered, c.raw.timeout_recovered])).toEqual([[[], 0], [[], 0], [[], 0]]);
+      // Saved before the outputs were kept, or with outputs that make no sense: no diff.
+      for (const d of saved.candidates[2].divergences) delete d.outputs;
+      for (const d of saved.candidates[1].divergences) if (d.outputs !== undefined) d.outputs = [{ field: 'stdout', reference: 42 }];
+      ({ json, html } = await report());
+      expect(json.clusters.map((k) => k.diff)).toEqual([null, null]);
+      expect(html).not.toContain('what differs (reference -');
       expect(html).toContain('<p>None: no candidate timed out on a first run and then finished on its re-run.</p>');
     } finally {
       writeFileSync(file, kept);

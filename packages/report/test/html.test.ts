@@ -63,7 +63,7 @@ describe('renderReportHtml', () => {
     const first = clusters.slice(clusters.indexOf('id="cluster-1"'), clusters.indexOf('id="cluster-2"'));
     expect(first).toContain('<p class="note">what differs (reference -, candidate +, after normalizers):</p>\n<pre>stdout:\n  @@ line 1\n  - 10\n  + 1e+01</pre>');
     const third = clusters.slice(clusters.indexOf('id="cluster-3"'));
-    expect(third).not.toContain('what differs');
+    expect(third).not.toContain('what differs (reference -');
   });
 
   it('writes an environment name the shell cannot assign through env(1)', () => {

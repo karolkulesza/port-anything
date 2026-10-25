@@ -1,7 +1,22 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { BlobStore, CONFIG_FILE, ConfigError, cacheDir, fieldDiffLines, latestRun, loadCommittedCases, readConfigFile, savedFieldDiffs, type CanonicalCase, type RunRecord, type SavedFieldOutputs } from '@port-anything/core';
+import {
+  BlobStore,
+  COMPARED_FIELDS,
+  CONFIG_FILE,
+  ConfigError,
+  cacheDir,
+  fieldDiffLines,
+  latestRun,
+  loadCommittedCases,
+  readConfigFile,
+  reproPicker,
+  savedFieldDiffs,
+  type CanonicalCase,
+  type RunRecord,
+} from '@port-anything/core';
+import { z } from 'zod';
 import { renderBadgeSvg, renderReportHtml, reportJson, type ReportCandidate, type ReportInput, type ReportRepro, type ReproContent } from '@port-anything/report';
 import { loadCorpus } from './corpus.js';
 import type { CandidateHoldout, CliResult, HoldoutSummary } from './run-command.js';
@@ -69,6 +84,11 @@ async function writeAtomically(dir: string, name: string, content: string): Prom
   }
 }
 
+/** A divergence's saved outputs; anything else (an older or hand-edited run) shows no diff. */
+const SavedOutputsSchema = z
+  .array(z.strictObject({ field: z.enum(COMPARED_FIELDS), reference: z.string(), candidate: z.string() }))
+  .optional();
+
 /** What `run` saves beyond what addressing clusters needs (see `executeRun`). */
 interface SavedReport {
   program_name: string;
@@ -85,7 +105,7 @@ interface SavedReport {
     /** Absent from runs saved before recovered timeouts were listed. */
     timeout_recovered?: { case: string }[];
     /** `outputs` is absent from runs saved before the diverging outputs were kept. */
-    divergences?: { case: string; outputs?: SavedFieldOutputs[] }[];
+    divergences?: { case: string; outputs?: unknown }[];
     holdout?: CandidateHoldout;
   })[];
 }
@@ -103,29 +123,14 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
   }
   const s = saved as RunRecord & SavedReport;
   const byId = new Map(cases.map((c) => [c.id, c]));
-  const sizes = new Map<string, number>();
-  const size = async (c: CanonicalCase) => {
-    let n = sizes.get(c.id);
-    if (n === undefined) {
-      n = c.argv.reduce((sum, a) => sum + Buffer.byteLength(a) + 1, 0) + Object.entries(c.env).reduce((sum, [k, v]) => sum + Buffer.byteLength(k) + Buffer.byteLength(v) + 1, 0);
-      for (const ref of [...(c.stdin === null ? [] : [c.stdin]), ...Object.values(c.fixtures)]) n += (await store.get(ref)).length;
-      sizes.set(c.id, n);
-    }
-    return n;
-  };
+  const pick = reproPicker(store);
   // The smallest of a cluster's cases the corpus still has, the first of them on a tie; else its first case.
   const clusters = await Promise.all(
     s.clusters.map(async (k) => {
-      let best: { id: string; size: number } | undefined;
-      for (const id of k.cases) {
-        const c = byId.get(id);
-        if (c === undefined) continue;
-        const n = await size(c);
-        if (best === undefined || n < best.size) best = { id, size: n };
-      }
-      const repro = best?.id ?? k.cases[0]!;
+      const repro = await pick(k.cases, byId);
       // What the repro case's diverging fields were, as the run saved them.
-      const outputs = s.candidates[k.candidate - 1]?.divergences?.find((d) => d.case === repro)?.outputs;
+      const saved = SavedOutputsSchema.safeParse(s.candidates[k.candidate - 1]?.divergences?.find((d) => d.case === repro)?.outputs);
+      const outputs = saved.success ? saved.data : undefined;
       const diff = outputs === undefined ? undefined : (await savedFieldDiffs(outputs, store)).flatMap(fieldDiffLines);
       return { ...k, repro, ...(diff === undefined ? {} : { diff }) };
     }),

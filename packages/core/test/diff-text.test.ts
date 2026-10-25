@@ -60,7 +60,7 @@ describe('fieldOutputs and savedFieldDiffs', () => {
     await store.put(bytes);
     const saved = [{ field: 'stdout' as const, reference: blobRef('gone'), candidate: blobRef(bytes) }];
     const [d] = await savedFieldDiffs(saved, store);
-    expect(d!.reference).toMatch(/^<no longer in the cache, sha256 [0-9a-f]{12}>$/);
+    expect(d!.reference).toMatch(/^<not readable from the cache \(no longer there\), sha256 [0-9a-f]{12}>$/);
     expect(d!.candidate).toMatch(/^<2 bytes, not UTF-8, sha256 [0-9a-f]{12}>$/);
   });
 });
