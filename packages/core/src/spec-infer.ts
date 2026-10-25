@@ -70,7 +70,7 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
   }
   let spec: CliSpec;
   try {
-    spec = cliSpecFromHelp(program, help, subHelp);
+    spec = cliSpecFromHelp(program, help, subHelp, helpArgv[0]);
   } catch (e) {
     // The parser keeps its output valid; this is a safety net, not an expected path.
     throw new ConfigError(`The reference's help text gave a spec that isn't valid: ${(e as Error).message}`);

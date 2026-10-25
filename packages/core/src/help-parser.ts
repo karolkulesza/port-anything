@@ -625,20 +625,36 @@ function expandTabs(line: string): string {
 // Spec
 
 const SELF_DESCRIPTION_NAMES = new Set(['--help', '--version', '--usage', '-?']);
+/** Self-description when they take no value (`--copyright`; `npm init --license MIT` sets one). */
+const NOTICE_NAMES = new Set(['--copyright', '--license', '--licence', '--warranty']);
 
-/** Whether a flag only describes the program (help, version, usage) rather than exercising it. */
-export function isSelfDescription(flag: Pick<HelpFlag, 'names' | 'description'>): boolean {
-  if (flag.names.some((n) => SELF_DESCRIPTION_NAMES.has(n))) return true;
+/**
+ * Whether a flag only describes the program (help, version, usage, copyright or license notice)
+ * rather than exercising it. `readWith` is the option the help text was read with: whatever it is
+ * called, it printed the help (`-h` of a tool whose help names it nothing else).
+ */
+export function isSelfDescription(flag: Pick<HelpFlag, 'names' | 'description'> & { values?: readonly unknown[] }, readWith?: string): boolean {
+  const noValue = (flag.values ?? []).length === 0;
+  // A read-with option that takes a value (`-h HOST`) only printed a usage error.
+  if (flag.names.some((n) => SELF_DESCRIPTION_NAMES.has(n) || (n === readWith && noValue))) return true;
+  // `--copyright` of a license scanner ("also display copyright text found in the file") is its job.
+  const description = flag.description ?? '';
+  const notice = NOTICE_DESCRIPTION.test(description) && !/\bfound\b|\bin (?:the|each|a) file/i.test(description);
+  if (noValue && flag.names.some((n) => NOTICE_NAMES.has(n)) && (description === '' || notice)) return true;
   if (flag.names.some((n) => n.startsWith('--'))) return false;
-  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version)\b/i.test(flag.description ?? '');
+  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version)\b/i.test(description) || notice;
 }
+
+/** "print the license and exit", "display copyright information": a notice about the program itself. */
+const NOTICE_DESCRIPTION = /^(display|show|print|output|give)s?\b[^.;]*\b(copyright|licen[cs]e|warranty)\b/i;
 
 /**
  * The CLI spec for a program from its `--help` and, for each subcommand, that subcommand's
  * `--help` (missing ones keep only their name). Each flag gets the feature `opt.<long name>`
  * (or `opt.<letter>`), each subcommand `cmd.<name>`, with its flags under `cmd.<name>.opt.…`.
+ * `readWith` is the option the program's own help was read with (see `isSelfDescription`).
  */
-export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHelp: Readonly<Record<string, ParsedHelp>> = {}): CliSpec {
+export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHelp: Readonly<Record<string, ParsedHelp>> = {}, readWith?: string): CliSpec {
   const used = new Set<string>();
   const feature = (base: string): string => {
     let name = base;
@@ -646,14 +662,15 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
     used.add(name);
     return name;
   };
-  const flagsOf = (parsed: ParsedHelp, prefix: string): CliFlag[] =>
+  // Only the root's help can have been read with something other than `--help`, which is covered anyway.
+  const flagsOf = (parsed: ParsedHelp, prefix: string, helpReadWith?: string): CliFlag[] =>
     parsed.flags.map((f) => ({
       names: f.names,
       feature: feature(`${prefix}opt.${primaryName(f.names)}`),
       ...(f.description === undefined ? {} : { description: f.description }),
       arity: f.values.length,
       values: f.values.map((v) => cleanValue(v, f.values.length)),
-      ...(isSelfDescription(f) ? { self_description: true } : {}),
+      ...(isSelfDescription(f, helpReadWith) ? { self_description: true } : {}),
     }));
   const subcommands: CliSubcommand[] = help.subcommands.map((s) => {
     const own = Object.hasOwn(subcommandHelp, s.name) ? subcommandHelp[s.name] : undefined;
@@ -669,7 +686,7 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
       subcommands: [],
     };
   });
-  return CliSpecSchema.parse({ version: 1, program, flags: flagsOf(help, ''), forms: help.forms, subcommands });
+  return CliSpecSchema.parse({ version: 1, program, flags: flagsOf(help, '', readWith), forms: help.forms, subcommands });
 }
 
 function primaryName(names: readonly string[]): string {
