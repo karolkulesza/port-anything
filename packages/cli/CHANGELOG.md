@@ -1,5 +1,11 @@
 # port-anything
 
+## 0.1.1
+
+### Patch Changes
+
+- The npm README has the first-results line and links to the showcase write-up.
+
 ## 0.1.0
 
 ### Minor Changes

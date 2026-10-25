@@ -1,5 +1,11 @@
 # @port-anything/report
 
+## 0.1.1
+
+### Patch Changes
+
+- @port-anything/core@0.1.1
+
 ## 0.1.0
 
 ### Patch Changes
