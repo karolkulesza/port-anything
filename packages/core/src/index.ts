@@ -190,6 +190,7 @@ export {
   MIN_GAP_CASES,
   freshHoldoutSeed,
   gapCluster,
+  gapClusters,
   generateFreshHoldout,
   holdoutGap,
   holdoutParity,

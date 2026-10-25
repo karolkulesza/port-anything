@@ -2,6 +2,7 @@ import { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArg
 import { blobRef } from './blob-store.js';
 import { mutateBytes } from './byte-mutation.js';
 import { canonicalJson } from './canonical-json.js';
+import { destructiveCommand } from './destructive.js';
 import { specFeatures, type CliSpec } from './cli-spec.js';
 import { canonicalCase, type CanonicalCase, type Observation } from './model.js';
 import { baseGenerator, createRng, type Rng } from './rng.js';
@@ -163,8 +164,9 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
   }
 
   // Generator v2: the committed cases are mutation parents too, under their features (`base` for
-  // an untagged one, as in scoring).
-  const committed = options.generator === 'v1' ? [] : (options.committed?.cases ?? []);
+  // an untagged one, as in scoring). In ID order, so moving a case to another line or file
+  // doesn't change the corpus (the cache key doesn't see their order either).
+  const committed = options.generator === 'v1' ? [] : canonicalOrder(options.committed?.cases ?? []);
   const committedParents = new Map<string, CanonicalCase[]>();
   for (const c of committed) {
     for (const f of tagsOf(c)) {
@@ -205,7 +207,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
       const parent = rng.pick(fromCommitted === undefined ? generated : [...generated, ...fromCommitted]);
       const mutant =
         fromCommitted?.includes(parent) === true
-          ? mutateCommitted(parent, rng, blobs, options.seeds ?? [], tokens)
+          ? mutateCommitted(parent, rng, blobs, options.seeds ?? [], { ...tokens, program: spec.program, iKnow: options.iKnow === true })
           : { case: mutateCase(parent, rng, blobs, options.seeds ?? []), strategy: 'mutation' as const };
       if (seen.has(mutant.case.id)) {
         stalled.set(feature, stalled.get(feature)! + 1);
@@ -396,6 +398,13 @@ function mutateCase(parent: CanonicalCase, rng: Rng, blobs: Map<string, Uint8Arr
   });
 }
 
+/** Committed cases sorted by ID, one per ID. */
+function canonicalOrder(cases: readonly CanonicalCase[]): CanonicalCase[] {
+  const byId = new Map<string, CanonicalCase>();
+  for (const c of cases) if (!byId.has(c.id)) byId.set(c.id, c);
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /** A committed case's features for targeting and for its mutants: `base` when it has none. */
 function tagsOf(c: CanonicalCase): readonly string[] {
   return c.features.length > 0 ? c.features : ['base'];
@@ -413,22 +422,25 @@ function codeArguments(c: CanonicalCase): number[] {
  * A mutant of a committed case (generator v2): half the time one of its code arguments with one
  * whole-token mutation from a dictionary of all the committed code arguments (which also donate
  * splices), else, or when that gives nothing new and safe, a byte mutant of its stdin or a fixture
- * as `mutateCase` makes. The mutant keeps the parent's features (`base` when it has none).
+ * as `mutateCase` makes. Safe means no argument becomes an absolute or `..` path, and (unless
+ * `iKnow`) the call doesn't turn into a destructive one the parent wasn't, such as `git push` out of
+ * `git log`. The mutant keeps the parent's features (`base` when it has none).
  */
 function mutateCommitted(
   parent: CanonicalCase,
   rng: Rng,
   blobs: Map<string, Uint8Array>,
   seeds: readonly Uint8Array[],
-  tokens: { dictionary: TokenDictionary; donors: readonly string[] },
+  tokens: { dictionary: TokenDictionary; donors: readonly string[]; program: string; iKnow: boolean },
 ): { case: CanonicalCase; strategy: CorpusStrategy } {
   const features = [...tagsOf(parent)];
   const code = codeArguments(parent);
   if (code.length > 0 && tokens.dictionary.size > 0 && rng.int(2) === 0) {
     const at = rng.pick(code);
     const { text } = mutateTokens(parent.argv[at]!, rng, tokens.dictionary, tokens.donors);
-    if (text !== parent.argv[at] && isSafeArgvToken(text)) {
-      const argv = parent.argv.map((arg, i) => (i === at ? text : arg));
+    const argv = parent.argv.map((arg, i) => (i === at ? text : arg));
+    const destructive = !tokens.iKnow && destructiveCommand([tokens.program, ...argv]) !== null && destructiveCommand([tokens.program, ...parent.argv]) === null;
+    if (text !== parent.argv[at] && isSafeArgvToken(text) && !destructive) {
       return { case: canonicalCase({ argv, env: parent.env, stdin: parent.stdin, fixtures: parent.fixtures, features, origin: 'generated' }), strategy: 'token-mutation' };
     }
   }

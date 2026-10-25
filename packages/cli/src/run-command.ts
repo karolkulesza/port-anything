@@ -25,7 +25,7 @@ import {
   featureWeights,
   caseOutcome,
   freshHoldoutSeed,
-  gapCluster,
+  gapClusters,
   generateArgvCases,
   generateFreshHoldout,
   generatedCorpusSettings,
@@ -671,9 +671,10 @@ async function runFreshHoldout(options: {
     generated === undefined ? new Set<string>() : new Set(generateArgvCases(inputs.spec, { seed: generated.seed, generator: generated.generator, iKnow: false }).cases.map((c) => c.case.id));
   const corpusMutant = options.corpusCases.map((c) => generated !== undefined && c.origin === 'generated' && !argvIds.has(c.id));
   const holdoutMutant = fresh.strategies.map(isMutantStrategy);
+  const clusterOf = gapClusters(inputs.committed.cases);
   const toGap = (c: CanonicalCase, scored: ScoredCase): GapCase => {
     const o = caseOutcome(scored);
-    return { features: c.features, cluster: gapCluster(c), outcome: o === 'match' ? 'match' : o === 'diverge' ? 'diverge' : 'excluded' };
+    return { features: c.features, cluster: clusterOf(c), outcome: o === 'match' ? 'match' : o === 'diverge' ? 'diverge' : 'excluded' };
   };
   const failing = new Set<string>();
   const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {

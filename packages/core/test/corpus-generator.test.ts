@@ -347,7 +347,8 @@ describe('generateCorpus: committed cases (generator v2)', { timeout: SLOW }, ()
         (p) => p.argv.length === m.case.argv.length && p.argv.filter((a, i) => a !== m.case.argv[i]).length === 1 && tags(p).join() === m.case.features.join(),
       );
       expect(parent, JSON.stringify(m.case)).toBeDefined();
-      expect(m.case.argv.filter((a) => a.startsWith('-'))).toEqual(parent!.argv.filter((a) => a.startsWith('-')));
+      const changed = parent!.argv.findIndex((a, i) => a !== m.case.argv[i]);
+      expect(parent!.argv[changed]!.startsWith('-'), 'only a code argument is mutated, never a flag').toBe(false);
     }
     expect(v2.cases.some((c) => c.strategy === 'mutation' && c.case.stdin !== null && committedCases.some((p) => p.argv.join() === c.case.argv.join()))).toBe(true);
     for (const { case: c } of v2.cases) for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) expect(v2.blobs.has(ref)).toBe(true);
@@ -360,6 +361,24 @@ describe('generateCorpus: committed cases (generator v2)', { timeout: SLOW }, ()
     expect(await ids('v2')).toEqual(first);
     expect(await ids('v2', committedCases.slice(1))).not.toEqual(first);
     expect(await ids('v1')).toEqual(await ids('v1', []));
+  });
+
+  it('does not depend on the order of the committed cases', async () => {
+    const ids = async (cases: CanonicalCase[]) =>
+      (await generateCorpus(calc, options({ generator: 'v2', observe: calcReference(), committed: { ...committed, cases } }))).cases.map((c) => c.case.id);
+    expect(await ids([...committedCases].reverse())).toEqual(await ids(committedCases));
+    expect(await ids([...committedCases, committedCases[0]!])).toEqual(await ids(committedCases));
+  });
+
+  it('does not turn a call into a destructive one, unless iKnow', async () => {
+    // `git log origin` and `git push --dry-run` give the tokens for `git push origin`.
+    const git: CliSpec = parseCliSpec({ version: 1, program: 'git', forms: [{ usage: 'git CMD [ARG]...', args: [{ name: 'CMD', type: 'string', arity: '+' }] }] });
+    const cases = [recorded(['log', 'origin'], ['log']), recorded(['push', '--dry-run'], ['push']), recorded(['status', 'origin'], ['status'])];
+    const run = (iKnow: boolean) =>
+      generateCorpus(git, options({ generator: 'v2', budget: 400, iKnow, observe: reference(), committed: { cases, blobs: new Map() } }));
+    const pushes = (corpus: Awaited<ReturnType<typeof run>>) => corpus.cases.filter((c) => c.strategy === 'token-mutation' && c.case.argv[0] === 'push' && !c.case.argv.includes('--dry-run'));
+    expect(pushes(await run(false))).toEqual([]);
+    expect(pushes(await run(true)).length).toBeGreaterThan(0);
   });
 
   it('never writes an absolute or parent path into an argument', async () => {
