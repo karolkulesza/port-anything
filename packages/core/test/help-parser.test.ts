@@ -187,6 +187,59 @@ and to finish
     expect(flag(help.flags, '-p').names).toEqual(['-p']);
   });
 
+  it('reads the GNU two-column layout: a long spelling in the description column, one usage line per form (gawk)', () => {
+    const help = parseHelp(`Usage: gawk [POSIX or GNU style options] -f progfile [--] file ...
+Usage: gawk [POSIX or GNU style options] [--] 'program' file ...
+POSIX options:\t\tGNU long options: (standard)
+\t-f progfile\t\t--file=progfile
+\t-F fs\t\t\t--field-separator=fs
+\t-v var=val\t\t--assign=var=val
+Short options:\t\tGNU long options: (extensions)
+\t-C\t\t\t--copyright
+\t-d[file]\t\t--dump-variables[=file]
+\t-e 'program-text'\t--source='program-text'
+\t-h\t\t\t--help
+\t-L[fatal|invalid|no-ext]\t--lint[=fatal|invalid|no-ext]
+\t-V\t\t\t--version
+`, { program: 'gawk' });
+    const read = (name: string) => {
+      const f = flag(help.flags, name);
+      return [f.names, f.values.map((v) => `${v.name}:${v.type}${v.optional === true ? '?' : ''}`)];
+    };
+    expect(read('-f')).toEqual([['-f', '--file'], ['progfile:path']]);
+    expect(read('-v')).toEqual([['-v', '--assign'], ['var=val:string']]);
+    expect(read('-e')).toEqual([['-e', '--source'], ['program-text:string']]);
+    expect(read('-d')).toEqual([['-d', '--dump-variables'], ['file:path?']]);
+    expect(read('-L')).toEqual([['-L', '--lint'], ['fatal|invalid|no-ext:enum?']]);
+    expect(read('-h')).toEqual([['-h', '--help'], []]);
+    expect(help.flags.every((f) => f.description === undefined)).toBe(true);
+    // Both usage lines; `[POSIX or GNU style options]` names options, and `-f` takes `progfile`.
+    expect(help.forms.map((f) => [f.flags, f.args.map((a) => `${a.name}${a.arity}`)])).toEqual([
+      [['-f'], ['file+']],
+      [[], ['program1', 'file+']],
+    ]);
+  });
+
+  it('takes a usage-line flag\'s value from its option line, skips an options group, and keeps prose out of the forms', () => {
+    const cp = parseHelp(
+      'Usage: cp [OPTION]... [-T] SOURCE DEST\n  or:  cp [OPTION]... -t DIRECTORY SOURCE...\n\n  -t, --target-directory=DIRECTORY  copy all SOURCE arguments into DIRECTORY\n  -T, --no-target-directory    treat DEST as a normal file\n',
+      { program: 'cp' },
+    );
+    expect(cp.forms.map((f) => [f.flags, f.args.map((a) => `${a.name}${a.arity}`)])).toEqual([
+      [[], ['SOURCE1', 'DEST1']],
+      [['-t'], ['SOURCE+']],
+    ]);
+    expect(parseHelp('Usage: bash [GNU long option] [option] script-file ...\n', { program: 'bash' }).forms[0]!.args.map((a) => a.name)).toEqual(['script-file']);
+    expect(parseHelp('Usage: bar [options] file\nUsage: see the man page for details\n', { program: 'bar' }).forms).toHaveLength(1);
+  });
+
+  it('reads a bare a|b as choices, but not a pair of placeholders', () => {
+    const help = parseHelp('Usage: frob [OPTION]...\n\n  -i FILE|DIR      input path\n  -p HOST|IP       peer\n  -f, --format=pem|der  format\n');
+    expect(flag(help.flags, '-i').values).toEqual([{ name: 'FILE|DIR', type: 'path' }]);
+    expect(flag(help.flags, '-p').values[0]!.type).toBe('string');
+    expect(flag(help.flags, '-f').values).toEqual([{ name: 'pem|der', type: 'enum', choices: ['pem', 'der'] }]);
+  });
+
   it('reads argparse-style choices and Go-style empty placeholders', () => {
     const help = parseHelp(`usage: frob [-h] [--mode {fast,slow}] [--indent=] path
 
