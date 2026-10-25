@@ -187,6 +187,39 @@ and to finish
     expect(flag(help.flags, '-p').names).toEqual(['-p']);
   });
 
+  it('reads the GNU two-column layout: a long spelling in the description column, one usage line per form (gawk)', () => {
+    const help = parseHelp(`Usage: gawk [POSIX or GNU style options] -f progfile [--] file ...
+Usage: gawk [POSIX or GNU style options] [--] 'program' file ...
+POSIX options:\t\tGNU long options: (standard)
+\t-f progfile\t\t--file=progfile
+\t-F fs\t\t\t--field-separator=fs
+\t-v var=val\t\t--assign=var=val
+Short options:\t\tGNU long options: (extensions)
+\t-C\t\t\t--copyright
+\t-d[file]\t\t--dump-variables[=file]
+\t-e 'program-text'\t--source='program-text'
+\t-h\t\t\t--help
+\t-L[fatal|invalid|no-ext]\t--lint[=fatal|invalid|no-ext]
+\t-V\t\t\t--version
+`, { program: 'gawk' });
+    const read = (name: string) => {
+      const f = flag(help.flags, name);
+      return [f.names, f.values.map((v) => `${v.name}:${v.type}${v.optional === true ? '?' : ''}`)];
+    };
+    expect(read('-f')).toEqual([['-f', '--file'], ['progfile:path']]);
+    expect(read('-v')).toEqual([['-v', '--assign'], ['var=val:string']]);
+    expect(read('-e')).toEqual([['-e', '--source'], ['program-text:string']]);
+    expect(read('-d')).toEqual([['-d', '--dump-variables'], ['file:path?']]);
+    expect(read('-L')).toEqual([['-L', '--lint'], ['fatal|invalid|no-ext:enum?']]);
+    expect(read('-h')).toEqual([['-h', '--help'], []]);
+    expect(help.flags.every((f) => f.description === undefined)).toBe(true);
+    // Both usage lines; `[POSIX or GNU style options]` names options, and `-f` takes `progfile`.
+    expect(help.forms.map((f) => [f.flags, f.args.map((a) => `${a.name}${a.arity}`)])).toEqual([
+      [['-f'], ['file+']],
+      [[], ['program1', 'file+']],
+    ]);
+  });
+
   it('reads argparse-style choices and Go-style empty placeholders', () => {
     const help = parseHelp(`usage: frob [-h] [--mode {fast,slow}] [--indent=] path
 

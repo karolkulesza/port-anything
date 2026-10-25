@@ -40,8 +40,10 @@ export function parseHelp(raw: string, options: { program?: string } = {}): Pars
   const flags: HelpFlag[] = [];
   for (const flag of body.flags) mergeFlag(flags, flag, 'body');
   const forms: CliForm[] = [];
+  // A flag the option lines give a value takes it in a usage line too (`-f progfile`).
+  const valuesTaken = new Map(flags.flatMap((f) => f.names.map((n) => [n, f.values.filter((v) => !v.optional).length] as const)));
   for (const text of usage.forms) {
-    const { form, flags: usageFlags } = readForm(text, program);
+    const { form, flags: usageFlags } = readForm(text, program, valuesTaken);
     forms.push(form);
     for (const flag of usageFlags) mergeFlag(flags, flag, 'usage');
   }
@@ -65,6 +67,13 @@ function readUsage(lines: string[], program: string | undefined): { program?: st
   const name = program ?? (first === '' ? firstWord(lines[start + 1] ?? '') : firstWord(first));
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
+    // gawk: `Usage: …` once per form, each line starting with it.
+    const again = /^\s*usage:\s*(.*)$/i.exec(line);
+    if (again) {
+      used.add(i);
+      if (again[1]!.trim() !== '') forms.push(again[1]!.trim());
+      continue;
+    }
     // An option line right under the usage (curl) ends it; a usage line goes on with `[`, `{`, `<`.
     if (line.trim() === '' || !/^\s/.test(line) || (OPTION_LINE.test(line.trim()) && /\t| {2,}/.test(line.trim()))) break;
     used.add(i);
@@ -149,7 +158,7 @@ function parseNodes(tokens: Token[]): UsageNode[][] {
 }
 
 /** One usage line as a form, plus every flag the line mentions. */
-function readForm(text: string, program: string | undefined): { form: CliForm; flags: HelpFlag[] } {
+function readForm(text: string, program: string | undefined, valuesTaken: ReadonlyMap<string, number> = new Map()): { form: CliForm; flags: HelpFlag[] } {
   const usage = text.replace(/\s+/g, ' ').trim();
   const tokens = tokenize(usage);
   const head = tokens[0];
@@ -170,7 +179,7 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
           flags.push({ names: aliases, values: [] });
           continue;
         }
-        if (oldKeySyntax(node.alts)) continue;
+        if (oldKeySyntax(node.alts) || optionsPlaceholder(node.alts)) continue;
         // `[-f progfile | 'prog']` (awk): a single word offered as an alternative is a positional
         // too, the first one only, since `[a | b]` is one argument, not two.
         let wordTaken = false;
@@ -201,12 +210,12 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
         const attached = placeholder ?? /^(-[A-Z])([a-z]{2,})$/.exec(word);
         const item = attached ? { name: attached[1]!, values: [valueFor(attached[2]!)] } : parseFlagItem(word, false);
         if (!item) continue;
-        // `[-o FILE]`: words after the first flag of an optional group are its values.
-        if (ctx.optional && i === 0) {
-          while (i + 1 < nodes.length && nodes[i + 1]!.kind === 'word' && !(nodes[i + 1] as { text: string }).text.startsWith('-')) {
-            const value = nodes[++i] as { text: string };
-            item.values.push(valueFor(value.text));
-          }
+        // `[-o FILE]`: words after the first flag of an optional group are its values; elsewhere,
+        // as many words as the option lines say the flag takes (`-f progfile`).
+        const takes = ctx.optional && i === 0 ? Infinity : item.values.length === 0 ? (valuesTaken.get(item.name) ?? 0) : 0;
+        while (item.values.length < takes && i + 1 < nodes.length && nodes[i + 1]!.kind === 'word' && !(nodes[i + 1] as { text: string }).text.startsWith('-')) {
+          const value = nodes[++i] as { text: string };
+          item.values.push(valueFor(value.text));
         }
         flags.push({ names: [item.name], values: item.values });
         if (ctx.required && !('literal' in item && item.literal !== undefined)) form.flags.push(item.name);
@@ -220,6 +229,13 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
       form.args.push({ name: bare, type: valueType(bare), arity });
     }
   }
+}
+
+/** `[POSIX or GNU style options]` (gawk): words ending in "options" name the flags, not an argument. */
+function optionsPlaceholder(alts: UsageNode[][]): boolean {
+  if (alts.length !== 1 || alts[0]!.length < 2) return false;
+  const words = alts[0]!;
+  return words.every((n) => n.kind === 'word' && !n.text.startsWith('-')) && OPTION_PLACEHOLDER.test((words.at(-1) as { text: string }).text);
 }
 
 /** `[-v | --version]`: a short and a long flag offered as alternatives are one flag. */
@@ -291,6 +307,10 @@ function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[
     }
     const indent = expandTabs(line).search(/\S/);
     let { spec, description, lenient } = splitOptionLine(line, column);
+    // GNU two-column layout (gawk): `-f progfile		--file=progfile`, the long spelling alone where
+    // the description would be.
+    const longColumn = lenient && /^--[A-Za-z0-9][\w-]*(?:=\S+|\[=[^\]\s]*\])?$/.test(description) && !spec.includes('--') ? description : undefined;
+    if (longColumn !== undefined) description = '';
     const items: FlagItem[] = [];
     const parts = spec.split(/,\s*(?=-)|\s+\|\s+(?=-)/);
     for (const [n, part] of parts.entries()) {
@@ -304,6 +324,8 @@ function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[
         break;
       }
     }
+    const long = longColumn === undefined || items.length === 0 ? undefined : parseFlagItem(longColumn, true);
+    if (long !== undefined && long.rest === '') items.push(long);
     // `--expression=script` next to `-e script` is a placeholder; it names a value only when the
     // flag is already known (`-c, --check, --check=diagnose-first`).
     for (const item of items) {
@@ -422,7 +444,12 @@ function parseFlagItem(text: string, lenient: boolean): (FlagItem & { rest: stri
   while (words !== '') {
     const w = /^(<[^>]*>(?:\.\.\.)?|\{[^}]*\}|\S+)\s*/.exec(words)!;
     const word = w[1]!;
-    const placeholder = word.startsWith('<') || word.startsWith('{') || /^[A-Z#][^a-z\s]*$/.test(word) || (lenient && /^[a-z][a-z0-9_-]*$/.test(word));
+    const placeholder =
+      word.startsWith('<') ||
+      word.startsWith('{') ||
+      /^[A-Z#][^a-z\s]*$/.test(word) ||
+      // `var=val`, `'program-text'` (gawk) only where a gap split off the description.
+      (lenient && (/^[a-z][a-z0-9_-]*(?:=[a-z][a-z0-9_-]*)?$/.test(word) || /^'[a-z][a-z0-9_-]*'$/.test(word)));
     if (!placeholder || values.some((v) => v.optional)) break;
     values.push(valueFor(word));
     words = words.slice(w[0].length);
@@ -444,7 +471,8 @@ function valueFor(word: string): CliValue {
   const inner = word.replace(/\.\.\.$/, '');
   const braces = /^\{([^}]*)\}$/.exec(inner);
   const angle = /^<([^>]*)>$/.exec(inner);
-  const options = braces ? braces[1]!.split(',') : angle && angle[1]!.includes('|') ? angle[1]!.split('|') : undefined;
+  // `{a,b}`, `<a|b>`, and bare `a|b` (gawk's `--lint[=fatal|invalid|no-ext]`) list choices.
+  const options = braces ? braces[1]!.split(',') : angle && angle[1]!.includes('|') ? angle[1]!.split('|') : inner.includes('|') ? inner.split('|') : undefined;
   if (options && options.length > 1 && options.every((o) => CHOICE.test(o.trim()))) {
     return { name: inner, type: 'enum', choices: options.map((o) => o.trim()) };
   }
