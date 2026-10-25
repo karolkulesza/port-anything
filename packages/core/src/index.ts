@@ -245,6 +245,7 @@ export {
 export { PROBE_ID_PATTERN, ProbeRecordSchema, loadProbe, probePath, probesDir, saveProbe, type ProbeRecord } from './probes.js';
 export { SMOKE_CASES_PER_FEATURE, SMOKE_PASSING_CASES, openClusterCases, smokeSubset, type SmokeSubset, type SmokeSubsetOptions } from './smoke.js';
 export {
+  CLI_SPEC_DOCS,
   CLI_SPEC_FILE,
   CliSpecSchema,
   POSITIONAL_ARITIES,
@@ -263,7 +264,7 @@ export {
 } from './cli-spec.js';
 export { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag, type ParsedHelp } from './help-parser.js';
 export { UNKNOWN_LONG_FLAG, judgeProbes, specProbes, type ProbeOutcome, type SpecProbe, type SpecProbeResult } from './spec-probe.js';
-export { inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
+export { NO_HELP_MESSAGE, inferCliSpec, type InferCliSpecOptions, type InferCliSpecResult } from './spec-infer.js';
 export {
   CONTAINER_TOOLS,
   CONTAINER_VERBS,

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { parseConfigSource } from '@port-anything/core';
+import { BlobStore, RECORDED_DIR, loadCommittedCases, parseCliSpec, parseConfigSource } from '@port-anything/core';
+import { parse as parseYaml } from 'yaml';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // The docs pages walk through the examples, so their commands must keep working as written. Each
@@ -91,6 +92,23 @@ describe('the docs pages', () => {
       const configs = pageBlocks(name).filter((b) => b.lang === 'yaml' && b.body.startsWith('version: 1'));
       expect(configs.length, name).toBeGreaterThan(0);
       for (const { body } of configs) expect(() => parseConfigSource(body), `${name}:\n${body}`).not.toThrow();
+    }
+  });
+
+  it('show a CLI spec and recorded cases that load', async () => {
+    const page = pageBlocks('cli-spec.md');
+    const specs = page.filter((b) => b.lang === 'yaml');
+    expect(specs).toHaveLength(1);
+    expect(parseCliSpec(parseYaml(specs[0]!.body)).forms[0]!.args.map((a) => a.arity)).toEqual(['1', '*']);
+    const lines = page.find((b) => b.lang === 'jsonl')!.body;
+    const project = mkdtempSync(join(tmpdir(), 'pa-docs-cases-'));
+    try {
+      mkdirSync(join(project, RECORDED_DIR), { recursive: true });
+      writeFileSync(join(project, RECORDED_DIR, 'docs.jsonl'), lines);
+      const cases = await loadCommittedCases(project, new BlobStore(join(project, 'cache')));
+      expect(cases).toHaveLength(lines.trim().split('\n').length);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
     }
   });
 });

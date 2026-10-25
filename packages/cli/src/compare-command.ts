@@ -497,7 +497,7 @@ export function formatCompare(s: CompareSummary): string {
     ...(s.git === undefined
       ? []
       : [`reference: ${s.git.cmd} at git:${s.git.rev} (${s.git.commit.slice(0, 7)}), ${s.git.build === null ? 'no build step' : `built with \`${s.git.build}\``}`]),
-    `read "${s.program_name} ${s.spec.help}": ${plural(s.spec.flags, 'flag')}, ${plural(s.spec.forms, 'positional form')}${s.spec.subcommands > 0 ? `, ${plural(s.spec.subcommands, 'subcommand')}` : ''}`,
+    `read ${helpInvocation(s.program_name, s.spec.help)}: ${plural(s.spec.flags, 'flag')}, ${plural(s.spec.forms, 'positional form')}${s.spec.subcommands > 0 ? `, ${plural(s.spec.subcommands, 'subcommand')}` : ''}`,
     `every side runs as \`${s.program_name}\` (argv[0] pinned) · sandbox: ${s.sandbox}`,
     `generated ${plural(s.corpus.cases, 'case')} (budget ${s.corpus.budget})${s.corpus.skipped.length > 0 ? `; left out as destructive: ${s.corpus.skipped.join(', ')}` : ''}`,
     `reference re-run ${s.baseline.repeats}× per case: ${s.baseline.stable} stable, ${s.baseline.normalized} stable after normalizers, ${s.baseline.flaky_reference.length} flaky-reference (left out)`,
@@ -581,4 +581,9 @@ async function save(dir: string, run: { args: CompareArgs; programName: string; 
   await mkdir(dirname(join(dir, CLI_SPEC_FILE)), { recursive: true });
   await writeFile(join(dir, CLI_SPEC_FILE), cliSpecYaml(run.spec), { flag: 'wx' });
   return SAVED;
+}
+
+/** The call whose output the spec was read from: `"sort --help"`, or `"awk" with no arguments`. */
+export function helpInvocation(program: string, help: string): string {
+  return help === '' ? `"${program}" with no arguments` : `"${program} ${help}"`;
 }

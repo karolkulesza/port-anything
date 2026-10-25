@@ -132,6 +132,9 @@ export function specFeatures(spec: CommandShape): SpecFeature[] {
 /** Where the CLI spec lives in a project. */
 export const CLI_SPEC_FILE = 'port-anything/cli-spec.yaml';
 
+/** The page that describes the CLI spec and the recorded cases' format. */
+export const CLI_SPEC_DOCS = 'https://github.com/karolkulesza/port-anything/blob/main/docs/cli-spec.md';
+
 /** Validates a parsed CLI spec, with every problem listed by its key path. */
 export function parseCliSpec(input: unknown, source = CLI_SPEC_FILE): CliSpec {
   const result = CliSpecSchema.safeParse(input);

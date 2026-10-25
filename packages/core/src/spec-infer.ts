@@ -1,4 +1,4 @@
-import type { CliSpec } from './cli-spec.js';
+import { CLI_SPEC_DOCS, CLI_SPEC_FILE, type CliSpec } from './cli-spec.js';
 import { ConfigError } from './config.js';
 import { cliSpecFromHelp, parseHelp, type ParsedHelp } from './help-parser.js';
 import { canonicalCase, type Observation } from './model.js';
@@ -12,16 +12,18 @@ export interface InferCliSpecOptions extends Omit<RunCasesOptions, 'candidates' 
 
 export interface InferCliSpecResult {
   spec: CliSpec;
-  /** The invocation whose output the spec was read from (`--help` or `-h`). */
+  /** The invocation whose output the spec was read from (`--help`, `-h`, or no arguments: empty). */
   helpArgv: string[];
   probes: SpecProbeResult[];
 }
 
 /**
- * Infers a first CLI spec for the reference: runs it with `--help` (or `-h` when that prints
- * nothing usable), parses the text, does the same for each listed subcommand, then validates the
- * result with the probe set. Every run goes through the case runner, so the sandbox, environment
- * and argv[0] are the same as for real cases. Throws a `ConfigError` when no help text is found.
+ * Infers a first CLI spec for the reference: runs it with `--help` (or `-h`, or no arguments, when
+ * that prints nothing usable: many programs without a help option, such as awk and BSD tools,
+ * print a usage line when called with nothing), parses the text, does the same for each listed
+ * subcommand, then validates the result with the probe set. Every run goes through the case
+ * runner, so the sandbox, environment and argv[0] are the same as for real cases. Throws a
+ * `ConfigError` saying what to do instead when no help text is found.
  */
 export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferCliSpecResult> {
   const run = async (argvs: string[][]) => {
@@ -35,7 +37,7 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
     return stdout.trim() !== '' ? stdout : (await options.store.get(o.stderr)).toString('utf8');
   };
 
-  const HELP_ARGVS = [['--help'], ['-h']];
+  const HELP_ARGVS = [['--help'], ['-h'], []];
   const first = await run(HELP_ARGVS);
   const program = first.programName;
   let help: ParsedHelp | undefined;
@@ -46,7 +48,7 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
     (help = parsed), (helpArgv = HELP_ARGVS[i]!);
     break;
   }
-  if (!help) throw new ConfigError(`The reference printed no help text that could be read, with --help or -h.`);
+  if (!help) throw new ConfigError(NO_HELP_MESSAGE);
 
   const subcommands = help.subcommands.slice(0, options.maxSubcommands ?? 20).map((s) => s.name);
   const subHelp: Record<string, ParsedHelp> = {};
@@ -73,6 +75,12 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
   }
   return { spec, helpArgv, probes: judgeProbes(probes, outcomes) };
 }
+
+/** Why no spec could be inferred, and the two ways on. */
+export const NO_HELP_MESSAGE = [
+  'The reference printed no help text that could be read, with --help, -h or no arguments.',
+  `Write ${CLI_SPEC_FILE} yourself (the format: ${CLI_SPEC_DOCS}), or record cases in port-anything/recorded/*.jsonl and run them with port-anything run.`,
+].join('\n');
 
 const useful = (help: ParsedHelp): boolean => help.flags.length > 0 || help.forms.length > 0 || help.subcommands.length > 0;
 

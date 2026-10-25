@@ -175,7 +175,8 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
           walk(alt, {
             optional: ctx.optional || node.optional,
             repeat: ctx.repeat || node.repeat,
-            positionals: ctx.positionals && single && node.kind === 'group' && node.optional,
+            // `[-f progfile | 'prog']` (awk): a word offered as an alternative is a positional too.
+            positionals: ctx.positionals && node.optional,
             required: ctx.required && single && !node.optional,
           });
         }
@@ -447,7 +448,12 @@ function valueFor(word: string): CliValue {
   return { name: name === '' ? 'VALUE' : name, type: valueType(name) };
 }
 
-const stripMeta = (word: string): string => word.replace(/^<([^<>]*)>$/, '$1').replace(/^\[(.*)\]$/, '$1').replace(/\.\.\.$/, '');
+const stripMeta = (word: string): string =>
+  word
+    .replace(/^<([^<>]*)>$/, '$1')
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/^'([^']*)'$/, '$1')
+    .replace(/\.\.\.$/, '');
 
 /** A placeholder's type from its name: files and directories, counts, sizes, else text. */
 export function valueType(name: string): CliValue['type'] {

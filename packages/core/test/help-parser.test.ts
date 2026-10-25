@@ -234,6 +234,19 @@ options:
     expect(flag(help.flags, '-f').values).toEqual([{ name: 'KEY', type: 'string' }]);
   });
 
+  it("keeps a positional offered as an alternative to a flag, without its shell quotes (awk's `[-f progfile | 'prog']`)", () => {
+    const help = parseHelp("usage: awk [-F fs] [-v var=value] [-f progfile | 'prog'] [file ...]\n");
+    expect(help.flags.map((f) => [f.names[0], f.values.map((v) => v.name)])).toEqual([
+      ['-F', ['fs']],
+      ['-v', ['var=value']],
+      ['-f', ['progfile']],
+    ]);
+    expect(help.forms[0]!.args).toEqual([
+      { name: 'prog', type: 'string', arity: '?' },
+      { name: 'file', type: 'path', arity: '*' },
+    ]);
+  });
+
   it('keeps a `+FORMAT` operand that has no `-` partner', () => {
     const help = parseHelp('usage: frob [-u] [+FORMAT]\n');
     expect(help.forms[0]!.args).toEqual([{ name: '+FORMAT', type: 'string', arity: '?' }]);

@@ -93,5 +93,31 @@ describe('inferCliSpec', () => {
     writeFileSync(join(root, 'silent', 'frob'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     await expect(infer('silent')).rejects.toThrow(ConfigError);
     await expect(infer('silent')).rejects.toThrow('no help text');
+    await expect(infer('silent')).rejects.toThrow('Write port-anything/cli-spec.yaml yourself');
+  });
+
+  it('falls back to the usage line a program prints when called with no arguments (awk)', async () => {
+    mkdirSync(join(root, 'bare'));
+    // Like onetrue-awk: --help and -h are unknown options, no arguments prints the usage line.
+    writeFileSync(
+      join(root, 'bare', 'frob'),
+      `#!/bin/sh
+if [ $# -eq 0 ]; then echo "usage: frob [-F fs] [-v var=value] [-f progfile | 'prog'] [file ...]" >&2; exit 2; fi
+case "$1" in -F|-v|-f) [ $# -ge 2 ] || exit 2 ;; -*) echo "frob: unknown option $1 ignored" >&2 ;; esac
+echo ok
+`,
+      { mode: 0o755 },
+    );
+    const { spec, helpArgv } = await infer('bare');
+    expect(helpArgv).toEqual([]);
+    expect(spec.flags.map((f) => [f.names, f.arity])).toEqual([
+      [['-F'], 1],
+      [['-v'], 1],
+      [['-f'], 1],
+    ]);
+    expect(spec.forms[0]!.args).toEqual([
+      { name: 'prog', type: 'string', arity: '?' },
+      { name: 'file', type: 'path', arity: '*' },
+    ]);
   });
 });

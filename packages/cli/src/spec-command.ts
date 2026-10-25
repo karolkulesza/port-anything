@@ -20,6 +20,7 @@ import {
   type SpecProbeResult,
 } from '@port-anything/core';
 import { prepareContainer } from './common.js';
+import { helpInvocation } from './compare-command.js';
 import type { CliResult } from './run-command.js';
 
 export const USAGE = 'Usage: port-anything spec infer [--no-sandbox]';
@@ -94,7 +95,7 @@ async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; pro
   const features = specFeatures(spec);
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   const lines = [
-    `Wrote ${CLI_SPEC_FILE} from "${spec.program} ${result.helpArgv.join(' ')}", sandbox: ${sandbox.label}`,
+    `Wrote ${CLI_SPEC_FILE} from ${helpInvocation(spec.program, result.helpArgv.join(' '))}, sandbox: ${sandbox.label}`,
     `  ${count(spec.flags.length, 'flag')}, ${count(spec.forms.length, 'form')}, ${count(spec.subcommands.length, 'subcommand')}; ${count(features.length, 'feature')} (${features.filter((f) => f.selfDescription).length} self-description)`,
     probeSummary(probes),
   ];
