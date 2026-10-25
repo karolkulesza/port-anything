@@ -2,7 +2,7 @@ import { blobRef } from './blob-store.js';
 import type { CliFlag, CliForm, CliPositional, CliSpec, CliSubcommand, CliValue } from './cli-spec.js';
 import { assertNotDestructive, destructiveSubcommand } from './destructive.js';
 import { canonicalCase, type CanonicalCase } from './model.js';
-import { createRng, type GeneratorVersion, type Rng } from './rng.js';
+import { baseGenerator, createRng, type GeneratorVersion, type Rng } from './rng.js';
 import { UNKNOWN_LONG_FLAG } from './spec-probe.js';
 
 // Everything below is part of generator v1: changing a pool, an order or a draw changes the cases
@@ -125,7 +125,7 @@ export function isSafeArgvToken(token: string): boolean {
  * subcommands, unless `iKnow` is set.
  */
 export function generateArgvCases(spec: CliSpec, options: GenerateArgvOptions): GeneratedArgv {
-  const rng = createRng(options.seed, options.generator);
+  const rng = createRng(options.seed, baseGenerator(options.generator));
   assertNotDestructive([spec.program], options);
   const out: GeneratedArgv = { cases: [], blobs: new Map(), skipped: [] };
   const seen = new Set<string>();

@@ -83,7 +83,7 @@ export { jqTestImporter, parseJqTest } from './import-jq-test.js';
 export type { JqTest, JqTestImportOptions, JqTestParse } from './import-jq-test.js';
 export { importCases } from './importers.js';
 export type { ImportOptions } from './importers.js';
-export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
+export { DEFAULT_GENERATOR, GENERATOR_VERSIONS, baseGenerator, createRng, isGeneratorVersion, type GeneratorVersion, type Rng } from './rng.js';
 export {
   EDGE,
   TOKEN_KINDS,
@@ -190,6 +190,7 @@ export {
   MIN_GAP_CASES,
   freshHoldoutSeed,
   gapCluster,
+  gapClusters,
   generateFreshHoldout,
   holdoutGap,
   holdoutParity,
@@ -280,6 +281,7 @@ export {
   DEFAULT_ERROR_PATH_CAP,
   generateCorpus,
   isErrorObservation,
+  isMutantStrategy,
   type CorpusCase,
   type CorpusStats,
   type CorpusStrategy,

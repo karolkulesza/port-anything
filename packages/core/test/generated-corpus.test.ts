@@ -91,6 +91,19 @@ describe('generatedCorpusKey', () => {
     ];
     for (const change of changed) expect(generatedCorpusKey({ ...input, ...change }), JSON.stringify(change)).not.toBe(key);
   });
+
+  it('changes with the committed cases and their features from generator v2 on, which v1 ignores', () => {
+    const committed = [{ id: 'sha256:a', features: ['opt.quiet'] }];
+    expect(generatedCorpusKey({ ...input, committed })).toBe(generatedCorpusKey(input));
+    const v2 = { ...input, settings: { ...input.settings, generator: 'v2' as const } };
+    const key = generatedCorpusKey({ ...v2, committed });
+    expect(generatedCorpusKey(v2)).not.toBe(key);
+    expect(generatedCorpusKey({ ...v2, committed: [{ id: 'sha256:a', features: ['base'] }] })).not.toBe(key);
+    expect(generatedCorpusKey({ ...v2, committed: [{ id: 'sha256:b', features: ['opt.quiet'] }, ...committed] })).not.toBe(key);
+    expect(generatedCorpusKey({ ...v2, committed: [...committed, { id: 'sha256:0', features: [] }] })).toBe(
+      generatedCorpusKey({ ...v2, committed: [{ id: 'sha256:0', features: [] }, ...committed] }),
+    );
+  });
 });
 
 describe('the generated corpus cache', () => {

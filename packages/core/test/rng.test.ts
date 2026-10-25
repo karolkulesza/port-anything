@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GENERATOR, GENERATOR_VERSIONS, createRng, type GeneratorVersion } from '../src/rng.js';
+import { DEFAULT_GENERATOR, GENERATOR_VERSIONS, baseGenerator, createRng, type GeneratorVersion } from '../src/rng.js';
 
 const draw = (seed: string | number, generator: GeneratorVersion = 'v1', n = 8) => {
   const rng = createRng(seed, generator);
@@ -57,5 +57,12 @@ describe('createRng', () => {
     const rng = createRng('pick', 'v1');
     expect(['a', 'b', 'c']).toContain(rng.pick(['a', 'b', 'c']));
     expect(() => rng.pick([])).toThrow(RangeError);
+  });
+});
+
+describe('baseGenerator', () => {
+  it('draws v2 argv cases and byte mutants from the v1 streams, so v2 only adds the committed-case stage', () => {
+    expect(baseGenerator('v1')).toBe('v1');
+    expect(baseGenerator('v2')).toBe('v1');
   });
 });

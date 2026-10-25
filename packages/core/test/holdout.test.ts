@@ -9,6 +9,7 @@ import {
   MIN_GAP_CASES,
   freshHoldoutSeed,
   gapCluster,
+  gapClusters,
   generateFreshHoldout,
   holdoutGap,
   holdoutParity,
@@ -17,7 +18,7 @@ import {
   studentTCdf,
   type GapCase,
 } from '../src/holdout.js';
-import { canonicalObservation, type CanonicalCase } from '../src/model.js';
+import { canonicalCase, canonicalObservation, type CanonicalCase } from '../src/model.js';
 import { createRng, type Rng } from '../src/rng.js';
 
 type Counts = Record<string, { n: number; match: number }>;
@@ -218,6 +219,24 @@ describe('gapCluster', () => {
     expect(gapCluster({ argv: ['-n', 'a'], env: { B: '1', A: '2' } })).toBe(gapCluster({ argv: ['-n', 'a'], env: { A: '2', B: '1' } }));
     expect(gapCluster({ argv: ['-n', 'a'], env: {} })).not.toBe(gapCluster({ argv: ['-n a'], env: {} }));
     expect(gapCluster({ argv: ['-n'], env: {} })).not.toBe(gapCluster({ argv: ['-n'], env: { A: '' } }));
+  });
+});
+
+describe('gapClusters', () => {
+  it('puts each token mutant of a committed case in its parent\'s cluster', () => {
+    const c = (argv: string[], origin: 'recorded' | 'generated', stdin?: string) =>
+      canonicalCase({ argv, origin, ...(stdin === undefined ? {} : { stdin: blobRef(stdin) }) });
+    const parent = c(['-F', ',', '{print $1}'], 'recorded', 'a,b\n');
+    const clusterOf = gapClusters([parent, c(['{print}'], 'recorded')]);
+    // One argument changed, same input: the parent's cluster.
+    expect(clusterOf(c(['-F', ',', '{print $NF}'], 'generated', 'a,b\n'))).toBe(gapCluster(parent));
+    expect(clusterOf(c(['-F', ';', '{print $1}'], 'generated', 'a,b\n'))).toBe(gapCluster(parent));
+    // A byte mutant keeps the argv, so it is in the parent's cluster anyway.
+    expect(clusterOf(c(['-F', ',', '{print $1}'], 'generated', 'a;b\n'))).toBe(gapCluster(parent));
+    // Two arguments changed, another input, or a recorded case: its own cluster.
+    for (const other of [c(['-F', ';', '{print $NF}'], 'generated', 'a,b\n'), c(['-F', ',', '{print $NF}'], 'generated', 'x\n'), c(['-F', ',', '{print $NF}'], 'recorded', 'a,b\n')]) {
+      expect(clusterOf(other)).toBe(gapCluster(other));
+    }
   });
 });
 

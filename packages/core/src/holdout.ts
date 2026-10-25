@@ -43,7 +43,7 @@ export interface FreshHoldout {
   cases: CanonicalCase[];
   /** The reference's behavior on each case while it was generated. */
   observations: Observation[];
-  /** How each case was generated: an argv strategy, or byte mutation of a kept case's input. */
+  /** How each case was generated: an argv strategy, a byte mutation of a kept case's input, or a token mutation of a committed case. */
   strategies: CorpusStrategy[];
   /** Contents of every stdin and fixture blob the cases reference, by blob ref. */
   blobs: Map<string, Uint8Array>;
@@ -84,6 +84,29 @@ export interface GapCase {
  */
 export function gapCluster(c: Pick<CanonicalCase, 'argv' | 'env'>): string {
   return JSON.stringify([c.argv, Object.entries(c.env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))]);
+}
+
+/**
+ * `gapCluster`, with each token mutant of a committed case (generator v2) in its parent's cluster:
+ * a generated case whose stdin, fixtures and environment are a committed case's, and whose argv
+ * differs from it in one argument, came from it, and mutants of one parent fail together whichever
+ * argument changed. When several committed cases fit, the one with the lowest ID is taken.
+ */
+export function gapClusters(committed: readonly CanonicalCase[]): (c: CanonicalCase) => string {
+  const inputs = (c: CanonicalCase) => JSON.stringify([c.stdin, c.fixtures, gapCluster({ argv: [], env: c.env }), c.argv.length]);
+  const parents = new Map<string, CanonicalCase[]>();
+  for (const p of [...committed].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const key = inputs(p);
+    if (!parents.has(key)) parents.set(key, []);
+    parents.get(key)!.push(p);
+  }
+  return (c) => {
+    if (c.origin === 'generated') {
+      const parent = parents.get(inputs(c))?.find((p) => p.argv.filter((arg, i) => arg !== c.argv[i]).length === 1);
+      if (parent !== undefined) return gapCluster(parent);
+    }
+    return gapCluster(c);
+  };
 }
 
 /** One feature's counts on both sides of the gap. */
@@ -159,7 +182,7 @@ export const MIN_GAP_CASES = 5;
 /**
  * The gap between a candidate's corpus parity and its fresh-holdout parity, tested one-sided: is
  * the corpus better than chance allows? Both sides are cases generated the same way (the caller
- * passes byte mutants only: argv cases take a share of a corpus that depends on its budget, so
+ * passes mutants only: argv cases take a share of a corpus that depends on its budget, so
  * they aren't comparable). The gap is the mean over features of (corpus parity - holdout parity),
  * the same mean of per-feature parity the headline takes, over the features asked for that have
  * at least `minCases` (default `MIN_GAP_CASES`) scored cases on each side;

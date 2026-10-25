@@ -54,7 +54,7 @@ export interface ReportCandidateHoldout {
   ci95: readonly [number, number] | null;
   /** Features `parity` is the mean over. */
   features: number;
-  /** The gap test on the byte-mutated cases of both sides; null when it couldn't run (`noGap` says why). */
+  /** The gap test on the mutated cases of both sides; null when it couldn't run (`noGap` says why). */
   gap: { corpus: number; holdout: number; gap: number; pValue: number; features: number } | null;
   noGap?: string;
   significant: boolean;
@@ -193,7 +193,7 @@ function holdoutLine(h: ReportCandidateHoldout): string {
   const g = h.gap;
   const p = g.pValue < 0.0001 ? 'p &lt; 0.0001' : `p = ${g.pValue.toPrecision(2)}`;
   const verdict = h.significant ? '<span class="flag">significant: better on the corpus than on new cases</span>' : 'not significant';
-  return `<p>${parity} · gap to the corpus ${(g.gap * 100).toFixed(1)} points on byte-mutated cases of ${count(g.features, 'feature')} (corpus ${percent(g.corpus)}, holdout ${percent(g.holdout)}): ${verdict} (${p})</p>`;
+  return `<p>${parity} · gap to the corpus ${(g.gap * 100).toFixed(1)} points on mutated cases of ${count(g.features, 'feature')} (corpus ${percent(g.corpus)}, holdout ${percent(g.holdout)}): ${verdict} (${p})</p>`;
 }
 
 /** Every feature some candidate's cases carry: the headline's first, then under-sampled, then self-description. */

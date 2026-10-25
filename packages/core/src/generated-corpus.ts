@@ -61,11 +61,14 @@ export interface GeneratedCorpusKeyInput {
   timeoutMs: number;
   envAllowlist: readonly string[];
   env: Readonly<Record<string, string>>;
+  /** The committed cases, which generator v2 mutates (their features go to the mutants); v1 leaves them out of the key. */
+  committed?: readonly { id: string; features: readonly string[] }[];
 }
 
 /**
- * The cache key of a generated corpus: a hash of its settings, the CLI spec, the seed fixtures and
- * how the reference runs. A rebuilt reference keeps the key; `port-anything generate` regenerates.
+ * The cache key of a generated corpus: a hash of its settings, the CLI spec, the seed fixtures, the
+ * committed cases (generator v2) and how the reference runs. A rebuilt reference keeps the key;
+ * `port-anything generate` regenerates.
  */
 export function generatedCorpusKey(input: GeneratedCorpusKeyInput): string {
   const json = canonicalJson({
@@ -78,6 +81,7 @@ export function generatedCorpusKey(input: GeneratedCorpusKeyInput): string {
     timeout_ms: input.timeoutMs,
     env_allowlist: input.envAllowlist,
     env: input.env,
+    ...(input.settings.generator === 'v1' ? {} : { committed: (input.committed ?? []).map((c) => `${c.id} ${c.features.join(',')}`).sort() }),
   });
   return `sha256:${createHash('sha256').update(json).digest('hex')}`;
 }

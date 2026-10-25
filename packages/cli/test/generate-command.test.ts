@@ -127,10 +127,10 @@ describe('a project with a generated corpus', () => {
     const generated = await cli(['generate', '--budget', '40', '--seed', '7', '--no-sandbox']);
     expect(generated.stderr).toBe('');
     expect(generated.exitCode).toBe(0);
-    expect(generated.stdout).toMatch(/^Generated 40 cases \(budget 40, generator v1, seed 7\) as "frob", sandbox: none/);
+    expect(generated.stdout).toMatch(/^Generated 40 cases \(budget 40, generator v2, seed 7\) as "frob", sandbox: none/);
     expect(generated.stdout).toMatch(/^set corpus\.generator, corpus\.generator_seed and corpus\.budget in port-anything\.yaml$/m);
     expect(readFileSync(join(dir, 'port-anything.yaml'), 'utf8')).toMatch(/^# my project\n/);
-    expect((await readConfigFile(dir)).corpus).toEqual({ generator: 'v1', generator_seed: 7, budget: 40 });
+    expect((await readConfigFile(dir)).corpus).toEqual({ generator: 'v2', generator_seed: 7, budget: 40 });
     const ids = cachedIds();
     expect(ids).toHaveLength(40);
 
@@ -186,5 +186,54 @@ describe('a project with a generated corpus', () => {
     const none = await cli(['run', '--no-sandbox']);
     expect(none.exitCode).toBe(3);
     expect(none.stderr).toMatch(/No cases to run: add some to port-anything\/recorded\/\*\.jsonl, or generate them with port-anything generate\./);
+  });
+});
+
+describe('a project whose input is code', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pa-generate-code-'));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const cli = (argv: string[]) => run(argv, { cwd: dir });
+
+  it('generate mutates the recorded awk programs, which the CLI spec alone cannot write', { timeout: 120_000 }, async () => {
+    mkdirSync(join(dir, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(
+      join(dir, CLI_SPEC_FILE),
+      [
+        'version: 1',
+        'program: awk',
+        'flags:',
+        '  - { names: [ -F ], feature: opt.F, arity: 1, values: [ { name: fs, type: string } ] }',
+        'forms:',
+        "  - usage: awk [-F fs] 'prog' [file ...]",
+        '    flags: [ -F ]',
+        '    args: [ { name: prog, type: string, arity: "1" } ]',
+        '',
+      ].join('\n'),
+    );
+    const input = 'a b c\nd e f\n1 2 3\n';
+    const cases = [
+      { argv: ['{print $2}'], features: ['fields'] },
+      { argv: ['{print NF, $NF}'], features: ['fields'] },
+      { argv: ['{n += $3} END {print n + 0}'], features: ['arith'] },
+      { argv: ['NR > 1 {print NR * 2}'], features: ['arith'] },
+      { argv: ['/e/ {print toupper($0)}'], features: ['regex'] },
+      { argv: ['-F', 'e', '{print $1 "|" $2}'], features: ['opt.F', 'regex'] },
+    ];
+    writeFileSync(join(dir, 'port-anything', 'recorded', 'awk.jsonl'), cases.map((c) => JSON.stringify({ ...c, stdin: input, origin: 'recorded' })).join('\n') + '\n');
+    writeFileSync(join(dir, 'port-anything.yaml'), 'version: 1\nreference: { cmd: awk }\ncandidate: { cmd: awk }\ncorpus: { min_cases_per_feature: 5 }\n');
+
+    const generated = await cli(['generate', '--budget', '60', '--seed', '3', '--no-sandbox']);
+    expect(generated.stderr).toBe('');
+    expect(generated.exitCode).toBe(0);
+    const recordedPrograms = new Set(cases.map((c) => c.argv.join(' ')));
+    const corpus = (await loadCorpus(dir, await readConfigFile(dir), 'cache-only')).filter((c) => c.origin === 'generated');
+    // The recorded features exist only in the recorded cases, so these cases are their mutants.
+    const mutants = corpus.filter((c) => c.features.some((f) => ['fields', 'arith', 'regex'].includes(f)));
+    expect(mutants.length).toBeGreaterThanOrEqual(10);
+    expect(mutants.filter((c) => !recordedPrograms.has(c.argv.join(' '))).length).toBeGreaterThan(0);
   });
 });

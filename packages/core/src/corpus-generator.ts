@@ -1,13 +1,17 @@
-import { generateArgvCases, type ArgvStrategy, type GenerateArgvOptions } from './argv-generator.js';
+import { generateArgvCases, isSafeArgvToken, type ArgvStrategy, type GenerateArgvOptions } from './argv-generator.js';
 import { blobRef } from './blob-store.js';
 import { mutateBytes } from './byte-mutation.js';
 import { canonicalJson } from './canonical-json.js';
+import { destructiveCommand } from './destructive.js';
 import { specFeatures, type CliSpec } from './cli-spec.js';
 import { canonicalCase, type CanonicalCase, type Observation } from './model.js';
-import { createRng, type Rng } from './rng.js';
+import { baseGenerator, createRng, type Rng } from './rng.js';
+import { buildTokenDictionary, type TokenDictionary } from './token-dictionary.js';
+import { mutateTokens } from './token-mutation.js';
 
 // Like the argv generator, everything here that decides which cases a corpus holds (orders,
-// draws, sample sizes) is part of generator v1. Changes go into a new generator version.
+// draws, sample sizes) is part of generator v1, and the mutation of committed cases is part of
+// v2. Changes go into a new generator version.
 
 /** Most generated cases a corpus holds (`corpus.budget`, `--budget`). */
 export const DEFAULT_BUDGET = 10_000;
@@ -27,8 +31,16 @@ const MAX_STACKED = 3;
 /** The group every case counts in, so untagged cases are capped too. */
 const ALL = '*';
 
-/** How a corpus case came about: an argv strategy, or byte mutation of a case's input. */
-export type CorpusStrategy = ArgvStrategy | 'mutation';
+/**
+ * How a corpus case came about: an argv strategy, byte mutation of a case's input, or (generator
+ * v2) token mutation of an argument of a committed case.
+ */
+export type CorpusStrategy = ArgvStrategy | 'mutation' | 'token-mutation';
+
+/** True for a case derived from another one rather than built from the CLI spec. */
+export function isMutantStrategy(strategy: CorpusStrategy): boolean {
+  return strategy === 'mutation' || strategy === 'token-mutation';
+}
 
 export interface CorpusCase {
   case: CanonicalCase;
@@ -44,6 +56,13 @@ export interface GenerateCorpusOptions extends GenerateArgvOptions {
   observe: ObserveReference;
   /** Seed fixtures (`port-anything/seeds/`): mutated in place of a case's stdin or fixture. */
   seeds?: readonly Uint8Array[];
+  /**
+   * The project's committed cases and the content of their stdin and fixtures. From generator v2
+   * on they are mutation parents too: an argument that isn't a flag or a fixture's path (a
+   * program, a query, an expression) gets one whole-token mutation, or an input a byte mutation.
+   * Generator v1 ignores them.
+   */
+  committed?: { cases: readonly CanonicalCase[]; blobs: ReadonlyMap<string, Uint8Array> };
   budget?: number;
   /** Wall-clock cap in milliseconds (`--time`); generation stops between batches once it's reached. */
   timeMs?: number;
@@ -90,9 +109,13 @@ export interface GeneratedCorpus {
  *   cases are error exits; error cases wait until enough other cases make room for them;
  * - budget: at most `budget` cases; time cap: no new batch starts after `timeMs`.
  *
+ * From generator v2 on, the committed cases are mutation parents next to the argv cases (see
+ * `mutateCommitted`): the way to a corpus for a program whose input is code, such as an awk
+ * program or an SQL script, which argv generation from a CLI spec can't write.
+ *
  * Argv cases are taken round-robin over features, so a small budget is spread over all of them.
- * The result depends only on the spec, the seeds, the seed, the generator version and the
- * reference's behavior (unless the time cap cuts it short).
+ * The result depends only on the spec, the seeds, the committed cases (v2), the seed, the
+ * generator version and the reference's behavior (unless the time cap cuts it short).
  */
 export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptions): Promise<GeneratedCorpus> {
   const budget = options.budget ?? DEFAULT_BUDGET;
@@ -140,11 +163,26 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
     selector.retryDeferred();
   }
 
-  // Byte mutants: features under the minimum first, then all of them, until the budget is full.
+  // Generator v2: the committed cases are mutation parents too, under their features (`base` for
+  // an untagged one, as in scoring). In ID order, so moving a case to another line or file
+  // doesn't change the corpus (the cache key doesn't see their order either).
+  const committed = options.generator === 'v1' ? [] : canonicalOrder(options.committed?.cases ?? []);
+  const committedParents = new Map<string, CanonicalCase[]>();
+  for (const c of committed) {
+    for (const f of tagsOf(c)) {
+      if (!committedParents.has(f)) committedParents.set(f, []);
+      committedParents.get(f)!.push(c);
+    }
+  }
+  for (const [ref, bytes] of committed.length > 0 ? options.committed!.blobs : []) if (!blobs.has(ref)) blobs.set(ref, bytes);
+  const code = committed.flatMap((c) => codeArguments(c).map((i) => c.argv[i]!));
+  const tokens = { dictionary: buildTokenDictionary({ seeds: code }), donors: code };
+
+  // Mutants: features under the minimum first, then all of them, until the budget is full.
   const selfDescription = new Set(specFeatures(spec).filter((f) => f.selfDescription).map((f) => f.name));
-  const targets = [...new Set(parents.flatMap((p) => p.case.features))].filter((f) => !selfDescription.has(f)).sort();
-  const rng = createRng(`${options.seed}\0byte-mutation`, options.generator);
-  const seen = new Set(parents.map((p) => p.case.id));
+  const targets = [...new Set([...parents.flatMap((p) => p.case.features), ...committedParents.keys()])].filter((f) => !selfDescription.has(f)).sort();
+  const rng = createRng(`${options.seed}\0byte-mutation`, baseGenerator(options.generator));
+  const seen = new Set([...parents.map((p) => p.case.id), ...committed.map((c) => c.id)]);
   const stalled = new Map<string, number>(targets.map((f) => [f, 0]));
   let cursor = 0;
   while (stop === 'exhausted' && !checkStop()) {
@@ -155,7 +193,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
     const batch: { case: CanonicalCase; strategy: CorpusStrategy; feature: string }[] = [];
     const keptParents = new Map<string, CorpusCase[]>();
     for (const c of selector.accepted) {
-      if (c.strategy === 'mutation') continue;
+      if (isMutantStrategy(c.strategy)) continue;
       for (const f of c.case.features) {
         if (!keptParents.has(f)) keptParents.set(f, []);
         keptParents.get(f)!.push(c);
@@ -164,14 +202,19 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
     const room = Math.min(BATCH, budget - selector.size);
     for (let tries = 0; batch.length < room && tries < 2 * room; tries++) {
       const feature = pool[cursor++ % pool.length]!;
-      const parent = rng.pick(keptParents.get(feature) ?? parents.filter((c) => c.case.features.includes(feature)));
-      const mutant = mutateCase(parent.case, rng, blobs, options.seeds ?? []);
-      if (seen.has(mutant.id)) {
+      const generated = (keptParents.get(feature) ?? parents.filter((c) => c.case.features.includes(feature))).map((c) => c.case);
+      const fromCommitted = committedParents.get(feature);
+      const parent = rng.pick(fromCommitted === undefined ? generated : [...generated, ...fromCommitted]);
+      const mutant =
+        fromCommitted?.includes(parent) === true
+          ? mutateCommitted(parent, rng, blobs, options.seeds ?? [], { ...tokens, program: spec.program, iKnow: options.iKnow === true })
+          : { case: mutateCase(parent, rng, blobs, options.seeds ?? []), strategy: 'mutation' as const };
+      if (seen.has(mutant.case.id)) {
         stalled.set(feature, stalled.get(feature)! + 1);
         continue;
       }
-      seen.add(mutant.id);
-      batch.push({ case: mutant, strategy: 'mutation', feature });
+      seen.add(mutant.case.id);
+      batch.push({ ...mutant, feature });
     }
     if (batch.length === 0) continue;
     const observed = await observe(batch);
@@ -330,7 +373,7 @@ function roundRobin<T extends { case: CanonicalCase }>(cases: readonly T[]): T[]
  * starting from that input or from a seed fixture, with one to `MAX_STACKED` mutations stacked.
  * Argv, env and features stay the parent's.
  */
-function mutateCase(parent: CanonicalCase, rng: Rng, blobs: Map<string, Uint8Array>, seeds: readonly Uint8Array[]): CanonicalCase {
+function mutateCase(parent: CanonicalCase, rng: Rng, blobs: Map<string, Uint8Array>, seeds: readonly Uint8Array[], features = parent.features): CanonicalCase {
   const inputs: (string | null)[] = [...(parent.stdin === null ? [] : [null]), ...Object.keys(parent.fixtures).sort()];
   const bytesOf = (ref: string) => {
     const bytes = blobs.get(ref);
@@ -350,7 +393,56 @@ function mutateCase(parent: CanonicalCase, rng: Rng, blobs: Map<string, Uint8Arr
     env: parent.env,
     stdin: target === null ? ref : parent.stdin,
     fixtures: target === null ? parent.fixtures : { ...parent.fixtures, [target]: ref },
-    features: parent.features,
+    features,
     origin: 'generated',
   });
+}
+
+/** Committed cases sorted by ID, one per ID. */
+function canonicalOrder(cases: readonly CanonicalCase[]): CanonicalCase[] {
+  const byId = new Map<string, CanonicalCase>();
+  for (const c of cases) if (!byId.has(c.id)) byId.set(c.id, c);
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** A committed case's features for targeting and for its mutants: `base` when it has none. */
+function tagsOf(c: CanonicalCase): readonly string[] {
+  return c.features.length > 0 ? c.features : ['base'];
+}
+
+/**
+ * Indexes of a case's arguments that carry code or data rather than options or files: not a flag
+ * (or `-`), not empty, not the path of one of its fixtures.
+ */
+function codeArguments(c: CanonicalCase): number[] {
+  return c.argv.flatMap((arg, i) => (arg !== '' && !arg.startsWith('-') && !Object.hasOwn(c.fixtures, arg) ? [i] : []));
+}
+
+/**
+ * A mutant of a committed case (generator v2): half the time one of its code arguments with one
+ * whole-token mutation from a dictionary of all the committed code arguments (which also donate
+ * splices), else, or when that gives nothing new and safe, a byte mutant of its stdin or a fixture
+ * as `mutateCase` makes. Safe means no argument becomes an absolute or `..` path, and (unless
+ * `iKnow`) the call doesn't turn into a destructive one the parent wasn't, such as `git push` out of
+ * `git log`. The mutant keeps the parent's features (`base` when it has none).
+ */
+function mutateCommitted(
+  parent: CanonicalCase,
+  rng: Rng,
+  blobs: Map<string, Uint8Array>,
+  seeds: readonly Uint8Array[],
+  tokens: { dictionary: TokenDictionary; donors: readonly string[]; program: string; iKnow: boolean },
+): { case: CanonicalCase; strategy: CorpusStrategy } {
+  const features = [...tagsOf(parent)];
+  const code = codeArguments(parent);
+  if (code.length > 0 && tokens.dictionary.size > 0 && rng.int(2) === 0) {
+    const at = rng.pick(code);
+    const { text } = mutateTokens(parent.argv[at]!, rng, tokens.dictionary, tokens.donors);
+    const argv = parent.argv.map((arg, i) => (i === at ? text : arg));
+    const destructive = !tokens.iKnow && destructiveCommand([tokens.program, ...argv]) !== null && destructiveCommand([tokens.program, ...parent.argv]) === null;
+    if (text !== parent.argv[at] && isSafeArgvToken(text) && !destructive) {
+      return { case: canonicalCase({ argv, env: parent.env, stdin: parent.stdin, fixtures: parent.fixtures, features, origin: 'generated' }), strategy: 'token-mutation' };
+    }
+  }
+  return { case: mutateCase(parent, rng, blobs, seeds, features), strategy: 'mutation' };
 }
