@@ -368,6 +368,12 @@ describe('isSelfDescription', () => {
     expect(isSelfDescription({ names: ['-h'] })).toBe(false);
     expect(isSelfDescription({ names: ['-h'] }, '-h')).toBe(true);
     expect(isSelfDescription({ names: ['-h'] }, '--help')).toBe(false);
+    // A scanner's own feature, and a read-with option that takes a value, are not.
+    expect(isSelfDescription({ names: ['-c', '--copyright'], description: 'also display copyright text found within the file' })).toBe(false);
+    expect(isSelfDescription({ names: ['-l', '--license'], description: 'Scan for licenses' })).toBe(false);
+    expect(isSelfDescription({ names: ['--copyright'], description: 'print copyright information and exit' })).toBe(true);
+    expect(isSelfDescription({ names: ['-c'], description: 'print copyright lines found in each file' })).toBe(false);
+    expect(isSelfDescription({ names: ['-h'], values: [{ name: 'HOST', type: 'string' }] }, '-h')).toBe(false);
   });
 
   it('marks the flag the help was read with in the spec, and gawk\'s notices', () => {

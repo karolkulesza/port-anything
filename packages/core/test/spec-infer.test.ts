@@ -90,6 +90,15 @@ describe('inferCliSpec', () => {
   it('falls back to -h, and refuses a program without help text', async () => {
     const mute = await infer('mute');
     expect(mute.helpArgv).toEqual(['-h']);
+    // The option the help was read with is self-description, whatever the help calls it.
+    mkdirSync(join(root, 'short'));
+    writeFileSync(join(root, 'short', 'frob'), `#!/bin/sh\nif [ "$1" = -h ]; then printf 'usage: frob [-h] [-q] file\\n'; exit 0; fi\necho "frob: unknown option $1" >&2; exit 2\n`, { mode: 0o755 });
+    const short = await infer('short');
+    expect(short.helpArgv).toEqual(['-h']);
+    expect(short.spec.flags.map((f) => [f.names[0], f.self_description === true])).toEqual([
+      ['-h', true],
+      ['-q', false],
+    ]);
     mkdirSync(join(root, 'silent'));
     writeFileSync(join(root, 'silent', 'frob'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     await expect(infer('silent')).rejects.toThrow(ConfigError);

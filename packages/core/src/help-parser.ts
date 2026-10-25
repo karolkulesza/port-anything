@@ -634,11 +634,19 @@ const NOTICE_NAMES = new Set(['--copyright', '--license', '--licence', '--warran
  * called, it printed the help (`-h` of a tool whose help names it nothing else).
  */
 export function isSelfDescription(flag: Pick<HelpFlag, 'names' | 'description'> & { values?: readonly unknown[] }, readWith?: string): boolean {
-  if (flag.names.some((n) => SELF_DESCRIPTION_NAMES.has(n) || n === readWith)) return true;
-  if ((flag.values ?? []).length === 0 && flag.names.some((n) => NOTICE_NAMES.has(n))) return true;
+  const noValue = (flag.values ?? []).length === 0;
+  // A read-with option that takes a value (`-h HOST`) only printed a usage error.
+  if (flag.names.some((n) => SELF_DESCRIPTION_NAMES.has(n) || (n === readWith && noValue))) return true;
+  // `--copyright` of a license scanner ("also display copyright text found in the file") is its job.
+  const description = flag.description ?? '';
+  const notice = NOTICE_DESCRIPTION.test(description) && !/\bfound\b|\bin (?:the|each|a) file/i.test(description);
+  if (noValue && flag.names.some((n) => NOTICE_NAMES.has(n)) && (description === '' || notice)) return true;
   if (flag.names.some((n) => n.startsWith('--'))) return false;
-  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version|copyright|licen[cs]e|warranty)\b/i.test(flag.description ?? '');
+  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version)\b/i.test(description) || notice;
 }
+
+/** "print the license and exit", "display copyright information": a notice about the program itself. */
+const NOTICE_DESCRIPTION = /^(display|show|print|output|give)s?\b[^.;]*\b(copyright|licen[cs]e|warranty)\b/i;
 
 /**
  * The CLI spec for a program from its `--help` and, for each subcommand, that subcommand's
@@ -654,14 +662,15 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
     used.add(name);
     return name;
   };
-  const flagsOf = (parsed: ParsedHelp, prefix: string, readWith?: string): CliFlag[] =>
+  // Only the root's help can have been read with something other than `--help`, which is covered anyway.
+  const flagsOf = (parsed: ParsedHelp, prefix: string, helpReadWith?: string): CliFlag[] =>
     parsed.flags.map((f) => ({
       names: f.names,
       feature: feature(`${prefix}opt.${primaryName(f.names)}`),
       ...(f.description === undefined ? {} : { description: f.description }),
       arity: f.values.length,
       values: f.values.map((v) => cleanValue(v, f.values.length)),
-      ...(isSelfDescription(f, readWith) ? { self_description: true } : {}),
+      ...(isSelfDescription(f, helpReadWith) ? { self_description: true } : {}),
     }));
   const subcommands: CliSubcommand[] = help.subcommands.map((s) => {
     const own = Object.hasOwn(subcommandHelp, s.name) ? subcommandHelp[s.name] : undefined;
