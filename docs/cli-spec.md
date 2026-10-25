@@ -37,7 +37,6 @@ flags:
       - { name: progfile, type: path }
 forms:
   - usage: awk [-F fs] [-v var=value] 'prog' [file ...]
-    flags: [-F, -v]
     args:
       - { name: prog, type: string, arity: "1" }
       - { name: file, type: path, arity: "*" }
@@ -69,7 +68,7 @@ A **flag**:
 | `values` | Each value's `name` (the placeholder), `type`, and for `type: enum` its `choices`. `optional: true` on a flag's single value means it may be left out (`--color[=WHEN]`) |
 | `self_description` | `true` for `--help`, `--version` and the like: scored apart from the headline |
 
-A **form**: `usage` (the usage line, for people), `flags` (the flags this form needs) and `args`,
+A **form**: `usage` (the usage line, for people), `flags` (the flags every call of this form must have: usually none, since a flag in brackets is optional) and `args`,
 the positional arguments in order, each with a `name`, a `type` and an `arity`: `"1"` (exactly
 one), `"?"` (optional), `"*"` (any number) or `"+"` (at least one). Quote the arity: YAML reads
 a bare `1` as a number.
@@ -85,7 +84,7 @@ file) and `enum` (each of the `choices`, and one that isn't).
 Each line of a `port-anything/recorded/*.jsonl` file is one case: a JSON object with the `argv`
 after the program name, and where the case needs them, `stdin`, `fixtures` (files the case creates
 in its working directory, by relative path), `env`, and `features` (its tags, for the per-feature
-score; an untagged case counts in `base`). `origin` is always `"recorded"`. Content is UTF-8 text,
+score; an untagged case counts in `base`). Write `origin` as `"recorded"`. Content is UTF-8 text,
 or `{"base64": "…"}` for bytes that aren't.
 
 ```jsonl

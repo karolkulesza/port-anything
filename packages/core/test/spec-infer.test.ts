@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -110,6 +110,11 @@ echo ok
     );
     const { spec, helpArgv } = await infer('bare');
     expect(helpArgv).toEqual([]);
+    // With working help, the program is never run with no arguments.
+    mkdirSync(join(root, 'counted'));
+    writeFileSync(join(root, 'counted', 'frob'), `#!/bin/sh\nif [ $# -eq 0 ]; then echo called > ${JSON.stringify(join(root, 'bare-call'))}; fi\nprintf 'Usage: frob [-q] FILE\\n'\n`, { mode: 0o755 });
+    expect((await infer('counted')).helpArgv).toEqual(['--help']);
+    expect(existsSync(join(root, 'bare-call'))).toBe(false);
     expect(spec.flags.map((f) => [f.names, f.arity])).toEqual([
       [['-F'], 1],
       [['-v'], 1],

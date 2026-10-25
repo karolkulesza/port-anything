@@ -202,7 +202,7 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     };
 
-    progress(`reading ${programName} --help …`);
+    progress(`reading ${programName}'s help text …`);
     const { spec, helpArgv } = await inferCliSpec({ ...common, workDir: join(scratch, 'spec') });
 
     progress(`generating up to ${args.budget} cases …`);

@@ -247,6 +247,13 @@ options:
     ]);
   });
 
+  it('takes one positional from a group of alternative words, and none from a flag with an optional value', () => {
+    expect(parseHelp('usage: frob [a | b]\n').forms[0]!.args).toEqual([{ name: 'a', type: 'string', arity: '?' }]);
+    expect(parseHelp('usage: frob [FILE | -]\n').forms[0]!.args).toEqual([{ name: 'FILE', type: 'path', arity: '?' }]);
+    expect(parseHelp('usage: kill [-l [SIGNAL] | -s SIGNAL] PID...\n').forms[0]!.args).toEqual([{ name: 'PID', type: 'int', arity: '+' }]);
+    expect(parseHelp('usage: svc {start|stop}\n').forms[0]!.args).toEqual([]);
+  });
+
   it('keeps a `+FORMAT` operand that has no `-` partner', () => {
     const help = parseHelp('usage: frob [-u] [+FORMAT]\n');
     expect(help.forms[0]!.args).toEqual([{ name: '+FORMAT', type: 'string', arity: '?' }]);

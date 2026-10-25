@@ -99,7 +99,9 @@ describe('the docs pages', () => {
     const page = pageBlocks('cli-spec.md');
     const specs = page.filter((b) => b.lang === 'yaml');
     expect(specs).toHaveLength(1);
-    expect(parseCliSpec(parseYaml(specs[0]!.body)).forms[0]!.args.map((a) => a.arity)).toEqual(['1', '*']);
+    const spec = parseCliSpec(parseYaml(specs[0]!.body));
+    expect(spec.forms[0]!.args.map((a) => a.arity)).toEqual(['1', '*']);
+    expect(spec.forms[0]!.flags).toEqual([]); // optional flags: no form needs them
     const lines = page.find((b) => b.lang === 'jsonl')!.body;
     const project = mkdtempSync(join(tmpdir(), 'pa-docs-cases-'));
     try {

@@ -26,7 +26,8 @@ import type { CliResult } from './run-command.js';
 export const USAGE = 'Usage: port-anything spec infer [--no-sandbox]';
 
 /**
- * `port-anything spec infer`: reads the reference's `--help` (and its subcommands'), writes a first
+ * `port-anything spec infer`: reads the reference's `--help` (or `-h`, or the usage line it prints
+ * when called with no arguments, and its subcommands' `--help`), writes a first
  * `port-anything/cli-spec.yaml` and validates it with the probe set. Exit code 0 when every probe
  * passes, 1 when one fails (the spec is written anyway, for review), 3 when nothing could be
  * inferred or the spec file already exists, since it may hold refinements.

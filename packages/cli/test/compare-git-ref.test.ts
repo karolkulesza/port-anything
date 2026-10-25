@@ -157,7 +157,7 @@ describe('port-anything compare --ref git:<rev>', { timeout: 120_000 }, () => {
     expect(result.stdout.split('\n')[0]).toBe(`reference: ./bin/frob at git:HEAD~1 (${short}), built with \`mkdir -p bin && cp src/frob.sh bin/frob && chmod +x bin/frob\``);
     expect(result.stdout).toMatch(/^\.\/bin\/frob: parity \d+\.\d% /m);
     expect(lines[0]).toBe(`building git:HEAD~1 (${short}) in a temporary worktree …`);
-    expect(lines[1]).toBe('reading frob --help …');
+    expect(lines[1]).toBe("reading frob's help text …");
     expectCleanedUp();
     expect(git(repo, 'status', '--porcelain')).toBe('');
   });

@@ -1,5 +1,6 @@
 import { CLI_SPEC_DOCS, CLI_SPEC_FILE, type CliSpec } from './cli-spec.js';
 import { ConfigError } from './config.js';
+import { destructiveCommand } from './destructive.js';
 import { cliSpecFromHelp, parseHelp, type ParsedHelp } from './help-parser.js';
 import { canonicalCase, type Observation } from './model.js';
 import { runCases, type RunCasesOptions } from './run-cases.js';
@@ -37,17 +38,23 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
     return stdout.trim() !== '' ? stdout : (await options.store.get(o.stderr)).toString('utf8');
   };
 
-  const HELP_ARGVS = [['--help'], ['-h'], []];
-  const first = await run(HELP_ARGVS);
-  const program = first.programName;
+  let program = '';
   let help: ParsedHelp | undefined;
   let helpArgv: string[] = [];
-  for (const [i, o] of first.observations.entries()) {
-    const parsed = parseHelp(await text(o), { program });
-    if (o.timeout || !useful(parsed)) continue;
-    (help = parsed), (helpArgv = HELP_ARGVS[i]!);
-    break;
-  }
+  const readHelp = async (argvs: string[][]) => {
+    const result = await run(argvs);
+    program = result.programName;
+    for (const [i, o] of result.observations.entries()) {
+      const parsed = parseHelp(await text(o), { program });
+      if (o.timeout || !useful(parsed)) continue;
+      (help = parsed), (helpArgv = argvs[i]!);
+      return;
+    }
+  };
+  await readHelp([['--help'], ['-h']]);
+  // Called with nothing, a program may do what it is for (a denylisted one too: `shutdown`), so
+  // only when the help options gave nothing, and never for a tool known to be destructive.
+  if (!help && destructiveCommand([program]) === null) await readHelp([[]]);
   if (!help) throw new ConfigError(NO_HELP_MESSAGE);
 
   const subcommands = help.subcommands.slice(0, options.maxSubcommands ?? 20).map((s) => s.name);

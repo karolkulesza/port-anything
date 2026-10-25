@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CLI_SPEC_FILE, readCliSpecFile, readConfigFile, type SandboxProbe } from '@port-anything/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { compareCommand, formatCompare, parseCompareArgs, percent, scoreParity, type CompareSummary, type FeatureParity } from '../src/compare-command.js';
+import { compareCommand, formatCompare, helpInvocation, parseCompareArgs, percent, scoreParity, type CompareSummary, type FeatureParity } from '../src/compare-command.js';
 import { run } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
@@ -53,6 +53,13 @@ cat "$@" | if [ -n "$upper" ]; then tr 'a-z' 'A-Z'; else cat; fi | if [ -n "$cou
 `;
 
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
+
+describe('helpInvocation', () => {
+  it('names the call the spec was read from, also a call with no arguments', () => {
+    expect(helpInvocation('sort', '--help')).toBe('"sort --help"');
+    expect(helpInvocation('awk', '')).toBe('"awk" with no arguments');
+  });
+});
 
 describe('parseCompareArgs', () => {
   it('reads the reference, the candidates and the options', () => {
@@ -250,7 +257,7 @@ describe('port-anything compare', { timeout: 120_000 }, () => {
     expect(result.stdout).toMatch(/^ {2}opt\.upper +100\.0% \d+\/\d+$/m);
     expect(result.stdout).toMatch(/^ {2}opt\.help \(self-description\) +100\.0% \d+\/\d+$/m);
     expect(result.stdout).toMatch(/^done in \d+ s$/m);
-    expect(lines).toEqual(['reading frob --help …', 'generating up to 80 cases …', 'running the reference 2 more times on 80 cases …', 'running the candidate …']);
+    expect(lines).toEqual(["reading frob's help text …", 'generating up to 80 cases …', 'running the reference 2 more times on 80 cases …', 'running the candidate …']);
     expect(readdirSync(dir).sort()).toEqual(before);
     expect(readdirSync(scratch)).toEqual([]);
   });

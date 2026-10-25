@@ -30,7 +30,7 @@ user what the refusal says.
    port-anything spec infer
    ```
 
-   It reads `--help` (and each subcommand's), writes the spec and checks it with a few probe
+   It reads `--help` (or `-h`, or the usage line the program prints with no arguments, and each subcommand's `--help`), writes the spec and checks it with a few probe
    invocations. Exit `0` every probe passes, `1` one failed (the spec is written anyway, fix it
    in step 2), `3` nothing could be inferred, or a spec already exists (it may hold refinements:
    it is never overwritten).

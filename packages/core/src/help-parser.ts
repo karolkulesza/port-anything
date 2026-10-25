@@ -171,12 +171,16 @@ function readForm(text: string, program: string | undefined): { form: CliForm; f
           continue;
         }
         if (oldKeySyntax(node.alts)) continue;
+        // `[-f progfile | 'prog']` (awk): a single word offered as an alternative is a positional
+        // too, the first one only, since `[a | b]` is one argument, not two.
+        let wordTaken = false;
         for (const alt of node.alts) {
+          const loneWord = !single && !wordTaken && alt.length === 1 && alt[0]!.kind === 'word' && !alt[0]!.text.startsWith('-');
+          if (loneWord) wordTaken = true;
           walk(alt, {
             optional: ctx.optional || node.optional,
             repeat: ctx.repeat || node.repeat,
-            // `[-f progfile | 'prog']` (awk): a word offered as an alternative is a positional too.
-            positionals: ctx.positionals && node.optional,
+            positionals: ctx.positionals && node.optional && (single || loneWord),
             required: ctx.required && single && !node.optional,
           });
         }
