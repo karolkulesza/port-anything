@@ -152,7 +152,9 @@ export async function gitDirty(dir: string, ignore: readonly string[] = []): Pro
       if (inTree === '..' || inTree.startsWith(`..${sep}`) || isAbsolute(inTree)) continue;
       // The directory is taken literally; only the last part of a path in `ignore` is a glob.
       const name = [...inTree.split(sep).filter((part) => part !== '').map((part) => part.replace(/[*?[\]\\]/g, '\\$&')), path.slice(dirname(path).length + 1)].join('/');
-      excludes.push(`:(top,exclude,glob)${name}`);
+      // The path itself, and everything under it when it's a directory: git's own match of a leading
+      // directory fails once a directory name in it is escaped.
+      excludes.push(`:(top,exclude,glob)${name}`, `:(top,exclude,glob)${name}/**`);
     }
     const { stdout } = await run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no', '--', ':(top)', ...excludes], {
       cwd: dir,

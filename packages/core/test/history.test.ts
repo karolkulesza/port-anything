@@ -144,6 +144,26 @@ describe('gitDirty', () => {
     expect(await gitDirty(join(dir, 'src'), ignore)).toBe(true);
   });
 
+  it('leaves out ignored paths under a directory whose name has glob characters', async () => {
+    const project = join(dir, 'odd [p]roject*?');
+    // A name the directory part would match if it were read as a glob.
+    const sibling = join(dir, 'odd project-x');
+    for (const p of [project, sibling]) {
+      mkdirSync(join(p, '.port-anything'), { recursive: true });
+      writeFileSync(join(p, '.port-anything', 'history.jsonl'), '');
+    }
+    writeFileSync(join(project, 'port-anything-badge.svg'), '<svg/>\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'odd project');
+    const ignore = [join(project, '.port-anything'), join(project, 'port-anything-badge*.svg')];
+    writeFileSync(join(project, '.port-anything', 'history.jsonl'), '{}\n');
+    writeFileSync(join(project, 'port-anything-badge.svg'), '<svg>changed</svg>\n');
+    expect(await gitDirty(dir, ignore)).toBe(false);
+    // Taken literally: the sibling's files still count.
+    writeFileSync(join(sibling, '.port-anything', 'history.jsonl'), '{}\n');
+    expect(await gitDirty(dir, ignore)).toBe(true);
+  });
+
   it('is null outside a repository and before the first commit', async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-history-outside-')));
     try {
