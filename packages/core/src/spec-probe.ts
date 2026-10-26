@@ -49,9 +49,11 @@ export interface ProbeOutcome {
  */
 export function specProbes(spec: CliSpec, options: { maxSubcommands?: number; guessed?: ReadonlyMap<string, string> } = {}): SpecProbe[] {
   const names = new Set(spec.flags.flatMap((f) => f.names));
-  // xxd reads `--port-anything-no-such-flag` as `-p…`, which it matches by its first letter.
+  // xxd reads `--port-anything-no-such-flag` as `-p…`, which it matches by its first letter. Only
+  // a single-dash name longer than a letter (`-ps`) hints at that; a plain `-p` (mkdir) doesn't.
   const single = `-${UNKNOWN_LONG_FLAG.slice(2)}`;
-  const readAs = [...names].filter((n) => !n.startsWith('--') && n.slice(0, 2) === single.slice(0, 2)).sort((a, b) => a.length - b.length)[0];
+  const sameLetter = [...names].filter((n) => !n.startsWith('--') && n.slice(0, 2) === single.slice(0, 2)).sort((a, b) => a.length - b.length);
+  const readAs = sameLetter.some((n) => n.length > 2) ? sameLetter[0] : undefined;
   const probes: SpecProbe[] = [{ kind: 'unknown-long', argv: [UNKNOWN_LONG_FLAG], flag: UNKNOWN_LONG_FLAG, ...(readAs === undefined ? {} : { readAs }) }];
   const letter = [...SHORT_CANDIDATES].find((c) => !names.has(`-${c}`));
   if (letter !== undefined) probes.push({ kind: 'unknown-short', argv: [`-${letter}`], flag: `-${letter}` });

@@ -54,6 +54,11 @@ describe('specProbes', () => {
       ['-s', '', false, false],
     ]);
     expect(specProbes(spec).find((p) => p.kind === 'unknown-long')!.readAs).toBeUndefined();
+    // A plain `-p` (mkdir) is no sign of matching by prefix: an accepted unknown long flag still fails.
+    const mkdir = parseCliSpec({ version: 1, program: 'mk', flags: [{ names: ['-p'], feature: 'opt.p', arity: 0 }, { names: ['-v'], feature: 'opt.v', arity: 0 }] });
+    const lax = specProbes(mkdir).filter((p) => p.kind === 'unknown-long');
+    expect(lax[0]!.readAs).toBeUndefined();
+    expect(judgeProbes(lax, [{ exit: 0, signal: null, timeout: false, stderr: '' }])[0]!.status).toBe('fail');
   });
 
   it('caps the subcommands probed', () => {
