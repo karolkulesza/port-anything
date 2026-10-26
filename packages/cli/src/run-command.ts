@@ -86,7 +86,7 @@ import {
   type WaiverMatch,
 } from '@port-anything/core';
 import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
-import { committedParents, loadCorpus, type CommittedParents } from './corpus.js';
+import { committedParents, loadCorpus, unknownFeatureTagsWarning, type CommittedParents } from './corpus.js';
 
 export { display } from './common.js';
 export type { CliResult } from './common.js';
@@ -163,10 +163,12 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
  */
 export async function runCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   let prepared: ExecuteRunOptions;
+  let warning: string | undefined;
   try {
     const args = parseRunArgs(argv);
     const config = await readConfigFile(options.cwd);
     const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
+    warning = await unknownFeatureTagsWarning(options.cwd);
     const waivers = await readWaiversFile(options.cwd);
     const holdout = await holdoutInputs(options.cwd, config, args);
     prepared = {
@@ -182,7 +184,8 @@ export async function runCommand(argv: readonly string[], options: { cwd: string
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
-  return executeRun(prepared);
+  const result = await executeRun(prepared);
+  return warning === undefined ? result : { ...result, stderr: `port-anything run: ${warning}${result.stderr}` };
 }
 
 export interface ExecuteRunOptions {

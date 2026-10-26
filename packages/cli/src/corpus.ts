@@ -4,7 +4,10 @@ import {
   CLI_SPEC_FILE,
   ConfigError,
   cacheDir,
+  RECORDED_DIR,
+  UNTAGGED_FEATURE,
   chooseSandbox,
+  committedFeatureTags,
   generateCorpus,
   generatedCorpusKey,
   generatedCorpusSettings,
@@ -14,6 +17,7 @@ import {
   readGeneratedCorpusCache,
   readSeedFixtures,
   runCases,
+  specFeatures,
   writeGeneratedCorpusCache,
   type CanonicalCase,
   type CliSpec,
@@ -215,4 +219,30 @@ export async function cacheGeneratedCorpus(
     for (const ref of [c.stdin, ...Object.values(c.fixtures)]) if (ref !== null) await store.put(generated.blobs.get(ref)!);
   }
   await writeGeneratedCorpusCache(projectDir, { key, settings, cases: generated.cases, stats: generated.stats, skipped: generated.skipped });
+}
+
+/** Unknown feature tags a warning lists one by one. */
+const LISTED_TAGS = 10;
+
+/**
+ * A warning about the feature tags of `port-anything/recorded/*.jsonl` that the CLI spec doesn't
+ * define (`base` aside), each with the file and line it first appears on: a typo or a recorder bug
+ * (`opt.1` from `-s -16`) would otherwise be scored as a feature of its own without a word.
+ * Undefined without a spec, which leaves tags free, or when every tag is known.
+ */
+export async function unknownFeatureTagsWarning(projectDir: string): Promise<string | undefined> {
+  let spec: CliSpec;
+  try {
+    spec = await readCliSpecFile(projectDir);
+  } catch (e) {
+    if (e instanceof ConfigError) return undefined;
+    throw e;
+  }
+  const known = new Set([UNTAGGED_FEATURE, ...specFeatures(spec).map((f) => f.name)]);
+  const unknown = (await committedFeatureTags(projectDir)).filter((t) => !known.has(t.feature));
+  if (unknown.length === 0) return undefined;
+  const lines = [`warning: feature tags in ${RECORDED_DIR}/ that ${CLI_SPEC_FILE} does not define (a typo, or a tag of your own, scored as a feature of its own):`];
+  for (const t of unknown.slice(0, LISTED_TAGS)) lines.push(`  ${t.feature} · ${t.cases} case${t.cases === 1 ? '' : 's'}, first at ${t.where}`);
+  if (unknown.length > LISTED_TAGS) lines.push(`  … and ${unknown.length - LISTED_TAGS} more`);
+  return `${lines.join('\n')}\n`;
 }

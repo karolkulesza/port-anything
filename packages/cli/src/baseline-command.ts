@@ -30,7 +30,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
-import { loadCorpus } from './corpus.js';
+import { loadCorpus, unknownFeatureTagsWarning } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
 /** The options of `port-anything baseline`. */
@@ -69,16 +69,19 @@ export function parseBaselineArgs(argv: readonly string[]): BaselineArgs {
  */
 export async function baselineCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   let prepared: ExecuteBaselineOptions;
+  let warning: string | undefined;
   try {
     const args = parseBaselineArgs(argv);
     const config = await readConfigFile(options.cwd);
     const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
+    warning = await unknownFeatureTagsWarning(options.cwd);
     prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
-  return executeBaseline(prepared);
+  const result = await executeBaseline(prepared);
+  return warning === undefined ? result : { ...result, stderr: `port-anything baseline: ${warning}${result.stderr}` };
 }
 
 export interface ExecuteBaselineOptions {

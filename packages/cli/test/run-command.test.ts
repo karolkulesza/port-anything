@@ -1192,3 +1192,56 @@ esac
     expect(holdout).toMatchObject({ parity: 1, features: 1 });
   });
 });
+
+describe('run and baseline with a recorded case tagged with a feature the CLI spec lacks', () => {
+  let project: string;
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-unknown-tag-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(project, 'port-anything', 'cli-spec.yaml'), 'version: 1\nprogram: tool\nflags:\n  - { names: [-s], feature: opt.s, arity: 1, values: [{ name: N, type: int }] }\n');
+    const lines = [
+      { argv: ['-s', '8'], features: ['opt.s'] },
+      { argv: ['plain'] },
+      { argv: ['-s', '-16'], features: ['opt.s', 'opt.1'] },
+      { argv: ['x'], features: ['base'] },
+      { argv: ['-s', '-1'], features: ['opt.1'] },
+    ];
+    writeFileSync(join(project, 'port-anything', 'recorded', 'cases.jsonl'), `${lines.map((c) => JSON.stringify({ ...c, origin: 'recorded' })).join('\n')}\n`);
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const WARNING = [
+    'warning: feature tags in port-anything/recorded/ that port-anything/cli-spec.yaml does not define (a typo, or a tag of your own, scored as a feature of its own):',
+    '  opt.1 · 2 cases, first at port-anything/recorded/cases.jsonl:3',
+    '',
+  ].join('\n');
+
+  it('warns on run, naming the tag, its file and line (done when)', async () => {
+    const result = await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: project });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe(`port-anything run: ${WARNING}`);
+  });
+
+  it('warns on baseline too (done when)', async () => {
+    const result = await cli(['baseline', '--no-sandbox', '--repeats', '2'], { cwd: project });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe(`port-anything baseline: ${WARNING}`);
+  });
+
+  it('says nothing when every tag is the spec\'s or base, or when there is no spec', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-known-tags-')));
+    try {
+      for (const f of ['bin', 'port-anything.yaml', 'port-anything']) execFileSync('cp', ['-R', join(project, f), join(other, f)]);
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), '{"argv":["-s","8"],"features":["opt.s"],"origin":"recorded"}\n{"argv":["x"],"features":["base"],"origin":"recorded"}\n');
+      expect((await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: other })).stderr).toBe('');
+      rmSync(join(other, 'port-anything', 'cli-spec.yaml'));
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), '{"argv":["x"],"features":["fields"],"origin":"recorded"}\n');
+      expect((await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: other })).stderr).toBe('');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+});
