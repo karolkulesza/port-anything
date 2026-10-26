@@ -87,7 +87,17 @@ export interface CorpusStats {
   stop: 'exhausted' | 'budget' | 'time';
   /** Features below `minCasesPerFeature` (self-description features aside), with their case counts. */
   underSampled: { feature: string; cases: number }[];
+  /**
+   * The reference's most frequent error answer over every case it ran, kept or not, and how many
+   * times it gave it (the first one to get there on a tie); absent when it never failed. A share of
+   * `observed` close to 1 means most generated cases only reach that error (often the usage text of
+   * a spec whose forms the program rejects).
+   */
+  commonestError?: CommonestError;
 }
+
+/** An error answer of the reference: what it printed and how it ended (the content of the outputs is in the blob store). */
+export type CommonestError = Pick<Observation, 'exit' | 'signal' | 'timeout' | 'stdout' | 'stderr'> & { answers: number };
 
 export interface GeneratedCorpus {
   /** In the order they were kept. */
@@ -133,6 +143,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
   const blobs = argv.blobs;
   const selector = new Selector(budget, cap);
   let observed = 0;
+  const errors = new ErrorTally();
   let stop: CorpusStats['stop'] = 'exhausted';
 
   const observe = async (batch: { case: CanonicalCase; strategy: CorpusStrategy }[]): Promise<CorpusCase[]> => {
@@ -142,6 +153,7 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
     );
     if (observations.length !== batch.length) throw new Error(`observe returned ${observations.length} observations for ${batch.length} cases`);
     observed += batch.length;
+    for (const o of observations) errors.add(o);
     return batch.map((b, i) => ({ case: b.case, strategy: b.strategy, observation: observations[i]! }));
   };
   const checkStop = (): boolean => {
@@ -235,13 +247,33 @@ export async function generateCorpus(spec: CliSpec, options: GenerateCorpusOptio
     cases: selector.accepted,
     blobs: used,
     skipped: argv.skipped,
-    stats: { observed, dropped: selector.dropped(), stop, underSampled },
+    stats: { observed, dropped: selector.dropped(), stop, underSampled, ...errors.commonest() },
   };
 }
 
 /** True for a reference behavior that is an error path: a non-zero exit, a signal or a timeout. */
 export function isErrorObservation(o: Observation): boolean {
   return o.exit !== 0 || o.timeout;
+}
+
+/** Counts the reference's error answers by what it printed and how it ended. */
+class ErrorTally {
+  private readonly counts = new Map<string, number>();
+  private top: CommonestError | undefined;
+
+  add(o: Observation): void {
+    if (!isErrorObservation(o)) return;
+    const answer = { exit: o.exit, signal: o.signal, timeout: o.timeout, stdout: o.stdout, stderr: o.stderr };
+    const key = canonicalJson(answer);
+    const answers = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, answers);
+    if (answers > (this.top?.answers ?? 0)) this.top = { ...answer, answers };
+  }
+
+  /** `{ commonestError }`, or nothing when the reference never failed. */
+  commonest(): { commonestError?: CommonestError } {
+    return this.top === undefined ? {} : { commonestError: this.top };
+  }
 }
 
 const behaviorKeys = new WeakMap<CorpusCase, string>();

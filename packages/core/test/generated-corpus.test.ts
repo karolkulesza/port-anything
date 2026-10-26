@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BlobStore, cacheDir } from '../src/blob-store.js';
+import { BlobStore, blobRef, cacheDir } from '../src/blob-store.js';
 import { parseCliSpec } from '../src/cli-spec.js';
 import { ConfigError, parseConfig } from '../src/config.js';
 import {
@@ -11,6 +11,7 @@ import {
   SEEDS_DIR,
   generatedCorpusKey,
   generatedCorpusSettings,
+  readCachedCorpusOutline,
   readGeneratedCorpusCache,
   readSeedFixtures,
   writeGeneratedCorpusCache,
@@ -147,6 +148,30 @@ describe('the generated corpus cache', () => {
     expect(await readGeneratedCorpusCache(project, written.key, store)).toBeUndefined();
     writeFileSync(join(cacheDir(project), GENERATED_CORPUS_FILE), '{"version": 1, "key": ');
     expect(await readGeneratedCorpusCache(project, written.key, store)).toBeUndefined();
+  });
+
+  it('keeps the key without the committed cases and the commonest error answer', async () => {
+    const written = await record();
+    const commonestError = { exit: 2, signal: null, timeout: false, stdout: blobRef(''), stderr: blobRef('usage: tool\n'), answers: 2 };
+    const full = { ...written, keyWithoutCommitted: `sha256:${'3'.repeat(64)}`, stats: { ...written.stats, commonestError } };
+    await writeGeneratedCorpusCache(project, full);
+    expect(await readGeneratedCorpusCache(project, written.key, store)).toEqual(full);
+  });
+
+  it("outlines the cached corpus under any key, blobs or not: what the cases were before a command regenerates them", async () => {
+    expect(await readCachedCorpusOutline(project)).toBeUndefined();
+    const written = await record();
+    await writeGeneratedCorpusCache(project, { ...written, keyWithoutCommitted: `sha256:${'3'.repeat(64)}` });
+    rmSync(store.path(written.cases[0]!.stdin!));
+    expect(await readCachedCorpusOutline(project)).toEqual({
+      key: written.key,
+      keyWithoutCommitted: `sha256:${'3'.repeat(64)}`,
+      cases: written.cases.map((c) => ({ id: c.id, features: c.features })),
+    });
+    await writeGeneratedCorpusCache(project, written);
+    expect(await readCachedCorpusOutline(project)).not.toHaveProperty('keyWithoutCommitted');
+    writeFileSync(join(cacheDir(project), GENERATED_CORPUS_FILE), '{"version": 1, "key": ');
+    expect(await readCachedCorpusOutline(project)).toBeUndefined();
   });
 
   it('copies the blobs from another store, for a copy of the project that has no cache of its own', async () => {

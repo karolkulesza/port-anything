@@ -255,6 +255,26 @@ describe('generateCorpus: error-path cap', { timeout: SLOW }, () => {
   });
 });
 
+describe('generateCorpus: the commonest error answer', { timeout: SLOW }, () => {
+  it("counts how often the reference gave its commonest error answer, over every case it ran, kept or not", async () => {
+    // Every call with -u or -k prints the same usage text; the rest succeed.
+    const usage = (c: CanonicalCase) => c.argv.some((a) => a === '-u' || a.startsWith('-k') || a.startsWith('--key'));
+    const observe: ObserveReference = async (cases, blobs) =>
+      cases.map((c) => (usage(c) ? observation(2, '', 'usage: frob [-nru] [file]\n') : c.argv.includes('-r') ? observation(1, '', 'frob: no\n') : observation(0, inputs(c, blobs))));
+    const corpus = await generateCorpus(frob, options({ observe }));
+    const { commonestError, observed } = corpus.stats;
+    expect(commonestError).toMatchObject({ exit: 2, signal: null, timeout: false, stdout: blobRef(''), stderr: blobRef('usage: frob [-nru] [file]\n') });
+    expect(commonestError!.answers).toBeGreaterThan(DEDUP_SAMPLE);
+    expect(commonestError!.answers).toBeLessThan(observed);
+    // Dedup and the error-path cap keep few of them; the count is of the reference's answers, not of kept cases.
+    expect(commonestError!.answers).toBeGreaterThan(corpus.cases.filter((c) => c.observation.exit === 2).length);
+  });
+
+  it('is absent when the reference never failed', async () => {
+    expect((await generateCorpus(frob, options())).stats.commonestError).toBeUndefined();
+  });
+});
+
 describe('generateCorpus: minimum cases per feature', { timeout: SLOW }, () => {
   it('tops every feature up to the minimum before filling the rest', async () => {
     const argvCount = generateArgvCases(frob, { seed: 1, generator: 'v1' }).cases.length;

@@ -7,7 +7,7 @@ import { canonicalJson } from './canonical-json.js';
 import type { CliSpec } from './cli-spec.js';
 import { ConfigError, type Config } from './config.js';
 import { DEFAULT_BUDGET, DEFAULT_ERROR_PATH_CAP, DEFAULT_MIN_CASES_PER_FEATURE, type CorpusStats } from './corpus-generator.js';
-import { CaseSchema, canonicalCase, type CanonicalCase } from './model.js';
+import { BlobRefSchema, CaseSchema, canonicalCase, type CanonicalCase } from './model.js';
 import { GENERATOR_VERSIONS, type GeneratorVersion } from './rng.js';
 
 /** The seed a new generated corpus starts from, and the one every `compare` run uses. */
@@ -89,6 +89,12 @@ export function generatedCorpusKey(input: GeneratedCorpusKeyInput): string {
 /** The generated corpus as cached: its cases (content in the blob store) and how generation went. */
 export interface GeneratedCorpusCache {
   key: string;
+  /**
+   * The key with the committed cases left out (`generatedCorpusKey` with none): two caches whose
+   * keys differ while these match were generated from different committed cases only. Absent in
+   * caches written before it existed.
+   */
+  keyWithoutCommitted?: string;
   settings: GeneratedCorpusSettings;
   cases: CanonicalCase[];
   stats: CorpusStats;
@@ -100,6 +106,7 @@ const count = z.int().min(0);
 const CacheSchema = z.strictObject({
   version: z.literal(1),
   key: z.string(),
+  keyWithoutCommitted: z.string().optional(),
   settings: z.strictObject({
     generator: z.enum(GENERATOR_VERSIONS),
     seed: count,
@@ -113,6 +120,16 @@ const CacheSchema = z.strictObject({
     dropped: z.strictObject({ duplicate: count, errorCap: count, budget: count }),
     stop: z.enum(['exhausted', 'budget', 'time']),
     underSampled: z.array(z.strictObject({ feature: z.string(), cases: count })),
+    commonestError: z
+      .strictObject({
+        exit: z.int().min(0).max(255).nullable(),
+        signal: z.string().nullable(),
+        timeout: z.boolean(),
+        stdout: BlobRefSchema,
+        stderr: BlobRefSchema,
+        answers: count,
+      })
+      .optional(),
   }),
   skipped: z.array(z.string()),
 });
@@ -152,8 +169,48 @@ export async function readGeneratedCorpusCache(projectDir: string, key: string, 
     }
     cases.push(canonical);
   }
-  const { version: _version, ...rest } = parsed.data;
-  return { ...rest, cases };
+  const { version: _version, keyWithoutCommitted, stats: { commonestError, ...stats }, ...rest } = parsed.data;
+  return {
+    ...rest,
+    ...(keyWithoutCommitted === undefined ? {} : { keyWithoutCommitted }),
+    stats: { ...stats, ...(commonestError === undefined ? {} : { commonestError }) },
+    cases,
+  };
+}
+
+/** A generated corpus as the cache holds it, whatever its key: its keys and its cases' IDs and features. */
+export interface CachedCorpusOutline {
+  key: string;
+  keyWithoutCommitted?: string;
+  cases: { id: string; features: string[] }[];
+}
+
+/**
+ * The outline of the cached generated corpus, under whatever key it was generated, without checking
+ * its blobs: what the cases were before a command regenerates them. Undefined when there is no
+ * cache or it can't be read.
+ */
+export async function readCachedCorpusOutline(projectDir: string): Promise<CachedCorpusOutline | undefined> {
+  let parsed;
+  try {
+    parsed = CacheSchema.safeParse(JSON.parse(await readFile(join(cacheDir(projectDir), GENERATED_CORPUS_FILE), 'utf8')));
+  } catch {
+    return undefined;
+  }
+  if (!parsed.success) return undefined;
+  const cases: CachedCorpusOutline['cases'] = [];
+  for (const raw of parsed.data.cases) {
+    const c = CaseSchema.safeParse(raw);
+    if (!c.success) return undefined;
+    try {
+      const { id, features } = canonicalCase(c.data);
+      cases.push({ id, features });
+    } catch {
+      return undefined;
+    }
+  }
+  const { key, keyWithoutCommitted } = parsed.data;
+  return { key, ...(keyWithoutCommitted === undefined ? {} : { keyWithoutCommitted }), cases };
 }
 
 /** Writes the generated corpus to the cache (its blobs must already be in the project's store). */

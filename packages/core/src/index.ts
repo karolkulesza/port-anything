@@ -284,6 +284,7 @@ export {
   isErrorObservation,
   isMutantStrategy,
   type CorpusCase,
+  type CommonestError,
   type CorpusStats,
   type CorpusStrategy,
   type GenerateCorpusOptions,
@@ -319,6 +320,7 @@ export {
   type NormalizerProposal,
   type ProposableNormalizer,
 } from './baseline.js';
+export { DOMINANT_ERROR_SHARE, weakCorpusDiagnosis, type WeakCorpusInput } from './corpus-diagnosis.js';
 export { appendNormalizers, normalizerEntry, setCorpusSettings } from './config-edit.js';
 export {
   DEFAULT_GENERATOR_SEED,
@@ -326,9 +328,11 @@ export {
   SEEDS_DIR,
   generatedCorpusKey,
   generatedCorpusSettings,
+  readCachedCorpusOutline,
   readGeneratedCorpusCache,
   readSeedFixtures,
   writeGeneratedCorpusCache,
+  type CachedCorpusOutline,
   type GeneratedCorpusCache,
   type GeneratedCorpusKeyInput,
   type GeneratedCorpusSettings,
