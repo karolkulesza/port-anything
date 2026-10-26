@@ -34,8 +34,14 @@ export interface CliResult {
  * build it with that command: in sandbox mode local nothing builds it.
  */
 export async function resolveCommand(cmd: string | readonly string[], projectDir: string, build?: ConfiguredBuild): Promise<ResolvedProgram> {
+  let command;
   try {
-    return await resolveProgram(parseProgramCommand(cmd), { cwd: projectDir });
+    command = parseProgramCommand(cmd);
+  } catch (e) {
+    throw new ConfigError((e as Error).message); // a malformed command: building won't fix it
+  }
+  try {
+    return await resolveProgram(command, { cwd: projectDir });
   } catch (e) {
     const hint = build === undefined ? '' : ` Build it with \`${build.command}\` (${build.key} in port-anything.yaml; only sandbox mode container runs the build commands).`;
     throw new ConfigError(`${(e as Error).message}${hint}`);

@@ -394,7 +394,8 @@ describe('executeRun', () => {
     expect(listed.stderr).toContain(`port/tool not found. ${hint('candidates.1.build')}\n`);
     const reference = await unbuilt({ reference: { cmd: './ref/tool', build: cargo }, candidate: { cmd: './bin/tool-copy' } });
     expect(reference.stderr).toContain(`ref/tool not found. ${hint('reference.build')}\n`);
-    // Without a build command, or for a candidate given only on the command line, no hint.
+    // Without a build command, for a candidate given only on the command line, or for a malformed command, no hint.
+    expect(await unbuilt({ candidate: { cmd: "./port/tool 'x", build: cargo } })).toEqual({ exitCode: 3, stdout: '', stderr: "port-anything run: Unclosed ' quote in the program command: ./port/tool 'x\n" });
     expect((await unbuilt({ candidate: { cmd: './port/tool' } })).stderr).toMatch(/port\/tool not found\.\n$/);
     expect((await unbuilt({ candidate: { cmd: './bin/tool-copy', build: cargo } }, ['./port/tool'])).stderr).toMatch(/port\/tool not found\.\n$/);
 
