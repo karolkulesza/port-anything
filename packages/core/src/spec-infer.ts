@@ -76,13 +76,24 @@ export async function inferCliSpec(options: InferCliSpecOptions): Promise<InferC
     throw new ConfigError(`The reference's help text gave a spec that isn't valid: ${(e as Error).message}`);
   }
 
-  const probes = specProbes(spec, { maxSubcommands: options.maxSubcommands ?? 20 });
+  // Spellings the help doesn't list (`-p` for `-ps`) stay in the spec only if the program takes them.
+  const guessed = new Map(help.flags.flatMap((f) => (f.aliasCandidates ?? []).map((n) => [n, f.names[0]!] as const)));
+  const probes = specProbes(spec, { maxSubcommands: options.maxSubcommands ?? 20, guessed });
   const { observations } = await run(probes.map((p) => p.argv));
   const outcomes: ProbeOutcome[] = [];
   for (const o of observations) {
     outcomes.push({ exit: o.exit, signal: o.signal, timeout: o.timeout, stderr: (await options.store.get(o.stderr)).toString('utf8') });
   }
-  return { spec, helpArgv, probes: judgeProbes(probes, outcomes) };
+  const dropped = new Set<string>();
+  const judged = judgeProbes(probes, outcomes).map((p): SpecProbeResult => {
+    if (p.aliasOf === undefined) return p;
+    if (p.status === 'pass') return { ...p, detail: `${p.detail}: kept as a spelling of ${p.aliasOf}` };
+    dropped.add(p.flag);
+    const why = p.detail.endsWith('after all') ? p.detail : `${p.detail}: not checked as a spelling of ${p.aliasOf}`;
+    return { ...p, status: 'pass', detail: `${why}, so it was left out of the spec` };
+  });
+  if (dropped.size > 0) spec = { ...spec, flags: spec.flags.map((f) => ({ ...f, names: f.names.filter((n) => !dropped.has(n)) })) };
+  return { spec, helpArgv, probes: judged };
 }
 
 /** Why no spec could be inferred, and the two ways on. */

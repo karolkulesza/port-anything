@@ -70,6 +70,22 @@ describe('port-anything spec infer', () => {
     expect(existsSync(join(project, CLI_SPEC_FILE))).toBe(true);
   });
 
+  it('says whether the program took a guessed spelling, and why a listed flag fails its probe', async () => {
+    // `-ps` listed, `-p` taken by prefix; `-s` listed without its value; help as a usage error.
+    writeFileSync(
+      join(project, 'frob'),
+      `#!/bin/sh
+usage() { printf 'Usage:\\n       frob [-ps] [-s] [file]\\nOptions:\\n    -ps         plain style.\\n    -s          start.\\n' >&2; exit 1; }
+case "$1" in --help) usage ;; -p*) ;; -s) [ $# -ge 2 ] || usage ;; -*) usage ;; esac
+`,
+      { mode: 0o755 },
+    );
+    const result = await infer();
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('  guess  -p: exit 0: kept as a spelling of -ps\n');
+    expect(result.stdout).toContain("  fail  -s: rejected like an unknown flag (Usage:): does it take a value? The spec gives it none, or the program doesn't have it\n");
+  });
+
   it('prints its usage for --help, and exits 3 for a wrong command line, a missing sandbox, a missing config or a reference without help', async () => {
     expect(await infer(['--help'])).toEqual({ exitCode: 0, stdout: 'Usage: port-anything spec infer [--no-sandbox]\n', stderr: '' });
     expect((await infer([])).stderr).toMatch(/which spec command\?\nUsage: port-anything spec infer/);
