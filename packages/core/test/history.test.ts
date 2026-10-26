@@ -113,13 +113,15 @@ describe('gitDirty', () => {
     writeFileSync(join(dir, 'src', 'main.c'), 'int main;\n');
     writeFileSync(join(dir, 'project', '.port-anything', 'history.jsonl'), '');
     writeFileSync(join(dir, 'project', 'port-anything-badge.svg'), '<svg/>\n');
+    writeFileSync(join(dir, '.gitignore'), 'target/\n');
     git(dir, 'add', '-A');
     git(dir, 'commit', '-q', '-m', 'first');
   });
 
   it('is false on a clean tree and true once a tracked file is modified, staged or deleted, from any directory of it', async () => {
+    // A git-ignored build output doesn't count.
     mkdirSync(join(dir, 'target', 'release'), { recursive: true });
-    writeFileSync(join(dir, 'untracked.txt'), 'not counted\n');
+    writeFileSync(join(dir, 'target', 'release', 'tool'), 'built\n');
     expect(await gitDirty(join(dir, 'target', 'release'))).toBe(false);
     writeFileSync(join(dir, 'src', 'main.c'), 'int main = 1;\n');
     expect(await gitDirty(join(dir, 'target', 'release'))).toBe(true);
@@ -129,6 +131,16 @@ describe('gitDirty', () => {
     expect(await gitDirty(dir)).toBe(false);
     rmSync(join(dir, 'src', 'main.c'));
     expect(await gitDirty(dir)).toBe(true);
+  });
+
+  it('is true for an untracked file git does not ignore: a port written but not yet added', async () => {
+    mkdirSync(join(dir, 'port', 'src'), { recursive: true });
+    writeFileSync(join(dir, 'port', 'src', 'main.rs'), 'fn main() {}\n');
+    mkdirSync(join(dir, 'target', 'release'), { recursive: true });
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(true);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'port');
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(false);
   });
 
   it('leaves out the paths it is told to ignore, globs in their last part', async () => {

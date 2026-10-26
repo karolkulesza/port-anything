@@ -25,7 +25,8 @@ const HistoryCandidateSchema = z.looseObject({
   /** HEAD of the git repository holding the candidate's executable; null outside one. */
   sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable(),
   /**
-   * Whether tracked files of that repository differed from `sha` (uncommitted changes), so the run
+   * Whether that repository's work tree differed from `sha` (uncommitted changes, or untracked files
+   * git doesn't ignore), so the run
    * wasn't of that commit as it stands; null when there's no commit, or git couldn't tell. Lines
    * written before this field existed don't have it.
    */
@@ -135,9 +136,10 @@ export async function gitHead(dir: string): Promise<string | null> {
 }
 
 /**
- * Whether the work tree of the git repository holding the directory `dir` has uncommitted changes
- * to tracked files (staged or not), as `git describe --dirty` counts them: untracked files don't
- * count. Paths under `ignore` don't count either: the project's own files, which a run or a report
+ * Whether the work tree of the git repository holding the directory `dir` differs from its commit:
+ * tracked files changed (staged or not) or untracked files git doesn't ignore, such as source
+ * written but not yet added, which a build picks up all the same. Ignored files (build outputs)
+ * don't count, nor do paths under `ignore`: the project's own files, which a run or a report
  * rewrites, aren't the candidate's code. Null when `dir` isn't in a repository, it has no commit
  * yet, or git fails. Takes no lock, so a git command running alongside doesn't fail.
  */
@@ -156,7 +158,7 @@ export async function gitDirty(dir: string, ignore: readonly string[] = []): Pro
       // directory fails once a directory name in it is escaped.
       excludes.push(`:(top,exclude,glob)${name}`, `:(top,exclude,glob)${name}/**`);
     }
-    const { stdout } = await run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=no', '--', ':(top)', ...excludes], {
+    const { stdout } = await run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal', '--', ':(top)', ...excludes], {
       cwd: dir,
       env,
       timeout: 30_000,

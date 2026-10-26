@@ -768,6 +768,18 @@ describe('executeRun history', () => {
     } finally {
       writeFileSync(join(project, 'bin', 'tool-copy'), original, { mode: 0o755 });
     }
+    // Back to the commit: clean again, though the runs since left new files under .port-anything/.
+    expect(git('status', '--porcelain', '--untracked-files=normal', '.port-anything')).toContain('??');
+    await executeRun(options({ candidates: ['./bin/tool-copy'] }));
+    expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: false, parity: 1 }]);
+    // A new source file nobody added yet is part of what ran.
+    writeFileSync(join(project, 'bin', 'helper'), 'echo\n');
+    try {
+      await executeRun(options({ candidates: ['./bin/tool-copy'] }));
+      expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: true }]);
+    } finally {
+      rmSync(join(project, 'bin', 'helper'));
+    }
   });
 
   it('records the script\'s commit, not the interpreter\'s, for a candidate run by a program on the PATH', async () => {
