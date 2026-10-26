@@ -78,16 +78,18 @@ export async function loadProjectCorpus(projectDir: string, config: Config, rege
 /** How regenerating changed a project's generated cases, against the ones cached before. */
 export interface GeneratedCorpusChange {
   /**
-   * Only the committed cases differ from the ones the earlier cases were generated with: generator
-   * v2 mutates them, so adding or editing one changes the generated cases.
+   * What differs from the inputs the earlier cases were generated from: only the committed cases
+   * (`recorded`: generator v2 mutates them, so adding or editing one changes the generated cases),
+   * something else (`other`: the CLI spec, seeds, settings or reference command), or `unknown` when
+   * the earlier cache predates the key that tells them apart (generator v2 only).
    */
-  byCommitted: boolean;
+  cause: 'recorded' | 'other' | 'unknown';
   /** Generated cases per feature (`base` for untagged ones) before and now, for the features whose count changed. */
   features: { feature: string; before: number; now: number }[];
 }
 
 /** The change from the cached corpus outline `before` to the generated cases `now`; undefined when they are the same cases. */
-function corpusChange(before: CachedCorpusOutline, now: GeneratedCorpusCache): GeneratedCorpusChange | undefined {
+export function corpusChange(before: CachedCorpusOutline, now: GeneratedCorpusCache): GeneratedCorpusChange | undefined {
   const ids = new Set(before.cases.map((c) => c.id));
   if (ids.size === now.cases.length && now.cases.every((c) => ids.has(c.id))) return undefined;
   const was = featureCounts(before.cases);
@@ -96,8 +98,23 @@ function corpusChange(before: CachedCorpusOutline, now: GeneratedCorpusCache): G
     .sort()
     .map((feature) => ({ feature, before: was.get(feature) ?? 0, now: is.get(feature) ?? 0 }))
     .filter((f) => f.before !== f.now);
-  const byCommitted = now.settings.generator !== 'v1' && before.keyWithoutCommitted !== undefined && before.keyWithoutCommitted === now.keyWithoutCommitted;
-  return { byCommitted, features };
+  const cause =
+    now.settings.generator === 'v1' ? 'other' : before.keyWithoutCommitted === undefined ? 'unknown' : before.keyWithoutCommitted === now.keyWithoutCommitted ? 'recorded' : 'other';
+  return { cause, features };
+}
+
+/** The change as `baseline` says it: what changed the generated cases, and their per-feature counts that moved. */
+export function corpusChangeLine(change: GeneratedCorpusChange): string {
+  const cause = {
+    recorded: 'the recorded cases changed the generated ones (generator v2 mutates them)',
+    other: 'the generated cases changed since they were last generated (the CLI spec, seeds, settings or reference command changed)',
+    unknown: 'the generated cases changed since they were last generated (the CLI spec, seeds, settings, reference command or recorded cases changed)',
+  }[change.cause];
+  const counts =
+    change.features.length === 0
+      ? 'the same number per feature'
+      : `generated cases per feature, before → now: ${change.features.map((f) => `${f.feature} ${f.before} → ${f.now}`).join(', ')}`;
+  return `${cause}; ${counts}`;
 }
 
 /** Cases per feature, in feature order; a case without features counts toward `base`, as in scoring. */

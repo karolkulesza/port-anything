@@ -201,6 +201,15 @@ describe('a project with a generated corpus', () => {
 
     // Nothing changed since: nothing to say.
     expect((await cli(['baseline', '--no-sandbox'])).stdout).not.toMatch(/changed/);
+
+    // Another seed is not the recorded cases' doing.
+    const config = readFileSync(join(dir, 'port-anything.yaml'), 'utf8');
+    writeFileSync(join(dir, 'port-anything.yaml'), config.replace(/generator_seed: \d+/, 'generator_seed: 5'));
+    const reseeded = await cli(['baseline', '--no-sandbox']);
+    expect(reseeded.stdout).toMatch(
+      /^the generated cases changed since they were last generated \(the CLI spec, seeds, settings or reference command changed\); (generated cases per feature, before → now: .+|the same number per feature)$/m,
+    );
+    expect(reseeded.stdout).not.toMatch(/recorded cases changed/);
   });
 
   it('run without the CLI spec says how to get one, and a project without generator settings runs only its committed cases', async () => {

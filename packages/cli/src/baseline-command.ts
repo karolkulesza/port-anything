@@ -30,7 +30,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
-import { featureCounts, loadProjectCorpus, type GeneratedCorpusChange } from './corpus.js';
+import { corpusChangeLine, featureCounts, loadProjectCorpus, type GeneratedCorpusChange } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
 /** The options of `port-anything baseline`. */
@@ -185,7 +185,7 @@ async function execute({ projectDir, config, cases, args, change, probe }: Execu
     for (const c of flaky) lines.push(`  ${shortCaseId(c.caseId)}  ${c.unstable.join(', ')}`);
   }
   lines.push(frozenCounts(cases));
-  if (change !== undefined) lines.push(changeLine(change));
+  if (change !== undefined) lines.push(corpusChangeLine(change));
   lines.push(`froze the corpus in .port-anything/${MANIFEST_FILE}: commit it; port-anything verify checks it`);
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
@@ -197,16 +197,4 @@ function frozenCounts(cases: readonly CanonicalCase[]): string {
   const split = `${origins('generated')} generated, ${origins('recorded')} recorded${imported > 0 ? `, ${imported} imported` : ''}`;
   const perFeature = [...featureCounts(cases)].map(([feature, n]) => `${feature} ${n}`).join(' · ');
   return `froze ${cases.length} case${cases.length === 1 ? '' : 's'} (${split}); per feature: ${perFeature}`;
-}
-
-/** What changed the generated cases since they were last generated, and their counts that moved. */
-function changeLine(change: GeneratedCorpusChange): string {
-  const cause = change.byCommitted
-    ? 'the recorded cases changed the generated ones (generator v2 mutates them)'
-    : 'the generated cases changed since they were last generated (the CLI spec, seeds, settings or reference command changed)';
-  const counts =
-    change.features.length === 0
-      ? 'the same number per feature'
-      : `generated cases per feature, before → now: ${change.features.map((f) => `${f.feature} ${f.before} → ${f.now}`).join(', ')}`;
-  return `${cause}; ${counts}`;
 }
