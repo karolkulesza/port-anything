@@ -91,7 +91,29 @@ Order the work so each step builds on the previous one and the parity rises stea
 
 Write the plan to `port-plan.md` in the project directory (or where the user asks): the
 reference and its version, the spec's flags, forms and subcommands in short, the ordered list
-(each step with its feature tags and case counts), and the spec changes you made and why.
+(each step with its feature tags and case counts), the spec changes you made and why, and how
+corpus strength will be measured (below).
+
+### Corpus strength
+
+A high parity means little if the corpus is weak. `port-anything strength` measures it: it
+makes mutants of the candidate (small changes to its source), builds each one, runs the corpus
+on it and reports the share it catches ("corpus strength 91.0%"), with the surviving mutants:
+behavior no case tests. Plan for it now, not at the end of the port, because it needs a
+mutation tool for the candidate's language:
+
+| Candidate | Tool | Without it |
+|---|---|---|
+| Rust (Cargo) | `cargo-mutants`: `cargo install --locked cargo-mutants` | `strength` refuses to run |
+| JS/TS (npm) | Stryker: `npm install --save-dev @stryker-mutator/core` in the candidate's package | a generic source mutator runs instead |
+| C/C++ | `mull` with its matching `clang` on the `PATH` | a generic source mutator runs instead |
+| anything else | none: the generic source mutator | |
+
+`cargo-mutants` and `mull` install outside the project (`~/.cargo`, the system): ask the user
+before installing them, never install them on your own. Note in `port-plan.md` which tool
+applies and whether it is installed. `strength` scores only the cases the candidate already
+matches, and builds the candidate once per mutant (`--mutants 200` by default), so run it once a
+good part of the corpus passes, not on the empty scaffold.
 
 ## 4. Scaffold the candidate
 

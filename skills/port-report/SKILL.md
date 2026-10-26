@@ -47,6 +47,22 @@ In the project directory (the one with `port-anything.yaml`):
    It writes `port-anything-report.html` (self-contained, a repro and a diff per cluster),
    `port-anything-report.json` and a badge per candidate (`port-anything-badge.svg`,
    `port-anything-badge-2.svg`…), from the latest full run.
+5. **Corpus strength** (how much a parity on this corpus means; the report files don't include
+   it):
+
+   ```sh
+   port-anything strength --json
+   ```
+
+   It mutates the (first) candidate, builds each mutant and runs the corpus on it: `score` is the
+   share of mutants the corpus catches, `survivors` the mutants it missed (behavior no case
+   tests), `tool` the mutation tool used. Exit `0` it ran, `3` it couldn't (read stderr). It needs
+   a mutation tool for the candidate's language: `cargo-mutants` for Rust (without it `strength`
+   refuses: `cargo install --locked cargo-mutants`), Stryker for JS/TS and `mull` for C/C++ (a
+   generic source mutator runs without them; its `notes` say so). Those install outside the
+   project or into the candidate's dependencies: don't install them yourself; when one is
+   missing, report strength as not measured and name the tool. It builds the candidate once per
+   mutant (200 by default, `--mutants N`), so it can take a long time: say so before starting it.
 
 ## 2. Read the numbers
 
@@ -85,7 +101,9 @@ two minutes:
    812 of 860 cases").
 2. **Integrity:** the `verify` result (or "corpus not frozen"), waivers and normalizers in use
    (a waiver covering many cases deserves a line of its own), flaky-reference cases left out,
-   untested and under-sampled features. Numbers mean little without this.
+   untested and under-sampled features, and the corpus strength ("the corpus kills 91.0% of 200
+   mutants, cargo-mutants", or "not measured: cargo-mutants isn't installed"). Numbers mean
+   little without this.
 3. **Open work:** the top clusters (up to 5) in one line each: what differs, how many cases,
    which features. Then the weakest features from `features[]`.
 4. **What was measured:** each side's version or commit, the date, the sandbox, the cases, the
