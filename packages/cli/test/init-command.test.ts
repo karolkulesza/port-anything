@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { run } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
+
+/** The step after setting up a new project, in the order the port-plan skill takes. */
+const NEXT = "Next: port-anything spec infer (the CLI spec, from the reference's help), then port-anything generate (cases from the spec; add your own to port-anything/recorded/*.jsonl), then port-anything run.";
+
 let root: string;
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-init-')));
@@ -24,7 +28,7 @@ describe('port-anything init', () => {
         '  .port-anything/: created',
         '  .gitattributes: created with .port-anything/history.jsonl merge=union',
         '  .gitignore: created with .port-anything/cache/, .port-anything/runs/, .port-anything/probes/, .port-anything/tmp/',
-        'Next: add cases to port-anything/recorded/*.jsonl, then run port-anything run.',
+        NEXT,
         '',
       ].join('\n'),
       stderr: '',
@@ -61,7 +65,7 @@ describe('port-anything init', () => {
         '  .gitattributes: created with .port-anything/history.jsonl merge=union',
         '  .gitignore: created with .port-anything/cache/, .port-anything/runs/, .port-anything/probes/, .port-anything/tmp/',
         '  ../../.github/workflows/port-anything.yml: created',
-        'Next: add cases to port-anything/recorded/*.jsonl, then run port-anything run.',
+        NEXT,
         'CI runs the cases in sandbox mode container, so that its environment fingerprint can match the manifest: set sandbox.mode to container in port-anything.yaml (with sandbox.image, reference.build and candidate.build), then freeze the corpus with port-anything baseline and commit .port-anything/MANIFEST.json.',
         'Without compare.min_parity in port-anything.yaml, the CI run fails on any divergence: set it to the parity the port must keep.',
         'Suggested CODEOWNERS lines (in .github/CODEOWNERS, with your handle or team for @your-github-handle), so that every change to what defines the score needs a review:',
