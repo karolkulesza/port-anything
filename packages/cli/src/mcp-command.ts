@@ -165,6 +165,29 @@ function specSpellings(spec: CliSpec): Map<string, string> {
 /** The cases that diverged for a candidate in a run: steady and flaky-candidate ones. */
 const diverging = (c: RunSummary['candidates'][number]) => new Set([...c.divergences.map((d) => d.case), ...c.flaky_candidate.map((d) => d.case)]);
 
+/** A runner `next` opened, with the scratch directory it works in. */
+export interface OpenRunner {
+  runner: Pick<CaseRunner, 'close'>;
+  workDir: string;
+}
+
+/**
+ * Closes every runner in `runners` and removes its scratch directory, even when closing one fails,
+ * then empties `runners`; throws the first failure after all of them are done.
+ */
+export async function closeRunners(projectDir: string, runners: Map<unknown, OpenRunner>): Promise<void> {
+  const closing = [...runners.values()].map(async ({ runner, workDir }) => {
+    try {
+      await runner.close();
+    } finally {
+      await removeScratch(projectDir, workDir);
+    }
+  });
+  runners.clear();
+  const failed = (await Promise.allSettled(closing)).find((r) => r.status === 'rejected');
+  if (failed !== undefined) throw failed.reason;
+}
+
 /** Broken cases `run` names per candidate. */
 const NAMED_BROKEN = 5;
 
@@ -238,6 +261,8 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
         const address = `${run.run_id}/${k.cluster}`;
         let repro = await loadRepro(projectDir, run.run_id, k.cluster);
         if (repro === undefined) {
+          // Minimizing starts programs of its own (containers, in sandbox mode container): stop ours first.
+          await closeRunners(projectDir, runners);
           const minimized = await minimizeCommand([address, '--json', ...(noSandbox ? ['--no-sandbox'] : [])], { cwd: projectDir, ...probe });
           if (minimized.exitCode === 3) throw new Error(minimized.stderr.trim());
           repro = await loadRepro(projectDir, run.run_id, k.cluster);
@@ -274,13 +299,7 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
         };
       }
     } finally {
-      for (const { runner, workDir } of runners.values()) {
-        try {
-          await runner.close();
-        } finally {
-          await removeScratch(projectDir, workDir);
-        }
-      }
+      await closeRunners(projectDir, runners);
     }
     return { kind: 'none-open', run: run.run_id, total: run.clusters.length, skipped };
   }

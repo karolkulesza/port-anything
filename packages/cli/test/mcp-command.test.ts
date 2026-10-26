@@ -9,7 +9,7 @@ import { formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatS
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../mcp/test/tokens.js';
 import { baselineCommand } from '../src/baseline-command.js';
-import { mcpCommand, projectBackend } from '../src/mcp-command.js';
+import { closeRunners, mcpCommand, projectBackend, type OpenRunner } from '../src/mcp-command.js';
 import { runCommand } from '../src/run-command.js';
 
 // Needs @port-anything/core and @port-anything/mcp built (`pnpm build`), like the other CLI tests.
@@ -180,6 +180,35 @@ esac
     const none = await backend.next();
     expect(none).toEqual({ kind: 'none-open', run: run.run_id, total: 3, skipped: [1, 2, 3] });
     expect(formatNext(none)).toBe(`skipped clusters 1, 2 and 3 of run ${run.run_id}: their repros no longer diverge.\nNo open cluster left whose repro still diverges. Run the whole corpus (\`port-anything run\`) to confirm.\n`);
+  });
+});
+
+describe('closeRunners', () => {
+  it('closes every runner and removes every scratch dir even when one close fails, then throws that failure', async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-mcp-')));
+    try {
+      const closed: number[] = [];
+      const runners = new Map<number, OpenRunner>();
+      for (const n of [1, 2, 3]) {
+        const workDir = join(project, '.port-anything', 'tmp', `run-${n}`);
+        mkdirSync(workDir, { recursive: true });
+        runners.set(n, {
+          workDir,
+          runner: {
+            close: async () => {
+              closed.push(n);
+              if (n === 1) throw new Error('close 1 failed');
+            },
+          },
+        });
+      }
+      await expect(closeRunners(project, runners)).rejects.toThrow('close 1 failed');
+      expect(closed).toEqual([1, 2, 3]);
+      expect(runners.size).toBe(0);
+      expect(existsSync(join(project, '.port-anything', 'tmp'))).toBe(false);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
 
