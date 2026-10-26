@@ -29,7 +29,7 @@ import {
   type Config,
   type SandboxProbe,
 } from '@port-anything/core';
-import { display, prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
+import { display, prepareContainer, resolveReference, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus, unknownFeatureTagsWarning } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
@@ -120,7 +120,7 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     config.sandbox.mode === 'container'
       ? await prepareContainer(projectDir, config, [], { noSandbox: args.noSandbox })
       : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
-  const reference = await resolveCommand(config.reference.cmd, projectDir);
+  const reference = await resolveReference(config, projectDir);
   const repeats = args.repeats ?? config.corpus?.repeats ?? DEFAULT_REPEATS;
 
   const result = await withScratchDir(projectDir, 'baseline', (workDir) =>

@@ -28,7 +28,7 @@ import {
   type SandboxChoice,
   type SandboxProbe,
 } from '@port-anything/core';
-import { prepareContainer, resolveCommand, withScratchDir } from './common.js';
+import { prepareContainer, resolveReference, withScratchDir } from './common.js';
 
 /** How a command may get the generated cases when the cache doesn't have them. */
 export type Regenerate =
@@ -105,7 +105,7 @@ export async function generateProjectCorpus(projectDir: string, config: Config, 
     (config.sandbox.mode === 'container'
       ? await prepareContainer(projectDir, config, [], options)
       : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox }));
-  const reference = await resolveCommand(config.reference.cmd, projectDir);
+  const reference = await resolveReference(config, projectDir);
   const stored = new Set<string>();
   const generated = await withScratchDir(projectDir, 'generate', (workDir) =>
     generateCorpus(inputs.spec, {

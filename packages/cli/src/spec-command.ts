@@ -11,15 +11,13 @@ import {
   chooseSandbox,
   cliSpecYaml,
   inferCliSpec,
-  parseProgramCommand,
   probeSandbox,
   readConfigFile,
-  resolveProgram,
   specFeatures,
   type SandboxProbe,
   type SpecProbeResult,
 } from '@port-anything/core';
-import { prepareContainer } from './common.js';
+import { prepareContainer, resolveReference } from './common.js';
 import { helpInvocation } from './compare-command.js';
 import type { CliResult } from './run-command.js';
 
@@ -60,12 +58,7 @@ async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; pro
   if (await exists(target)) throw new ConfigError(`${CLI_SPEC_FILE} already exists and may hold refinements; delete it to infer a new one.`);
   const sandbox =
     config.sandbox.mode === 'container' ? await prepareContainer(cwd, config, [], { noSandbox }) : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox });
-  let reference;
-  try {
-    reference = await resolveProgram(parseProgramCommand(config.reference.cmd), { cwd });
-  } catch (e) {
-    throw new ConfigError((e as Error).message);
-  }
+  const reference = await resolveReference(config, cwd);
 
   const workDir = join(cwd, '.port-anything', 'tmp', `spec-${randomBytes(6).toString('hex')}`);
   let result;

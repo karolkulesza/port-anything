@@ -85,7 +85,7 @@ import {
   type WaiverCoverage,
   type WaiverMatch,
 } from '@port-anything/core';
-import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
+import { configuredBuilds, display, prepareContainer, resolveCommand, resolveReference, type CliResult } from './common.js';
 import { committedParents, loadCorpus, unknownFeatureTagsWarning, type CommittedParents } from './corpus.js';
 
 export { display } from './common.js';
@@ -818,8 +818,10 @@ export async function prepareSides(
     config.sandbox.mode === 'container'
       ? await prepareContainer(projectDir, config, commands, options)
       : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
-  const reference = await resolveCommand(config.reference.cmd, projectDir);
-  const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
+  // In sandbox mode local nothing builds the programs: a missing one says how to build it.
+  const builds = config.sandbox.mode === 'container' ? [] : configuredBuilds(config, commands).candidates;
+  const reference = await resolveReference(config, projectDir);
+  const candidates = await Promise.all(commands.map((cmd, i) => resolveCommand(cmd, projectDir, builds[i])));
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
   const runner = {
     reference,
