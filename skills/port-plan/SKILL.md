@@ -92,7 +92,8 @@ Order the work so each step builds on the previous one and the parity rises stea
    Without recorded cases, use the generated corpus: the per-feature case counts `baseline`
    prints (`froze … per feature: …`), or those of a run (`port-anything run --json`, each
    candidate's `score.features[].cases`, once a candidate exists). Adding recorded cases changes
-   the generated ones (they are mutated too), so take the counts after the last change. Break ties by dependency (a flag that changes how others behave first) and by size.
+   the generated ones (they are mutated too), so take the counts after the last change. Break
+   ties by dependency (a flag that changes how others behave first) and by size.
 
 Write the plan to `port-plan.md` in the project directory (or where the user asks): the
 reference and its version, the spec's flags, forms and subcommands in short, the ordered list
