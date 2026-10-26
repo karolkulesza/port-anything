@@ -112,8 +112,10 @@ mutation tool for the candidate's language:
 `cargo-mutants` and `mull` install outside the project (`~/.cargo`, the system): ask the user
 before installing them, never install them on your own. Note in `port-plan.md` which tool
 applies and whether it is installed. `strength` scores only the cases the candidate already
-matches, and builds the candidate once per mutant (`--mutants 200` by default), so run it once a
-good part of the corpus passes, not on the empty scaffold.
+matches, so run it once a good part of the corpus passes, not on the empty scaffold. It is slow:
+`cargo-mutants` and the generic mutator build the candidate once per mutant, on a sample of
+`--mutants N` (200 by default); Stryker and `mull` build once but test every mutant, whatever
+`--mutants` says.
 
 ## 4. Scaffold the candidate
 

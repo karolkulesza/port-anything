@@ -112,6 +112,9 @@ describe.each(['port-plan', 'port-report'] as const)('the %s skill', (name) => {
     expect(skill).toContain('cargo install --locked cargo-mutants');
     expect(skill).toContain('Stryker');
     expect(skill).toContain('`mull`');
+    // Only the tools that build one mutant at a time are bounded by --mutants.
+    expect(skill).toMatch(/`cargo-mutants` and the generic mutator build the\s+candidate once per mutant/);
+    expect(skill).toMatch(/Stryker and `mull`\s+build once but test every mutant/);
   });
 });
 

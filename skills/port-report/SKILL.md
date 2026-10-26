@@ -60,9 +60,11 @@ In the project directory (the one with `port-anything.yaml`):
    a mutation tool for the candidate's language: `cargo-mutants` for Rust (without it `strength`
    refuses: `cargo install --locked cargo-mutants`), Stryker for JS/TS and `mull` for C/C++ (a
    generic source mutator runs without them; its `notes` say so). Those install outside the
-   project or into the candidate's dependencies: don't install them yourself; when one is
-   missing, report strength as not measured and name the tool. It builds the candidate once per
-   mutant (200 by default, `--mutants N`), so it can take a long time: say so before starting it.
+   project or into the candidate's dependencies: don't install them yourself; when `strength`
+   refuses for lack of one, report strength as not measured and name the tool. It can take a long
+   time, so say so before starting it: `cargo-mutants` and the generic mutator build the
+   candidate once per mutant, on a sample of `--mutants N` (200 by default); Stryker and `mull`
+   build once but test every mutant, whatever `--mutants` says.
 
 ## 2. Read the numbers
 
