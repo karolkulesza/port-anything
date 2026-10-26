@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util';
 import {
   BlobStore,
   CLI_SPEC_FILE,
+  CONFIG_FILE,
   CaseIdError,
   ConfigError,
   DEFAULT_STDERR_SIMILARITY,
@@ -32,6 +33,7 @@ import {
   generateFreshHoldout,
   generatedCorpusSettings,
   isMutantStrategy,
+  gitDirty,
   gitHead,
   holdoutGap,
   holdoutParity,
@@ -447,13 +449,9 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
     const lines = await Promise.all(fresh.failures.map(async (c) => JSON.stringify({ ...(await inlineCase(c, store)), features: c.features, origin: c.origin })));
     await writeFile(join(runsDir(projectDir), saved.run_id, HOLDOUT_FAILURES_FILE), `${lines.join('\n')}\n`);
   }
+  let commits: CandidateCommit[] | undefined;
   if (saved.subset === null) {
-    const shas = await Promise.all(
-      runnerOptions.candidates.map(async (c) => {
-        const dir = await candidateSource(c, projectDir);
-        return dir === undefined ? null : gitHead(dir);
-      }),
-    );
+    commits = await Promise.all(runnerOptions.candidates.map((c) => candidateCommit(c, projectDir)));
     await appendHistory(projectDir, {
       version: 1,
       run_id: saved.run_id,
@@ -461,7 +459,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       cases: report.cases,
       candidates: commands.map((command, i) => {
         const { score } = report.candidates[i]!;
-        return { command, sha: shas[i]!, parity: score.headline, features: score.headlineFeatures.length, scored: score.raw.scored, match: score.raw.match };
+        return { command, ...commits![i]!, parity: score.headline, features: score.headlineFeatures.length, scored: score.raw.scored, match: score.raw.match };
       }),
     });
   }
@@ -475,7 +473,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   )
     ? 1
     : 0;
-  return { summary, exitCode, ran: result.cases.map((c) => c.caseId) };
+  return { summary, exitCode, ran: result.cases.map((c) => c.caseId), commits };
 }
 
 /** The parity a run's candidates must reach: `compare.min_parity`, on a run of the whole corpus only. */
@@ -483,7 +481,7 @@ const minParityOf = (config: Config, subset: RunRecord['subset']) => (subset ===
 const belowMinParity = (score: Score, minParity: number) => score.headline === null || score.headline < minParity;
 
 async function execute(options: ExecuteRunOptions): Promise<CliResult> {
-  const { summary, exitCode } = await performRun(options);
+  const { summary, exitCode, commits } = await performRun(options);
   const { flaky_reference: flakyReference, clusters } = summary;
   const minParity = minParityOf(options.config, summary.subset);
   if (options.args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
@@ -516,6 +514,8 @@ async function execute(options: ExecuteRunOptions): Promise<CliResult> {
       lines.push(belowMinParity(c.score, minParity) ? `  BELOW compare.min_parity ${percent(minParity)}: the run fails` : `  compare.min_parity ${percent(minParity)}: met`);
     }
     if (c.slowdown !== undefined) lines.push(slowdownLine(c.slowdown));
+    const commit = commits?.[i];
+    if (commit?.dirty === true) lines.push(`  uncommitted changes: the history records this run under commit ${commit.sha!.slice(0, 7)} marked dirty`);
     if ('holdout' in c) lines.push(...candidateHoldoutLines(c.holdout));
     if (c.waivers.length > 0) lines.push(`  waivers (cases covered): ${c.waivers.map(coverageLabel).join(', ')}`);
     for (const cluster of clusters.filter((k) => k.candidate === i + 1)) {
@@ -827,6 +827,25 @@ function describeSubset(subset: RunRecord['subset']): string {
   const { from, corpus, clusters, per_feature: perFeature, passing } = subset.smoke;
   const open = from === null ? 'no full run yet' : `${clusters} for the open clusters of run ${from}`;
   return `, smoke subset of ${corpus} case${corpus === 1 ? '' : 's'}: ${open}, ${perFeature} by feature, ${passing} passing`;
+}
+
+/** What a candidate's history line records of the code it ran: the commit, and whether the tree differed from it. */
+interface CandidateCommit {
+  sha: string | null;
+  dirty: boolean | null;
+}
+
+/**
+ * The project's own files, which a run or a report rewrites (the history among them) and which
+ * aren't any candidate's code, so changes to them don't make a candidate's tree dirty.
+ */
+const projectFiles = (projectDir: string) =>
+  [CONFIG_FILE, 'port-anything', '.port-anything', 'port-anything-report.*', 'port-anything-badge*.svg'].map((name) => join(projectDir, name));
+
+async function candidateCommit(program: ResolvedProgram, projectDir: string): Promise<CandidateCommit> {
+  const dir = await candidateSource(program, projectDir);
+  const sha = dir === undefined ? null : await gitHead(dir);
+  return { sha, dirty: sha === null ? null : await gitDirty(dir!, projectFiles(projectDir)) };
 }
 
 /**
