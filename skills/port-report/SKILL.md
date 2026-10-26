@@ -67,8 +67,10 @@ From `port-anything-report.json`:
 | `clusters[]` | The run's divergence clusters, highest priority first: `cluster`, `candidate`, `description` (the signature in words), `size`, `features`, `repro` (the case the HTML report shows as a repro). |
 
 And from `.port-anything/history.jsonl` (one line per full run, newest last): each candidate's
-`parity`, `scored` and `match` over time. Compare the latest line with the one before for the
-change since the previous run.
+`parity`, `scored` and `match` over time, and `sha`, the commit the candidate came from. When
+`dirty` is `true`, its tree had uncommitted changes, so that run measured the commit plus those
+changes, not the commit itself (lines written by older versions have no `dirty`: unknown). Compare
+the latest line with the one before for the change since the previous run.
 
 For a cluster you want to show by example, `port-anything minimize <n> --json` prints its
 minimized repro (argv, stdin and input files in full); the `next` tool does the same for the top
@@ -88,7 +90,8 @@ two minutes:
 3. **Open work:** the top clusters (up to 5) in one line each: what differs, how many cases,
    which features. Then the weakest features from `features[]`.
 4. **What was measured:** each side's version or commit, the date, the sandbox, the cases, the
-   exact commands you ran. Point to `port-anything-report.html` for the detail.
+   exact commands you ran. A candidate whose latest history line is `dirty`: say "commit … with
+   uncommitted changes", never the bare commit. Point to `port-anything-report.html` for the detail.
 
 Tone: factual and specific. Quote the tool's numbers, never estimate them; "parity 94.1% over 12
 features", never "almost done". Don't round 99.6% up to 100%.

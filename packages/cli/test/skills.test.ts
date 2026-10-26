@@ -159,8 +159,8 @@ describe('the port-report skill describes fields the report and the history have
 
   it('in what it reads from the history', () => {
     const paragraph = skill.slice(skill.indexOf('`.port-anything/history.jsonl`'), skill.indexOf('For a cluster you want'));
-    const keys = [...paragraph.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]!);
-    expect(keys).toEqual(['parity', 'scored', 'match']);
+    const keys = [...new Set([...paragraph.matchAll(/`([a-z_]+)`/g)].map((m) => m[1]!))].filter((k) => k !== 'true');
+    expect(keys).toEqual(['parity', 'scored', 'match', 'sha', 'dirty']);
     for (const key of keys) expect(valuesAt(history, `candidates[].${key}`), key).not.toEqual([]);
   });
 });
