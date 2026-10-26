@@ -14,7 +14,8 @@ describe.runIf(process.platform === 'linux' && process.env.PA_SANDBOX_TESTS === 
     const started = Date.now();
     const result = await compareCommand(['/usr/bin/sort', 'coreutils sort', '--json'], { cwd: dir });
     const elapsed = Date.now() - started;
-    expect(result.stderr).toBe('');
+    // Nothing on stderr but, at most, the warning for features no case reached.
+    expect(result.stderr).toMatch(/^(port-anything compare: warning: \d+ features? got no case \([^)]*\); [^\n]*\n)?$/);
     expect([0, 1]).toContain(result.exitCode);
     const summary = JSON.parse(result.stdout) as CompareSummary;
     expect(summary).toMatchObject({ program_name: 'sort', sandbox: expect.stringMatching(/^bwrap, no network/) });

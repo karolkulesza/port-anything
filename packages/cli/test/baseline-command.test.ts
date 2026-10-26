@@ -88,6 +88,7 @@ describe('baselineCommand', () => {
         '  sort-lines on stdout for cmd.list: 1',
         'flaky-reference, left out of run (fields that still vary):',
         `  ${shortCaseId(random)}  stdout`,
+        'froze 4 cases (0 generated, 4 recorded); per feature: cmd.list 1 · cmd.log 1 · cmd.random 1 · cmd.stable 1',
         'froze the corpus in .port-anything/MANIFEST.json: commit it; port-anything verify checks it',
         '',
       ].join('\n'),

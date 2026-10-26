@@ -143,6 +143,8 @@ describe('a project with a generated corpus', () => {
 
     const baseline = await cli(['baseline', '--no-sandbox']);
     expect(baseline.stdout).toMatch(/^Ran 40 cases 3 times each/);
+    expect(baseline.stdout).toMatch(/^froze 40 cases \(40 generated, 0 recorded\); per feature: base \d+ · /m);
+    expect(baseline.stdout).not.toMatch(/changed/);
 
     const ran = await json<RunJson>(['run', '--json', '--no-sandbox', '--holdout', '0']);
     expect(ran.out.cases).toBe(40);
@@ -174,6 +176,31 @@ describe('a project with a generated corpus', () => {
     rmSync(join(cacheDir(dir), GENERATED_CORPUS_FILE));
     expect(await loadCorpus(dir, config, 'cache-only')).toEqual([]);
     expect((await cli(['report', '--json'])).exitCode).toBe(0);
+  });
+
+  it('baseline after a recorded case was added gives the counts it froze and says the recorded cases changed the generated ones', { timeout: 120_000 }, async () => {
+    writeFileSync(join(dir, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/frob }\ncandidate: { cmd: ./bin/frob-bad }\n');
+    expect((await cli(['spec', 'infer', '--no-sandbox'])).exitCode).toBe(0);
+    expect((await cli(['generate', '--budget', '150', '--no-sandbox'])).exitCode).toBe(0);
+    const before = cachedIds();
+
+    mkdirSync(join(dir, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(dir, 'port-anything', 'recorded', 'mine.jsonl'), `${JSON.stringify({ argv: ['-u'], stdin: 'Hello, World\n', features: ['mine'], origin: 'recorded' })}\n`);
+    const baseline = await cli(['baseline', '--no-sandbox']);
+    expect(baseline.stderr).toBe('');
+    expect(baseline.exitCode).toBe(0);
+    expect(cachedIds()).not.toEqual(before);
+    const froze = /^froze (\d+) cases \((\d+) generated, 1 recorded\); per feature: (.*)$/m.exec(baseline.stdout);
+    expect(froze).not.toBeNull();
+    expect(Number(froze![1])).toBe(Number(froze![2]) + 1);
+    const perFeature = new Map(froze![3]!.split(' · ').map((f) => f.split(' ') as [string, string]));
+    // The recorded case and the mutants generator v2 made of it.
+    expect(Number(perFeature.get('mine'))).toBeGreaterThan(1);
+    const changed = /^the recorded cases changed the generated ones \(generator v2 mutates them\); generated cases per feature, before → now: (.*)$/m.exec(baseline.stdout);
+    expect(changed?.[1]).toMatch(/(^|, )mine 0 → \d+(, |$)/);
+
+    // Nothing changed since: nothing to say.
+    expect((await cli(['baseline', '--no-sandbox'])).stdout).not.toMatch(/changed/);
   });
 
   it('run without the CLI spec says how to get one, and a project without generator settings runs only its committed cases', async () => {
@@ -235,5 +262,86 @@ describe('a project whose input is code', () => {
     const mutants = corpus.filter((c) => c.features.some((f) => ['fields', 'arith', 'regex'].includes(f)));
     expect(mutants.length).toBeGreaterThanOrEqual(10);
     expect(mutants.filter((c) => !recordedPrograms.has(c.argv.join(' '))).length).toBeGreaterThan(0);
+  });
+});
+
+// Reads stdin only: any argument but -a and -b gets the usage text, the way xxd answers a spec
+// that gives it one positional too many.
+const STDIN_ONLY = `#!/bin/sh
+if [ "$1" = --help ]; then
+  printf 'Usage: blip [-a] [-b] FILE\\n\\n  -a   number the lines\\n  -b   upper-case the output\\n'
+  exit 0
+fi
+a=; b=
+for arg; do
+  case "$arg" in
+    -a) a=1 ;;
+    -b) b=1 ;;
+    *) printf 'usage: blip [-a] [-b] < infile\\n' >&2; exit 1 ;;
+  esac
+done
+if [ -n "$a" ]; then awk '{ print NR ": " $0 }'; else cat; fi | if [ -n "$b" ]; then tr 'a-z' 'A-Z'; else cat; fi
+`;
+
+describe('a spec the program rejects', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pa-generate-weak-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin', 'blip'), STDIN_ONLY, { mode: 0o755 });
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const cli = (argv: string[]) => run(argv, { cwd: dir });
+  const diagnosis = (command: string) =>
+    new RegExp(`^port-anything ${command}: warning: (\\d+) features? got no case \\(([^)]*)\\): (\\d+)% of the reference's answers were its usage text; `, 'm');
+
+  it('generate says which features got no case and that most answers were the usage text', { timeout: 120_000 }, async () => {
+    // Like xxd's -h, -b is in the help but not in the program.
+    writeFileSync(join(dir, 'bin', 'blip'), STDIN_ONLY.replace('    -b) b=1 ;;\n', ''), { mode: 0o755 });
+    mkdirSync(join(dir, 'port-anything'));
+    // The help's FILE is a required positional, which blip refuses.
+    writeFileSync(
+      join(dir, CLI_SPEC_FILE),
+      [
+        'version: 1',
+        'program: blip',
+        'flags:',
+        '  - { names: [ -a ], feature: opt.a, arity: 0 }',
+        '  - { names: [ -b ], feature: opt.b, arity: 0 }',
+        'forms:',
+        '  - usage: blip [-a] [-b] FILE',
+        '    flags: [ -a, -b ]',
+        '    args: [ { name: FILE, type: path, arity: "1" } ]',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(join(dir, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/blip }\ncandidate: { cmd: ./bin/blip }\n');
+    const generated = await cli(['generate', '--budget', '200', '--no-sandbox']);
+    expect(generated.exitCode).toBe(0);
+    const [, count, features, share] = diagnosis('generate').exec(generated.stderr) ?? [];
+    expect(features?.split(', ')).toEqual(expect.arrayContaining(['opt.a', 'opt.b']));
+    expect(Number(count)).toBe(features!.split(', ').length);
+    expect(Number(share)).toBeGreaterThan(50);
+    expect(generated.stderr).toMatch(/; check the forms and flags in port-anything\/cli-spec\.yaml\n$/);
+    // The list stays on stdout too, where it always was.
+    expect(generated.stdout).toMatch(/^untested \(no generated case\): .*opt\.a/m);
+  });
+
+  it('compare says the same of the spec it read from the help', { timeout: 120_000 }, async () => {
+    const compared = await cli(['compare', './bin/blip', './bin/blip', '--budget', '200', '--no-sandbox']);
+    expect(compared.exitCode).toBe(0);
+    expect(compared.stderr).toMatch(diagnosis('compare'));
+    expect(compared.stderr).toMatch(/; check the CLI spec read from the help \(--save writes it to port-anything\/cli-spec\.yaml\)\n$/);
+    const json = await cli(['compare', './bin/blip', './bin/blip', '--budget', '200', '--no-sandbox', '--json']);
+    const { diagnosis: line } = JSON.parse(json.stdout) as { diagnosis: string | null };
+    expect(line).toMatch(/^\d+ features? got no case \(.*opt\.a.*\): \d+% of the reference's answers were its usage text$/);
+  });
+
+  it('compare stays quiet about a spec the program accepts', { timeout: 120_000 }, async () => {
+    writeFileSync(join(dir, 'bin', 'blip'), STDIN_ONLY.replace(' FILE\\n', '\\n'), { mode: 0o755 });
+    const compared = await cli(['compare', './bin/blip', './bin/blip', '--budget', '100', '--no-sandbox', '--json']);
+    expect(compared.stderr).toBe('');
+    expect((JSON.parse(compared.stdout) as { diagnosis: string | null }).diagnosis).toBeNull();
   });
 });

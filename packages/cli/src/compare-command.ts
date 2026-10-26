@@ -39,7 +39,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, resolveCommand, type CliResult } from './common.js';
-import { cacheGeneratedCorpus } from './corpus.js';
+import { cacheGeneratedCorpus, corpusDiagnosis } from './corpus.js';
 import { checkoutRev, isInside, parseGitRef, removeCheckout, rerootPath, runBuild, type GitCheckout } from './git-ref.js';
 
 /** Generated cases `compare` runs unless `--budget` says otherwise. */
@@ -243,6 +243,9 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
     const trusted = baseline.cases.filter((c) => !late.has(c.caseId));
 
     const selfDescription = new Set(specFeatures(spec).filter((f) => f.selfDescription).map((f) => f.name));
+    const untested = specFeatures(spec)
+      .map((f) => f.name)
+      .filter((name) => !cases.some((c) => c.features.includes(name)));
     const byId = new Map(cases.map((c) => [c.id, c]));
     const summary: CompareSummary = {
       program_name: result.programName,
@@ -260,9 +263,8 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
         dropped: corpus.stats.dropped,
         skipped: corpus.skipped,
       },
-      untested: specFeatures(spec)
-        .map((f) => f.name)
-        .filter((name) => !cases.some((c) => c.features.includes(name))),
+      untested,
+      diagnosis: (await corpusDiagnosis(corpus.stats, untested, store)) ?? null,
       baseline: {
         repeats: COMPARE_REPEATS,
         stable: trusted.filter((c) => c.status === 'stable').length,
@@ -299,8 +301,10 @@ async function execute(args: CompareArgs, options: CompareOptions): Promise<CliR
     summary.duration_ms = Date.now() - started;
 
     const exitCode = summary.candidates.some((c) => c.divergences.length > 0) ? 1 : 0;
-    if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr: '' };
-    return { exitCode, stdout: formatCompare(summary), stderr: '' };
+    // A weak corpus is loud: on stderr, after the result.
+    const stderr = summary.diagnosis === null ? '' : `port-anything compare: warning: ${summary.diagnosis}; check the CLI spec read from the help (--save writes it to ${CLI_SPEC_FILE})\n`;
+    if (args.json) return { exitCode, stdout: `${JSON.stringify(summary, null, 2)}\n`, stderr };
+    return { exitCode, stdout: formatCompare(summary), stderr };
   } finally {
     if (checkout !== undefined) await removeCheckout(checkout);
     await rm(scratch, { recursive: true, force: true });
@@ -478,6 +482,8 @@ export interface CompareSummary {
   };
   /** Spec features no case carries: listed rather than silently not counted. */
   untested: string[];
+  /** Why the generated corpus is weak (features without a case, one error for most answers), or null when it isn't. */
+  diagnosis: string | null;
   baseline: { repeats: number; stable: number; normalized: number; flaky_reference: { case: string; argv: string[]; fields: string[] }[] };
   normalizers: { normalizer: string; cases: number }[];
   candidates: (Parity & {

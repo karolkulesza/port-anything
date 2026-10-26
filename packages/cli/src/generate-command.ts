@@ -2,6 +2,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  BlobStore,
+  CLI_SPEC_FILE,
   CONFIG_FILE,
   ConfigError,
   DEFAULT_BUDGET,
@@ -9,6 +11,7 @@ import {
   DEFAULT_GENERATOR_SEED,
   GENERATED_CORPUS_FILE,
   SandboxUnavailableError,
+  cacheDir,
   generatedCorpusSettings,
   parseConfigSource,
   setCorpusSettings,
@@ -16,7 +19,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, type CliResult } from './common.js';
-import { generateProjectCorpus } from './corpus.js';
+import { corpusDiagnosis, generateProjectCorpus } from './corpus.js';
 
 /** The options of `port-anything generate`. */
 export interface GenerateArgs {
@@ -63,8 +66,10 @@ export function parseGenerateArgs(argv: readonly string[]): GenerateArgs {
  * `.port-anything/cache/`. `--budget` and `--seed` are written to `port-anything.yaml`
  * (`corpus.budget`, `corpus.generator_seed`), as are the generator and seed in use when the config
  * has none, since every checkout regenerates the same cases from them: `run`, `baseline`,
- * `minimize` and `strength` regenerate when the cache is missing. Exit code 0 when the corpus was
- * generated, 3 when it can't be (config, spec, programs, sandbox).
+ * `minimize` and `strength` regenerate when the cache is missing. A weak corpus (spec features
+ * without a case, or one error answer for most cases) gets a warning on stderr that says why and
+ * what to check. Exit code 0 when the corpus was generated, 3 when it can't be (config, spec,
+ * programs, sandbox).
  */
 export async function generateCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   try {
@@ -116,5 +121,7 @@ async function execute(args: GenerateArgs, options: { cwd: string; probe?: Sandb
   if (untested.length > 0) lines.push(`untested (no generated case): ${untested.join(', ')}`);
   if (edited !== source) lines.push(`set corpus.generator, corpus.generator_seed and corpus.budget in ${CONFIG_FILE}`);
   lines.push(`cached in .port-anything/cache/${GENERATED_CORPUS_FILE}; without it, run and baseline regenerate the same cases from ${CONFIG_FILE} and the CLI spec`);
-  return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
+  const diagnosis = await corpusDiagnosis(corpus.stats, untested, new BlobStore(cacheDir(options.cwd)));
+  const warning = diagnosis === undefined ? '' : `port-anything generate: warning: ${diagnosis}; check the forms and flags in ${CLI_SPEC_FILE}\n`;
+  return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: warning };
 }

@@ -138,6 +138,7 @@ describe('formatCompare', () => {
     spec: { help: '--help', flags: 3, forms: 1, subcommands: 0, features: 4 },
     corpus: { cases: 60, budget: 60, generator: 'v2', seed: 42, stop: 'budget', observed: 70, dropped: { duplicate: 10, errorCap: 0, budget: 0 }, skipped: [] },
     untested: ['opt.z'],
+    diagnosis: '1 feature got no case (opt.z)',
     baseline: {
       repeats: 2,
       stable: 57,

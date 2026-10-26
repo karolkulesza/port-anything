@@ -30,7 +30,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { display, prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
-import { loadCorpus } from './corpus.js';
+import { featureCounts, loadProjectCorpus, type GeneratedCorpusChange } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
 /** The options of `port-anything baseline`. */
@@ -72,8 +72,8 @@ export async function baselineCommand(argv: readonly string[], options: { cwd: s
   try {
     const args = parseBaselineArgs(argv);
     const config = await readConfigFile(options.cwd);
-    const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
-    prepared = { projectDir: options.cwd, config, cases, args, ...(options.probe === undefined ? {} : { probe: options.probe }) };
+    const { cases, change } = await loadProjectCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
+    prepared = { projectDir: options.cwd, config, cases, args, ...(change === undefined ? {} : { change }), ...(options.probe === undefined ? {} : { probe: options.probe }) };
   } catch (e) {
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
@@ -88,6 +88,8 @@ export interface ExecuteBaselineOptions {
   /** Their stdin and fixtures must already be in the project's blob store. */
   cases: readonly CanonicalCase[];
   args: BaselineArgs;
+  /** How the generated cases changed when loading the corpus regenerated them: said in the output. */
+  change?: GeneratedCorpusChange;
   /** The sandbox probe's result; probed on this machine when absent. */
   probe?: SandboxProbe;
 }
@@ -98,7 +100,9 @@ export interface ExecuteBaselineOptions {
  * that still vary are `flaky-reference`, recorded in the cache so `run` leaves them out. Then the
  * corpus is frozen in `.port-anything/MANIFEST.json` (committed; `verify` checks it): every case,
  * the hash of each stable observation, the generator settings, the normalizers and the environment
- * fingerprint. Exit code 0 when the baseline finished, 3 when it can't start (config, programs, sandbox).
+ * fingerprint. The output gives the cases it froze per feature and, when the generated cases were
+ * regenerated into other ones (generator v2 mutates the committed cases, so adding one changes
+ * them), how. Exit code 0 when the baseline finished, 3 when it can't start (config, programs, sandbox).
  */
 export async function executeBaseline(options: ExecuteBaselineOptions): Promise<CliResult> {
   try {
@@ -111,7 +115,7 @@ export async function executeBaseline(options: ExecuteBaselineOptions): Promise<
 
 const fail = (message: string): CliResult => ({ exitCode: 3, stdout: '', stderr: `port-anything baseline: ${message}\n` });
 
-async function execute({ projectDir, config, cases, args, probe }: ExecuteBaselineOptions): Promise<CliResult> {
+async function execute({ projectDir, config, cases, args, change, probe }: ExecuteBaselineOptions): Promise<CliResult> {
   if (cases.length === 0) throw new ConfigError('No cases to baseline: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   const sandbox =
     config.sandbox.mode === 'container'
@@ -180,6 +184,29 @@ async function execute({ projectDir, config, cases, args, probe }: ExecuteBaseli
     lines.push('flaky-reference, left out of run (fields that still vary):');
     for (const c of flaky) lines.push(`  ${shortCaseId(c.caseId)}  ${c.unstable.join(', ')}`);
   }
+  lines.push(frozenCounts(cases));
+  if (change !== undefined) lines.push(changeLine(change));
   lines.push(`froze the corpus in .port-anything/${MANIFEST_FILE}: commit it; port-anything verify checks it`);
   return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
+}
+
+/** `froze 45 cases (40 generated, 5 recorded); per feature: base 3 · opt.n 20 · …` */
+function frozenCounts(cases: readonly CanonicalCase[]): string {
+  const origins = (origin: CanonicalCase['origin']) => cases.filter((c) => c.origin === origin).length;
+  const imported = origins('imported');
+  const split = `${origins('generated')} generated, ${origins('recorded')} recorded${imported > 0 ? `, ${imported} imported` : ''}`;
+  const perFeature = [...featureCounts(cases)].map(([feature, n]) => `${feature} ${n}`).join(' · ');
+  return `froze ${cases.length} case${cases.length === 1 ? '' : 's'} (${split}); per feature: ${perFeature}`;
+}
+
+/** What changed the generated cases since they were last generated, and their counts that moved. */
+function changeLine(change: GeneratedCorpusChange): string {
+  const cause = change.byCommitted
+    ? 'the recorded cases changed the generated ones (generator v2 mutates them)'
+    : 'the generated cases changed since they were last generated (the CLI spec, seeds, settings or reference command changed)';
+  const counts =
+    change.features.length === 0
+      ? 'the same number per feature'
+      : `generated cases per feature, before → now: ${change.features.map((f) => `${f.feature} ${f.before} → ${f.now}`).join(', ')}`;
+  return `${cause}; ${counts}`;
 }

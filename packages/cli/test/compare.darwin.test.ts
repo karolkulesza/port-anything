@@ -22,7 +22,8 @@ describe.runIf(process.platform === 'darwin' && hasGsort)('compare (macOS)', () 
 
   it('compare /usr/bin/sort gsort works', { timeout: 180_000 }, async () => {
     const result = await compareCommand(['/usr/bin/sort', 'gsort', '--json'], { cwd: dir });
-    expect(result.stderr).toBe('');
+    // Nothing on stderr but, at most, the warning for features no case reached (BSD sort's -C gets none).
+    expect(result.stderr).toMatch(/^(port-anything compare: warning: \d+ features? got no case \([^)]*\); [^\n]*\n)?$/);
     // BSD and GNU sort differ, so some cases diverge.
     expect(result.exitCode).toBe(1);
     const summary = JSON.parse(result.stdout) as CompareSummary;
