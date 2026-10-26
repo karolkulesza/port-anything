@@ -378,7 +378,8 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   const minCasesPerFeature = config.corpus?.min_cases_per_feature;
   // A run of the whole corpus lists the spec's features without a case as untested; a subset run
   // leaves out most features by design, so only the self-description marks of its own features count.
-  const ranFeatures = new Set(cases.flatMap((c) => c.features));
+  // The flaky-reference cases left out are scored too, so their features keep their marks.
+  const ranFeatures = new Set([...cases, ...leftOut].flatMap((c) => c.features));
   const scoreFeatures = wholeCorpus(args) ? specMarks : specMarks.filter((f) => f.selfDescription && ranFeatures.has(f.name));
   const corpusCandidates = commands.map((command, i) => {
       const matches = waived[i]!;

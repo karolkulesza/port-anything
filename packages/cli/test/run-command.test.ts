@@ -7,6 +7,7 @@ import {
   blobRef,
   RUN_ID_PATTERN,
   cacheDir,
+  writeBaselineRecord,
   canonicalCase,
   describeSignature,
   findContainerEngine,
@@ -1182,6 +1183,20 @@ esac
   it('scores a subset run with the same marks, without calling the rest of the spec untested', async () => {
     const json = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
     expect(json.candidates[0].score).toMatchObject({ headline: null, selfDescription: ['opt.v'], underSampled: [], untested: [] });
+  });
+
+  it('keeps the mark on a subset run whose cases of the feature were all left out as flaky-reference', async () => {
+    const all = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+    const ids: string[] = all.candidates[0].divergences.map((d: { case: string }) => d.case);
+    expect(ids).toHaveLength(20);
+    await writeBaselineRecord(project, { version: 1, repeats: 2, flaky_reference: ids.map((id) => ({ case: id, fields: ['stdout'] })) });
+    try {
+      const json = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+      expect(json.cases).toBe(0);
+      expect(json.candidates[0].score).toMatchObject({ selfDescription: ['opt.v'], underSampled: [], raw: { cases: 20, flakyReference: 20 } });
+    } finally {
+      rmSync(join(cacheDir(project), 'baseline.json'), { force: true });
+    }
   });
 
   it('leaves the marked flag out of the fresh holdout parity too', { timeout: 60_000 }, async () => {
