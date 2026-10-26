@@ -5,6 +5,11 @@ export interface HelpFlag {
   names: string[];
   description?: string;
   values: CliValue[];
+  /**
+   * Spellings the text doesn't list but the program likely takes: `-p` for a listed `-ps`, as
+   * programs that match single-dash options by their first letter accept. A guess to check.
+   */
+  aliasCandidates?: string[];
 }
 
 /** What a heuristic read of one `--help` output found. */
@@ -20,6 +25,8 @@ const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 const OPTION_LINE = /^--?[A-Za-z0-9?#@]/;
 const OPTION_PLACEHOLDER = /^(options?|flags?|opts?|switches)$/i;
 const CHOICE = /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
+/** `[-]offset`, `[+][-]seek` (xxd): a value that may be written with a sign. The sign is part of the value. */
+const SIGN_PREFIX = /(?:\[[+-]{1,2}\])+(?=[A-Za-z<#])/g;
 
 /**
  * Reads a program's `--help` output: the usage lines (one positional form each), the option lines
@@ -49,6 +56,7 @@ export function parseHelp(raw: string, options: { program?: string } = {}): Pars
   }
   const prose = paragraphs(lines.filter((_, i) => !usage.lines.has(i) && !body.lines.has(i)));
   for (const flag of flags) addChoices(flag, prose);
+  addAliasCandidates(flags, body.flags);
   const subcommands = readCommands(lines, new Set([...usage.lines, ...body.lines]));
   return { ...(program === undefined ? {} : { program }), flags, forms, subcommands };
 }
@@ -65,6 +73,8 @@ function readUsage(lines: string[], program: string | undefined): { program?: st
   const first = lines[start]!.replace(/^\s*usage:\s*/i, '').trim();
   if (first !== '') forms.push(first);
   const name = program ?? (first === '' ? firstWord(lines[start + 1] ?? '') : firstWord(first));
+  // xxd: `or` on a line of its own between two forms; the next line starts the second one.
+  let separated = false;
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i]!;
     // gawk: `Usage: …` once per form, each line starting with it.
@@ -79,10 +89,16 @@ function readUsage(lines: string[], program: string | undefined): { program?: st
     if (line.trim() === '' || !/^\s/.test(line) || (OPTION_LINE.test(line.trim()) && /\t| {2,}/.test(line.trim()))) break;
     used.add(i);
     const text = line.trim();
-    const or = /^or:\s*(.*)$/i.exec(text);
-    if (or) forms.push(or[1]!.trim());
-    else if (forms.length === 0 || (name !== undefined && sameProgram(firstWord(text), name))) forms.push(text);
+    if (/^or:?$/i.test(text)) {
+      separated = true;
+      continue;
+    }
+    // `or: sort …` (GNU), or `or  frob …` without the colon when the program's name follows.
+    const or = /^or:\s*(.*)$/i.exec(text) ?? (name === undefined ? null : /^or\s+(\S.*)$/i.exec(text));
+    if (or && (text[2] === ':' || sameProgram(firstWord(or[1]!), name!))) forms.push(or[1]!.trim());
+    else if (forms.length === 0 || separated || (name !== undefined && sameProgram(firstWord(text), name))) forms.push(text);
     else forms[forms.length - 1] += ` ${text}`;
+    separated = false;
   }
   const found = name ?? (forms[0] === undefined ? undefined : firstWord(forms[0]));
   return { ...(found === undefined ? {} : { program: basename(found) }), forms, lines: used };
@@ -161,7 +177,7 @@ function parseNodes(tokens: Token[]): UsageNode[][] {
 /** One usage line as a form, plus every flag the line mentions. */
 function readForm(text: string, program: string | undefined, valuesTaken: ReadonlyMap<string, number> = new Map()): { form: CliForm; flags: HelpFlag[] } {
   const usage = text.replace(/\s+/g, ' ').trim();
-  const tokens = tokenize(usage);
+  const tokens = tokenize(usage.replace(SIGN_PREFIX, ''));
   const head = tokens[0];
   if (head?.t === 'word' && (program === undefined ? !head.text.startsWith('-') : sameProgram(head.text, program))) tokens.shift();
   const flags: HelpFlag[] = [];
@@ -202,7 +218,8 @@ function readForm(text: string, program: string | undefined, valuesTaken: Readon
         // `-kPOS1[,POS2]`, `-kKEY`: a letter, then a placeholder of three or more capitals, is a
         // flag with its value attached rather than a cluster of one-letter flags.
         const placeholder = /^(-[a-z])([A-Z][A-Z0-9_]{2,})(?:\[[^\]]*\])?$/.exec(word);
-        const cluster = placeholder ? undefined : shortCluster(word);
+        // `-ps` the option lines list as a flag of its own is that flag, not `-p -s`.
+        const cluster = placeholder || valuesTaken.has(word) ? undefined : shortCluster(word);
         if (cluster) {
           for (const name of cluster) flags.push({ names: [name], values: [] });
           continue;
@@ -277,6 +294,27 @@ function shortCluster(word: string): string[] | undefined {
   const letters = (m[1]! + (m[2] ?? '')).replace(/(.)\1+/g, '$1');
   if (new Set(letters).size !== letters.length) return undefined;
   return [...letters].map((c) => `-${c}`);
+}
+
+/**
+ * `-ps` listed with no one-letter spelling (xxd): `-p` is likely another spelling of it, when no
+ * flag is called `-p` and no other single-dash name starts with that letter (`-name` and `-newer`
+ * leave `-n` unclaimed). Only names from the option lines count; a usage line lists flags tersely.
+ */
+function addAliasCandidates(flags: HelpFlag[], listed: readonly HelpFlag[]): void {
+  const allNames = new Set(flags.flatMap((f) => f.names));
+  const long = (n: string): boolean => /^-[A-Za-z][A-Za-z0-9]+$/.test(n);
+  const starts = new Map<string, number>();
+  for (const n of [...allNames].filter(long)) starts.set(n.slice(0, 2), (starts.get(n.slice(0, 2)) ?? 0) + 1);
+  for (const flag of flags) {
+    if (!listed.some((f) => f.names.some((n) => flag.names.includes(n)))) continue;
+    if (flag.names.some((n) => /^-[A-Za-z0-9?]$/.test(n))) continue;
+    const name = flag.names.find(long);
+    if (name === undefined) continue;
+    const short = name.slice(0, 2);
+    if (allNames.has(short) || starts.get(short) !== 1) continue;
+    flag.aliasCandidates = [short];
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -443,7 +481,7 @@ function parseFlagItem(text: string, lenient: boolean): (FlagItem & { rest: stri
     else values.push(valueFor(word));
   }
   if (/^\S/.test(rest)) return { name, values, rest: rest.trim(), ...(literal === undefined ? {} : { literal }) };
-  let words = rest.trim();
+  let words = rest.trim().replace(new RegExp(`^${SIGN_PREFIX.source}`), '');
   while (words !== '') {
     const w = /^(<[^>]*>(?:\.\.\.)?|\{[^}]*\}|\S+)\s*/.exec(words)!;
     const word = w[1]!;
@@ -499,7 +537,7 @@ export function valueType(name: string): CliValue['type'] {
   const base = n.replace(/\d+$/, ''); // FILE1 FILE2 (comm, join, diff)
   if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
   // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`.
-  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
+  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|offset|off|seek|len|length|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
   if (/^(size|memsize|bytes)$/i.test(n)) return 'size';
   return 'string';
 }
@@ -642,7 +680,8 @@ export function isSelfDescription(flag: Pick<HelpFlag, 'names' | 'description'> 
   const notice = NOTICE_DESCRIPTION.test(description) && !/\bfound\b|\bin (?:the|each|a) file/i.test(description);
   if (noValue && flag.names.some((n) => NOTICE_NAMES.has(n)) && (description === '' || notice)) return true;
   if (flag.names.some((n) => n.startsWith('--'))) return false;
-  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version)\b/i.test(description) || notice;
+  // "print this summary" (xxd): the help text itself.
+  return /^(display|show|print|output|give)s?\b[^.;]*\b(help|usage|version)\b/i.test(description) || /^(display|show|print|output|give)s? this (summary|message|text)\b/i.test(description) || notice;
 }
 
 /** "print the license and exit", "display copyright information": a notice about the program itself. */
@@ -665,7 +704,8 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
   // Only the root's help can have been read with something other than `--help`, which is covered anyway.
   const flagsOf = (parsed: ParsedHelp, prefix: string, helpReadWith?: string): CliFlag[] =>
     parsed.flags.map((f) => ({
-      names: f.names,
+      // Guessed spellings go last, so the feature and the probes' first spelling are listed ones.
+      names: [...f.names, ...(f.aliasCandidates ?? [])],
       feature: feature(`${prefix}opt.${primaryName(f.names)}`),
       ...(f.description === undefined ? {} : { description: f.description }),
       arity: f.values.length,

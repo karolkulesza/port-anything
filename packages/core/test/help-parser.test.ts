@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { cliSpecFromHelp, isSelfDescription, parseHelp, valueType, type HelpFlag } from '../src/help-parser.js';
 
@@ -322,9 +323,80 @@ options:
     expect(() => cliSpecFromHelp('frob', help)).not.toThrow();
   });
 
+  // xxd's layout: forms on their own lines under `Usage:`, separated by an `or` line; signs written
+  // as optional groups in front of a value (`[-]offset`, `[+][-]seek`); a two-letter `-ps`.
+  const XXD_STYLE = `Usage:
+       frob [options] [infile [outfile]]
+    or
+       frob -r [-s [-]offset] [-c cols] [-ps] [infile [outfile]]
+Options:
+    -a          toggle autoskip.
+    -c cols     format <cols> octets per line.
+    -h          print this summary.
+    -l len      stop after <len> octets.
+    -ps         output in plain hexdump style.
+    -r          reverse operation.
+    -r -s off   revert with <off> added to file positions.
+    -s [+][-]seek  start at <seek> bytes abs. (or +: rel.) infile offset.
+    -v          show version.
+`;
+
+  it('reads an `or` line between usage lines as a separator, not a positional (xxd style)', () => {
+    const help = parseHelp(XXD_STYLE);
+    const optional = (name: string) => ({ name, type: 'path', arity: '?' });
+    expect(help.forms.map((f) => [f.usage, f.flags, f.args])).toEqual([
+      ['frob [options] [infile [outfile]]', [], [optional('infile'), optional('outfile')]],
+      ['frob -r [-s [-]offset] [-c cols] [-ps] [infile [outfile]]', ['-r'], [optional('infile'), optional('outfile')]],
+    ]);
+    // `or` with the next form on the same line.
+    expect(parseHelp('Usage: frob [-a] FILE\n   or  frob -l\n').forms.map((f) => f.usage)).toEqual(['frob [-a] FILE', 'frob -l']);
+  });
+
+  it('reads `[-]offset` and `[+][-]seek` as a flag value with an optional sign, not a positional', () => {
+    const help = parseHelp(XXD_STYLE);
+    expect(flag(help.flags, '-s').values).toEqual([{ name: 'seek', type: 'int' }]);
+    expect(parseHelp('usage: frob [-s [-]offset] [file]\n').flags).toEqual([{ names: ['-s'], values: [{ name: 'offset', type: 'int' }] }]);
+    expect(parseHelp('usage: frob [-s [-]offset] [file]\n').forms[0]!.args).toEqual([{ name: 'file', type: 'path', arity: '?' }]);
+    // A `[-]` on its own is still an optional `-` operand, which names nothing.
+    expect(parseHelp('usage: frob [-] [file]\n').forms[0]!.args).toEqual([{ name: 'file', type: 'path', arity: '?' }]);
+  });
+
+  it('reads a listed `-ps` as one flag, with `-p` as a guessed spelling, not as the cluster -p -s', () => {
+    const help = parseHelp(XXD_STYLE);
+    expect(flag(help.flags, '-ps')).toMatchObject({ names: ['-ps'], aliasCandidates: ['-p'] });
+    expect(help.flags.some((f) => f.names.includes('-p'))).toBe(false);
+    expect(flag(help.flags, '-s').names).toEqual(['-s']);
+    // No guess when the letter is listed on its own, has a short spelling, or starts several names.
+    const find = parseHelp('Usage: frob [-H] [path...]\n  -name PATTERN   match the name\n  -newer FILE     newer than FILE\n  -quit           stop\n  -q              quiet\n  -x, -xdev       stay on one file system\n  -depth          depth first\n');
+    expect(find.flags.filter((f) => f.aliasCandidates !== undefined).map((f) => [f.names[0], f.aliasCandidates])).toEqual([['-depth', ['-d']]]);
+  });
+
+  it('puts guessed spellings in the spec after the listed ones, and marks "print this summary" as self-description', () => {
+    const spec = cliSpecFromHelp('frob', parseHelp(XXD_STYLE), {}, '--help');
+    expect(spec.flags.find((f) => f.names.includes('-ps'))).toMatchObject({ names: ['-ps', '-p'], feature: 'opt.ps', arity: 0 });
+    expect(spec.flags.filter((f) => f.self_description === true).map((f) => f.names[0])).toEqual(['-h', '-v']);
+    expect(spec.forms.flatMap((f) => f.args.map((a) => a.name))).toEqual(['infile', 'outfile', 'infile', 'outfile']);
+  });
+
   it('copes with text that has no usage line or no options', () => {
     expect(parseHelp('')).toEqual({ flags: [], forms: [], subcommands: [] });
     expect(parseHelp('Just a sentence about frob.\n')).toEqual({ flags: [], forms: [], subcommands: [] });
+  });
+});
+
+// vim's xxd prints its help on `-h`; captured here at test time, never committed.
+const xxdHelp = (() => {
+  const r = spawnSync('xxd', ['-h'], { encoding: 'utf8' });
+  return r.error === undefined && /usage:/i.test(`${r.stdout}${r.stderr}`) ? `${r.stdout}${r.stderr}` : undefined;
+})();
+
+describe.runIf(xxdHelp !== undefined)('parseHelp on the installed xxd', () => {
+  it('reads both forms without an `or` or `offset` positional, -s with its value, -ps with -p as a guess', () => {
+    const help = parseHelp(xxdHelp!, { program: 'xxd' });
+    expect(help.forms.length).toBeGreaterThanOrEqual(2);
+    for (const form of help.forms) expect(form.args.map((a) => a.name)).toEqual(['infile', 'outfile']);
+    expect(flag(help.flags, '-s').values).toHaveLength(1);
+    expect(flag(help.flags, '-ps').aliasCandidates).toEqual(['-p']);
   });
 });
 
@@ -345,6 +417,9 @@ describe('valueType', () => {
     ['N[,M]', 'int'],
     ['memsize', 'size'],
     ['KEY', 'string'],
+    ['offset', 'int'],
+    ['seek', 'int'],
+    ['len', 'int'],
   ] as const)('%s is %s', (name, type) => expect(valueType(name)).toBe(type));
 });
 
@@ -356,6 +431,8 @@ describe('isSelfDescription', () => {
     expect(isSelfDescription({ names: ['-?'] })).toBe(true);
     expect(isSelfDescription({ names: ['-h'], description: 'Display this help' })).toBe(true);
     expect(isSelfDescription({ names: ['-h'], description: 'compare human readable numbers' })).toBe(false);
+    expect(isSelfDescription({ names: ['-h'], description: 'print this summary.' })).toBe(true);
+    expect(isSelfDescription({ names: ['-s'], description: 'print a summary of the changes' })).toBe(false);
     expect(isSelfDescription({ names: ['-V', '--version-sort'], description: 'show version numbers in order' })).toBe(false);
   });
 
