@@ -105,6 +105,19 @@ describe('the port-loop skill', () => {
   });
 });
 
+describe.each(['port-plan', 'port-report'] as const)('the %s skill', (name) => {
+  it('brings up corpus strength and the mutation tool it needs before the end of the port', () => {
+    const skill = skills[name];
+    expect(invocations(skill).some((line) => line.startsWith('strength'))).toBe(true);
+    expect(skill).toContain('cargo install --locked cargo-mutants');
+    expect(skill).toContain('Stryker');
+    expect(skill).toContain('`mull`');
+    // Only the tools that build one mutant at a time are bounded by --mutants.
+    expect(skill).toMatch(/`cargo-mutants` and the generic mutator build the\s+candidate once per mutant/);
+    expect(skill).toMatch(/Stryker and `mull`\s+build once but test every mutant/);
+  });
+});
+
 const NO_SANDBOX: SandboxProbe = { usable: undefined, attempts: [{ kind: 'bwrap', ok: false, error: 'bwrap is not installed' }], fix: '  1. Install bubblewrap.' };
 
 /** The values at a path such as `candidates[].features[].parity`; `[]` steps into every element. */

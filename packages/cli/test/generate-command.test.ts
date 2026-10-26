@@ -187,7 +187,8 @@ describe('a project with a generated corpus', () => {
     mkdirSync(join(dir, 'port-anything', 'recorded'), { recursive: true });
     writeFileSync(join(dir, 'port-anything', 'recorded', 'mine.jsonl'), `${JSON.stringify({ argv: ['-u'], stdin: 'Hello, World\n', features: ['mine'], origin: 'recorded' })}\n`);
     const baseline = await cli(['baseline', '--no-sandbox']);
-    expect(baseline.stderr).toBe('');
+    // `mine` is a tag of the test's own, which the spec doesn't define.
+    expect(baseline.stderr).toMatch(/^port-anything baseline: warning: feature tags in port-anything\/recorded\/ that [^\n]*\n {2}mine · 1 case, first at port-anything\/recorded\/mine\.jsonl:1\n$/);
     expect(baseline.exitCode).toBe(0);
     expect(cachedIds()).not.toEqual(before);
     const froze = /^froze (\d+) cases \((\d+) generated, 1 recorded\); per feature: (.*)$/m.exec(baseline.stdout);

@@ -28,6 +28,29 @@
       "minimum": 0,
       "maximum": 9007199254740991
     },
+    "flaky_reference": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "case",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    },
     "compare": {
       "type": "object",
       "properties": {
@@ -945,6 +968,7 @@
     "reference",
     "sandbox",
     "cases",
+    "flaky_reference",
     "compare",
     "min_cases_per_feature",
     "normalizers",

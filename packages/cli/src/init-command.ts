@@ -42,7 +42,7 @@ export async function initCommand(argv: readonly string[], options: { cwd: strin
     });
     const lines = [`Set up ${dir}:`, ...steps.map(describe)];
     const notes = ci === undefined ? [] : await setUpCi(ci, steps, lines);
-    if (steps[0]!.action === 'created') lines.push('Next: add cases to port-anything/recorded/*.jsonl, then run port-anything run.');
+    if (steps[0]!.action === 'created') lines.push("Next: port-anything spec infer (the CLI spec, from the reference's help), then port-anything generate (cases from the spec; add your own to port-anything/recorded/*.jsonl), then port-anything run.");
     lines.push(...notes);
     return { exitCode: 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
   } catch (e) {

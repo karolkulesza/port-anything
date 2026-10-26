@@ -35,6 +35,7 @@ import {
   specFeatures,
   type CanonicalCase,
   type CaseRun,
+  type CaseRunner,
   type CliSpec,
   type FeatureScore,
   type Observation,
@@ -164,6 +165,29 @@ function specSpellings(spec: CliSpec): Map<string, string> {
 /** The cases that diverged for a candidate in a run: steady and flaky-candidate ones. */
 const diverging = (c: RunSummary['candidates'][number]) => new Set([...c.divergences.map((d) => d.case), ...c.flaky_candidate.map((d) => d.case)]);
 
+/** A runner `next` opened, with the scratch directory it works in. */
+export interface OpenRunner {
+  runner: Pick<CaseRunner, 'close'>;
+  workDir: string;
+}
+
+/**
+ * Closes every runner in `runners` and removes its scratch directory, even when closing one fails,
+ * then empties `runners`; throws the first failure after all of them are done.
+ */
+export async function closeRunners(projectDir: string, runners: Map<unknown, OpenRunner>): Promise<void> {
+  const closing = [...runners.values()].map(async ({ runner, workDir }) => {
+    try {
+      await runner.close();
+    } finally {
+      await removeScratch(projectDir, workDir);
+    }
+  });
+  runners.clear();
+  const failed = (await Promise.allSettled(closing)).find((r) => r.status === 'rejected');
+  if (failed !== undefined) throw failed.reason;
+}
+
 /** Broken cases `run` names per candidate. */
 const NAMED_BROKEN = 5;
 
@@ -224,46 +248,60 @@ export function projectBackend(projectDir: string, options: { probe?: SandboxPro
     if (latest === undefined) return { kind: 'no-run' };
     const run = savedRun(latest);
     const open = await openClusters(projectDir, run);
-    const k = open[0];
-    if (k === undefined) return { kind: 'none-open', run: run.run_id, total: run.clusters.length };
-    const address = `${run.run_id}/${k.cluster}`;
-    let repro = await loadRepro(projectDir, run.run_id, k.cluster);
-    if (repro === undefined) {
-      const minimized = await minimizeCommand([address, '--json', ...(noSandbox ? ['--no-sandbox'] : [])], { cwd: projectDir, ...probe });
-      if (minimized.exitCode === 3) throw new Error(minimized.stderr.trim());
-      repro = await loadRepro(projectDir, run.run_id, k.cluster);
-      if (repro === undefined) throw new Error(`Minimizing cluster ${address} saved no repro.`);
-    }
-    // The repro, run once more on the reference and the cluster's candidate, for the diff.
+    if (open.length === 0) return { kind: 'none-open', run: run.run_id, total: run.clusters.length, skipped: [] };
     const config = await readConfigFile(projectDir);
     const store = new BlobStore(cacheDir(projectDir));
     const corpus = await loadCorpus(projectDir, config, regenerate);
-    const [reproCase] = await openClusterCases(projectDir, { ...run, clusters: [k] }, corpus, store);
-    if (reproCase === undefined) throw new Error(`Cluster ${address} has no case to show.`);
-    const command = run.candidate_commands[k.candidate - 1]!;
-    const { runner: runnerOptions } = await prepareSides(projectDir, config, [command], regenerate);
-    const workDir = scratchDir(projectDir);
-    let programName: string;
-    let observed: CaseRun;
+    // Each cluster's repro, run once more on the reference and the cluster's candidate, in
+    // priority order: one a later change already fixed (a smoke run, say) is skipped, not offered.
+    const runners = new Map<number, { runner: CaseRunner; workDir: string }>();
+    const skipped: number[] = [];
     try {
-      const runner = await openCaseRunner({ ...runnerOptions, workDir, rerun: false });
-      programName = runner.programName;
-      try {
-        observed = await runner.run(reproCase);
-      } finally {
-        await runner.close();
+      for (const k of open) {
+        const address = `${run.run_id}/${k.cluster}`;
+        let repro = await loadRepro(projectDir, run.run_id, k.cluster);
+        if (repro === undefined) {
+          // Minimizing starts programs of its own (containers, in sandbox mode container): stop ours first.
+          await closeRunners(projectDir, runners);
+          const minimized = await minimizeCommand([address, '--json', ...(noSandbox ? ['--no-sandbox'] : [])], { cwd: projectDir, ...probe });
+          if (minimized.exitCode === 3) throw new Error(minimized.stderr.trim());
+          repro = await loadRepro(projectDir, run.run_id, k.cluster);
+          if (repro === undefined) throw new Error(`Minimizing cluster ${address} saved no repro.`);
+        }
+        const [reproCase] = await openClusterCases(projectDir, { ...run, clusters: [k] }, corpus, store);
+        if (reproCase === undefined) throw new Error(`Cluster ${address} has no case to show.`);
+        let side = runners.get(k.candidate);
+        if (side === undefined) {
+          const { runner: runnerOptions } = await prepareSides(projectDir, config, [run.candidate_commands[k.candidate - 1]!], regenerate);
+          const workDir = scratchDir(projectDir);
+          try {
+            side = { runner: await openCaseRunner({ ...runnerOptions, workDir, rerun: false }), workDir };
+          } catch (e) {
+            await removeScratch(projectDir, workDir);
+            throw e;
+          }
+          runners.set(k.candidate, side);
+        }
+        const { runner } = side;
+        const diff = await fieldDiffs(await runner.run(reproCase), store);
+        if (diff.length === 0) {
+          skipped.push(k.cluster);
+          continue;
+        }
+        return {
+          kind: 'cluster',
+          cluster: summary(run.run_id, k),
+          open: open.length - skipped.length,
+          skipped,
+          programName: runner.programName,
+          repro: { ...repro.case, source: shortCaseId(repro.source), minimized: repro.reproduced, exhausted: repro.exhausted },
+          diff,
+        };
       }
     } finally {
-      await removeScratch(projectDir, workDir);
+      await closeRunners(projectDir, runners);
     }
-    return {
-      kind: 'cluster',
-      cluster: summary(run.run_id, k),
-      open: open.length,
-      programName,
-      repro: { ...repro.case, source: shortCaseId(repro.source), minimized: repro.reproduced, exhausted: repro.exhausted },
-      diff: await fieldDiffs(observed, store),
-    };
+    return { kind: 'none-open', run: run.run_id, total: run.clusters.length, skipped };
   }
 
   async function run(selection: RunSelection): Promise<RunDelta> {

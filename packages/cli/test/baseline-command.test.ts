@@ -128,6 +128,26 @@ describe('baselineCommand', () => {
     expect(text.stdout).toContain(`flaky-reference, left out (the reference varied in port-anything baseline): 1\n  ${shortCaseId(ids.random!)}  stdout\n`);
   });
 
+  it('counts the flaky-reference case it left out in the score, report.json and the integrity panel (done when)', async () => {
+    const json = JSON.parse((await runCommand(['--no-sandbox', '--json'], { cwd: project, probe: NO_SANDBOX })).stdout);
+    // Every frozen case is in the counts: 3 compared, 1 left out.
+    expect(json.candidates[0].score.raw).toMatchObject({ cases: 4, scored: 3, match: 3, flakyReference: 1 });
+    expect(json.candidates[0].score.features.find((f: { feature: string }) => f.feature === 'cmd.random')).toMatchObject({ cases: 1, scored: 0, flakyReference: 1, parity: null });
+
+    const text = await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX });
+    expect(text.stdout).toContain('  1 flaky-reference (not scored)\n');
+
+    expect((await run(['report'], { cwd: project })).exitCode).toBe(0);
+    const report = JSON.parse(readFileSync(join(project, 'port-anything-report.json'), 'utf8'));
+    expect(report.cases).toBe(3);
+    expect(report.flaky_reference).toEqual([{ case: ids.random, fields: ['stdout'] }]);
+    expect(report.candidates[0].raw).toMatchObject({ cases: 4, scored: 3, flaky_reference: 1 });
+    const html = readFileSync(join(project, 'port-anything-report.html'), 'utf8');
+    const integrity = html.slice(html.indexOf('<section id="integrity">'));
+    expect(integrity).toContain('<h3>Flaky-reference</h3>');
+    expect(integrity).toContain(`<li><code>${shortCaseId(ids.random!)}</code>: stdout</li>`);
+  });
+
   it('does not write sort-lines for cases without features, and says why', async () => {
     const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-baseline-nofeat-')));
     try {

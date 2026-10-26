@@ -96,6 +96,8 @@ interface SavedReport {
   reference: string;
   compare: ReportInput['compare'];
   cases: number;
+  /** Absent in a run saved before the flaky-reference cases were listed. */
+  flaky_reference?: { case: string; fields: string[] }[];
   normalizers: ReportInput['normalizers'];
   waivers: ReportInput['waivers'];
   /** Absent in a run saved before the fresh holdout. */
@@ -154,6 +156,7 @@ export async function reportInput(run: RunRecord, cases: readonly CanonicalCase[
     reference: s.reference,
     compare: s.compare,
     cases: s.cases,
+    flakyReference: s.flaky_reference ?? [],
     normalizers: s.normalizers,
     waivers: s.waivers,
     ...(s.holdout === undefined

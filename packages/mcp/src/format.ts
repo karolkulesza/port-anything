@@ -1,5 +1,5 @@
-import { LARGE_WAIVER_SHARE, fieldDiffLines, showLine, type InlineContent } from '@port-anything/core';
-import type { CaseReport, ClusterSummary, FeaturesReport, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
+import { LARGE_WAIVER_SHARE, UNTAGGED_FEATURE, fieldDiffLines, showLine, type InlineContent } from '@port-anything/core';
+import type { CaseReport, ClusterSummary, FeatureRow, FeaturesReport, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
 
 // The tools answer an agent, so their text is short and bounded: long commands, signatures and
 // feature lists are cut, and lists stop after a few items. `status` stays within a few hundred tokens.
@@ -45,7 +45,9 @@ function clusterLine(k: ClusterSummary, run?: string): string {
 export function formatStatus(s: StatusReport): string {
   if (s.run === null) return 'No saved run of the whole corpus yet. Run `port-anything run` in the project first.';
   const { run } = s;
-  const head = [`run ${run.id} (${run.created.slice(0, 16).replace('T', ' ')} UTC): ${count(run.cases, 'case')} as "${cut(run.programName, 20)}", sandbox ${run.sandbox}, compare ${run.compare}`];
+  // The cases left out as flaky-reference next to the ones compared, so the two add up to the frozen corpus.
+  const leftOut = s.integrity.flakyReference > 0 ? ` + ${s.integrity.flakyReference} flaky-reference left out,` : '';
+  const head = [`run ${run.id} (${run.created.slice(0, 16).replace('T', ' ')} UTC): ${count(run.cases, 'case')}${leftOut} as "${cut(run.programName, 20)}", sandbox ${run.sandbox}, compare ${run.compare}`];
   for (const c of s.candidates.slice(0, LISTED_CANDIDATES)) {
     const parity = c.parity === null ? 'parity n/a' : `parity ${percent(c.parity)} over ${count(c.features, 'feature')}`;
     head.push(`c${c.candidate} ${cut(c.command, 32)}: ${parity}; ${c.match} match, ${c.diverge} diverge${c.waived > 0 ? `, ${c.waived} waived` : ''}`);
@@ -112,23 +114,32 @@ function invocationLines(programName: string, c: ReproCase): string[] {
 /** The `next` tool's answer: the highest-priority open cluster, its repro and the diff. */
 export function formatNext(n: NextReport): string {
   if (n.kind === 'no-run') return 'No saved run of the whole corpus yet. Run `port-anything run` in the project first.';
+  const lines = n.skipped.length === 0 ? [] : [skippedLine(n.kind === 'cluster' ? n.cluster.run : n.run, n.skipped)];
   if (n.kind === 'none-open') {
-    return n.total === 0
-      ? `Run ${n.run} has no clusters: every case matches, or is waived.\n`
-      : `All ${count(n.total, 'cluster')} of run ${n.run} were found fixed when re-run. Run the whole corpus (\`port-anything run\`) to confirm.\n`;
+    if (n.skipped.length > 0) lines.push('No open cluster left whose repro still diverges. Run the whole corpus (`port-anything run`) to confirm.');
+    else if (n.total === 0) lines.push(`Run ${n.run} has no clusters: every case matches, or is waived.`);
+    else lines.push(`All ${count(n.total, 'cluster')} of run ${n.run} were found fixed when re-run. Run the whole corpus (\`port-anything run\`) to confirm.`);
+    return `${lines.join('\n')}\n`;
   }
   const { cluster: k, repro } = n;
-  const lines = [`cluster ${k.run}/${k.cluster} (highest priority of ${n.open} open): ${clusterLine(k).replace(/^#\d+ /, '')}`];
+  lines.push(`cluster ${k.run}/${k.cluster} (highest priority of ${n.open} open): ${clusterLine(k).replace(/^#\d+ /, '')}`);
   const how = repro.minimized ? `minimized from ${repro.source}${repro.exhausted ? ', run budget used up, a smaller one may exist' : ''}` : `case ${repro.source}, not minimized`;
   lines.push(`repro (${how}):`, ...invocationLines(n.programName, repro));
-  if (n.diff.length === 0) {
-    lines.push(`The repro no longer diverges: fixed already? Call run with cluster "${k.run}/${k.cluster}".`);
-  } else {
-    lines.push('diff (reference -, candidate +, after normalizers):');
-    for (const d of n.diff) lines.push(...fieldDiffLines(d));
-    lines.push(`After a fix, call run with cluster "${k.run}/${k.cluster}", then smoke for regressions.`);
-  }
+  lines.push('diff (reference -, candidate +, after normalizers):');
+  for (const d of n.diff) lines.push(...fieldDiffLines(d));
+  lines.push(`After a fix, call run with cluster "${k.run}/${k.cluster}", then smoke for regressions.`);
   return `${lines.join('\n')}\n`;
+}
+
+/** Skipped clusters named in `next`'s note. */
+const NAMED_SKIPPED = 5;
+
+/** `next`'s one-line note on the clusters it passed over: `skipped clusters 1, 2 and 3 of run …`. */
+function skippedLine(run: string, skipped: readonly number[]): string {
+  const named = skipped.slice(0, NAMED_SKIPPED).map(String);
+  if (skipped.length > NAMED_SKIPPED) named.push(`${skipped.length - NAMED_SKIPPED} more`);
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  return skipped.length === 1 ? `skipped cluster ${list} of run ${run}: its repro no longer diverges.` : `skipped clusters ${list} of run ${run}: their repros no longer diverge.`;
 }
 
 /** The `run` tool's answer: per candidate what matches now and what changed since the baseline run. */
@@ -207,11 +218,22 @@ export function formatFeatures(r: FeaturesReport): string {
     lines.push(`parity from run ${r.run.id} (${r.run.created.slice(0, 16).replace('T', ' ')} UTC), headline: ${headline}${more(r.candidates.length, LISTED_CANDIDATES)}`);
   }
   const rows = r.features;
-  lines.push(`features${r.prefix === null ? '' : ` starting "${r.prefix}"`}: ${rows.length}${r.run === null ? '' : `; under-sampled = fewer than ${r.run.minCasesPerFeature} scored cases, not in the headline`}`);
+  // Counted by where they come from, so that the spec's count above adds up with the rest.
+  const builtIn = (f: FeatureRow) => f.feature === UNTAGGED_FEATURE && f.spec === null;
+  const origins =
+    r.spec === null
+      ? ''
+      : ` (${[
+          `${rows.filter((f) => f.spec !== null).length} in the spec`,
+          ...(rows.some(builtIn) ? [UNTAGGED_FEATURE] : []),
+          ...(rows.some((f) => f.spec === null && !builtIn(f)) ? [`${rows.filter((f) => f.spec === null && !builtIn(f)).length} not in the spec`] : []),
+        ].join(', ')})`;
+  lines.push(`features${r.prefix === null ? '' : ` starting "${r.prefix}"`}: ${rows.length}${origins}${r.run === null ? '' : `; under-sampled = fewer than ${r.run.minCasesPerFeature} scored cases, not in the headline`}`);
   const many = r.candidates.length > 1;
   for (const f of rows.slice(0, FEATURE_ROWS)) {
     const parts = [cut(f.feature, 40)];
     if (f.spec !== null) parts.push(cut(f.spec, 40));
+    else if (builtIn(f)) parts.push('no flags');
     if (f.cases !== null) parts.push(count(f.cases, 'case'));
     if (f.cases !== null && f.cases > 0) {
       parts.push(
@@ -225,7 +247,7 @@ export function formatFeatures(r: FeaturesReport): string {
       ...(f.cases === 0 ? ['untested'] : []),
       ...(f.selfDescription ? ['self-description'] : []),
       ...(f.underSampled ? ['under-sampled'] : []),
-      ...(r.spec !== null && f.spec === null ? ['not in spec'] : []),
+      ...(r.spec !== null && f.spec === null && !builtIn(f) ? ['not in spec'] : []),
     ];
     lines.push(`  ${parts.join(' · ')}${marks.length > 0 ? ` [${marks.join(', ')}]` : ''}`);
   }
