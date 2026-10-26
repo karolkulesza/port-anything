@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { appendFile, mkdir, open, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { appendFile, mkdir, open, readFile, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { RUN_ID_PATTERN } from './runs.js';
@@ -24,6 +24,13 @@ const HistoryCandidateSchema = z.looseObject({
   command: z.union([z.string().min(1), z.array(z.string()).min(1)]),
   /** HEAD of the git repository holding the candidate's executable; null outside one. */
   sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/).nullable(),
+  /**
+   * Whether that repository's work tree differed from `sha` (uncommitted changes, or untracked files
+   * git doesn't ignore), so the run
+   * wasn't of that commit as it stands; null when there's no commit, or git couldn't tell. Lines
+   * written before this field existed don't have it.
+   */
+  dirty: z.boolean().nullable().optional(),
   /** The headline: mean of per-feature parity; null when no feature qualifies. */
   parity: z.number().min(0).max(1).nullable(),
   /** How many features the headline is the mean of. */
@@ -110,17 +117,54 @@ const run = promisify(execFile);
 
 const GIT_LOCATION_VARS = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY'];
 
+/** The environment for git, without the variables that point it at another repository. */
+const gitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCATION_VARS.includes(name)));
+
 /**
  * The commit checked out in the git repository that holds the directory `dir`, or null when it
  * isn't in one, the repository has no commit yet, or git isn't installed. Variables that point git
  * at another repository (set when running inside a git hook, say) are ignored.
  */
 export async function gitHead(dir: string): Promise<string | null> {
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !GIT_LOCATION_VARS.includes(name)));
   try {
-    const { stdout } = await run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: dir, env, timeout: 10_000 });
+    const { stdout } = await run('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], { cwd: dir, env: gitEnv(), timeout: 10_000 });
     const sha = stdout.trim();
     return /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the work tree of the git repository holding the directory `dir` differs from its commit:
+ * tracked files changed (staged or not) or untracked files git doesn't ignore, such as source
+ * written but not yet added, which a build picks up all the same. Ignored files (build outputs)
+ * don't count, nor do paths under `ignore`: the project's own files, which a run or a report
+ * rewrites, aren't the candidate's code. Null when `dir` isn't in a repository, it has no commit
+ * yet, or git fails. Takes no lock, so a git command running alongside doesn't fail.
+ */
+export async function gitDirty(dir: string, ignore: readonly string[] = []): Promise<boolean | null> {
+  const env = gitEnv();
+  try {
+    if ((await gitHead(dir)) === null) return null;
+    const top = (await run('git', ['rev-parse', '--show-toplevel'], { cwd: dir, env, timeout: 10_000 })).stdout.trim();
+    const excludes: string[] = [];
+    for (const path of ignore) {
+      const inTree = relative(await realpath(top), await realpath(dirname(path)).catch(() => dirname(path)));
+      if (inTree === '..' || inTree.startsWith(`..${sep}`) || isAbsolute(inTree)) continue;
+      // The directory is taken literally; only the last part of a path in `ignore` is a glob.
+      const name = [...inTree.split(sep).filter((part) => part !== '').map((part) => part.replace(/[*?[\]\\]/g, '\\$&')), path.slice(dirname(path).length + 1)].join('/');
+      // The path itself, and everything under it when it's a directory: git's own match of a leading
+      // directory fails once a directory name in it is escaped.
+      excludes.push(`:(top,exclude,glob)${name}`, `:(top,exclude,glob)${name}/**`);
+    }
+    const { stdout } = await run('git', ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal', '--', ':(top)', ...excludes], {
+      cwd: dir,
+      env,
+      timeout: 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    return stdout !== '';
   } catch {
     return null;
   }

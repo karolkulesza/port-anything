@@ -93,7 +93,8 @@ async function infer(argv: readonly string[], { cwd, probe }: { cwd: string; pro
     `  ${count(spec.flags.length, 'flag')}, ${count(spec.forms.length, 'form')}, ${count(spec.subcommands.length, 'subcommand')}; ${count(features.length, 'feature')} (${features.filter((f) => f.selfDescription).length} self-description)`,
     probeSummary(probes),
   ];
-  for (const p of probes.filter((r) => r.status !== 'pass')) lines.push(`  ${p.status}  ${p.argv.join(' ')}: ${p.detail}`);
+  // A spelling the help doesn't list was guessed (`-p` for `-ps`): say whether the program took it.
+  for (const p of probes) if (p.status !== 'pass' || p.aliasOf !== undefined) lines.push(`  ${p.status === 'pass' ? 'guess' : p.status}  ${p.argv.join(' ')}: ${p.detail}`);
   return { exitCode: probes.some((p) => p.status === 'fail') ? 1 : 0, stdout: `${lines.join('\n')}\n`, stderr: '' };
 }
 

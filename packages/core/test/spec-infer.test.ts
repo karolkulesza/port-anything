@@ -106,6 +106,60 @@ describe('inferCliSpec', () => {
     await expect(infer('silent')).rejects.toThrow('Write port-anything/cli-spec.yaml yourself');
   });
 
+  it('reads an xxd-style help, keeps a guessed spelling the program takes, drops one it rejects, and explains the probes', async () => {
+    mkdirSync(join(root, 'xxd'));
+    // Like xxd: help as a usage error, `--x` read as `-x`, single-dash options matched by prefix.
+    writeFileSync(
+      join(root, 'xxd', 'frob'),
+      `#!/bin/sh
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+       frob [options] [infile [outfile]]
+    or
+       frob -r [-s [-]offset] [-ps] [infile [outfile]]
+Options:
+    -h          print this summary.
+    -ps         output in plain style.
+    -r          reverse operation.
+    -s [+][-]seek  start at <seek> bytes.
+    -zap        zap the output.
+EOF
+  exit 1
+}
+while [ $# -gt 0 ]; do
+  case "$1" in --?*) a="\${1#-}" ;; *) a="$1" ;; esac
+  case "$a" in
+    -p*|-r|-zap) ;;
+    -s) [ $# -ge 2 ] || usage; shift ;;
+    -*) usage ;;
+  esac
+  shift
+done
+echo ok
+`,
+      { mode: 0o755 },
+    );
+    const { spec, probes } = await infer('xxd');
+    expect(spec.flags.map((f) => [f.names, f.arity, f.self_description ?? false])).toEqual([
+      [['-h'], 0, true],
+      [['-ps', '-p'], 0, false],
+      [['-r'], 0, false],
+      [['-s'], 1, false],
+      [['-zap'], 0, false],
+    ]);
+    expect(spec.forms.map((f) => f.args.map((a) => a.name))).toEqual([
+      ['infile', 'outfile'],
+      ['infile', 'outfile'],
+    ]);
+    const by = (flag: string) => probes.find((p) => p.flag === flag && p.kind !== 'missing-value')!;
+    expect(by('--port-anything-no-such-flag')).toMatchObject({ status: 'inconclusive', detail: expect.stringContaining('likely as -p (it reads --x as -x)') });
+    expect(by('-z')).toMatchObject({ status: 'pass', aliasOf: '-zap', detail: 'rejected like an unknown flag (Usage:): not a spelling of -zap after all, so it was left out of the spec' });
+    expect(by('-p')).toMatchObject({ status: 'pass', aliasOf: '-ps', detail: 'exit 0: kept as a spelling of -ps' });
+    expect(by('-h')).toMatchObject({ status: 'pass', detail: 'answered like an unknown flag (Usage:), as a self-description flag may' });
+    expect(probes.filter((p) => p.status === 'fail')).toEqual([]);
+  });
+
   it('falls back to the usage line a program prints when called with no arguments (awk)', async () => {
     mkdirSync(join(root, 'bare'));
     // Like onetrue-awk: --help and -h are unknown options, no arguments prints the usage line.

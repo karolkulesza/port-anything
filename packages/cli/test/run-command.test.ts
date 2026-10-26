@@ -749,9 +749,9 @@ describe('executeRun history', () => {
       created: (await loadRun(project, first.run_id)).created,
       cases: 3,
       candidates: [
-        { command: './bin/tool-copy', sha: head, parity: 1, features: 1, scored: 3, match: 3 },
+        { command: './bin/tool-copy', sha: head, dirty: false, parity: 1, features: 1, scored: 3, match: 3 },
         // Outside any git repository: no commit to record.
-        { command: [join(outside, 'tool-bad')], sha: null, parity: 1 / 3, features: 1, scored: 3, match: 1 },
+        { command: [join(outside, 'tool-bad')], sha: null, dirty: null, parity: 1 / 3, features: 1, scored: 3, match: 1 },
       ],
     });
   });
@@ -765,6 +765,41 @@ describe('executeRun history', () => {
     const last = (await readHistory(project)).entries.at(-1)!;
     expect(last).toMatchObject({ run_id: runId, candidates: [{ command: './bin/tool-copy2', sha: next, parity: 1 }] });
     expect(next).not.toBe(head);
+  });
+
+  it('marks a run of a tree with uncommitted changes dirty, under the same commit, and says so (done when)', async () => {
+    // The project's own files are committed too, and a run rewrites the history: that isn't the candidate's code.
+    git('add', '-A');
+    git('commit', '-q', '-m', 'project files');
+    const sha = git('rev-parse', 'HEAD').trim();
+    const clean = await executeRun(options({ candidates: ['./bin/tool-copy'], json: false }));
+    expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: false }]);
+    expect(clean.stdout).not.toContain('uncommitted');
+    expect(git('status', '--porcelain', '--untracked-files=no')).not.toBe('');
+
+    const original = readFileSync(join(project, 'bin', 'tool-copy'), 'utf8');
+    try {
+      writeFileSync(join(project, 'bin', 'tool-copy'), TOOL('bad'), { mode: 0o755 });
+      const dirty = await executeRun(options({ candidates: ['./bin/tool-copy'], json: false }));
+      expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: true, parity: 1 / 3 }]);
+      expect(dirty.stdout).toContain(`\n  uncommitted changes: the history records this run under commit ${sha.slice(0, 7)} marked dirty\n`);
+      // A cluster re-run isn't in the history, and doesn't say it is.
+      expect((await executeRun(options({ candidates: ['./bin/tool-copy'], cluster: '1', json: false }))).stdout).not.toContain('uncommitted');
+    } finally {
+      writeFileSync(join(project, 'bin', 'tool-copy'), original, { mode: 0o755 });
+    }
+    // Back to the commit: clean again, though the runs since left new files under .port-anything/.
+    expect(git('status', '--porcelain', '--untracked-files=normal', '.port-anything')).toContain('??');
+    await executeRun(options({ candidates: ['./bin/tool-copy'] }));
+    expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: false, parity: 1 }]);
+    // A new source file nobody added yet is part of what ran.
+    writeFileSync(join(project, 'bin', 'helper'), 'echo\n');
+    try {
+      await executeRun(options({ candidates: ['./bin/tool-copy'] }));
+      expect((await readHistory(project)).entries.at(-1)!.candidates).toMatchObject([{ sha, dirty: true }]);
+    } finally {
+      rmSync(join(project, 'bin', 'helper'));
+    }
   });
 
   it('records the script\'s commit, not the interpreter\'s, for a candidate run by a program on the PATH', async () => {

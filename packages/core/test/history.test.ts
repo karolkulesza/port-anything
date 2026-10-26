@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { HISTORY_GITATTRIBUTES, appendHistory, gitHead, historyPath, readHistory, type HistoryEntry } from '../src/history.js';
+import { HISTORY_GITATTRIBUTES, appendHistory, gitDirty, gitHead, historyPath, readHistory, type HistoryEntry } from '../src/history.js';
 
 const SHA = 'c'.repeat(40);
 
@@ -56,6 +56,15 @@ describe('appendHistory and readHistory', () => {
     expect(await readHistory(dir)).toEqual({ entries: [later], damaged: [3, 4] });
   });
 
+  it('reads lines with and without the dirty flag, and refuses a dirty flag that is not a boolean', async () => {
+    const old = entry('20261014-190203-aaaa');
+    const marked = { ...entry('20261014-190204-bbbb'), candidates: [{ ...old.candidates[0]!, dirty: true }, { ...old.candidates[0]!, sha: null, dirty: null }] };
+    mkdirSync(join(dir, '.port-anything'));
+    writeFileSync(historyPath(dir), `${JSON.stringify(old)}\n${JSON.stringify(marked)}\n`);
+    expect(await readHistory(dir)).toEqual({ entries: [old, marked], damaged: [] });
+    await expect(appendHistory(dir, { ...old, candidates: [{ ...old.candidates[0]!, dirty: 'yes' as unknown as boolean }] })).rejects.toThrow(/dirty/);
+  });
+
   it('refuses an entry that is not valid, writing nothing', async () => {
     await expect(appendHistory(dir, { ...entry('20261014-190203-aaaa'), run_id: 'latest' })).rejects.toThrow(/run_id/);
     await expect(appendHistory(dir, { ...entry('20261014-190203-aaaa'), candidates: [{ ...entry('x').candidates[0]!, sha: 'abc' }] })).rejects.toThrow(/sha/);
@@ -92,6 +101,91 @@ describe('gitHead', () => {
     } finally {
       if (saved === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = saved;
+    }
+  });
+});
+
+describe('gitDirty', () => {
+  beforeEach(() => {
+    git(dir, 'init', '-q', '-b', 'main');
+    mkdirSync(join(dir, 'src'));
+    mkdirSync(join(dir, 'project', '.port-anything'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'main.c'), 'int main;\n');
+    writeFileSync(join(dir, 'project', '.port-anything', 'history.jsonl'), '');
+    writeFileSync(join(dir, 'project', 'port-anything-badge.svg'), '<svg/>\n');
+    writeFileSync(join(dir, '.gitignore'), 'target/\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'first');
+  });
+
+  it('is false on a clean tree and true once a tracked file is modified, staged or deleted, from any directory of it', async () => {
+    // A git-ignored build output doesn't count.
+    mkdirSync(join(dir, 'target', 'release'), { recursive: true });
+    writeFileSync(join(dir, 'target', 'release', 'tool'), 'built\n');
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(false);
+    writeFileSync(join(dir, 'src', 'main.c'), 'int main = 1;\n');
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(true);
+    git(dir, 'add', '-A');
+    expect(await gitDirty(dir)).toBe(true);
+    git(dir, 'commit', '-q', '-m', 'second');
+    expect(await gitDirty(dir)).toBe(false);
+    rmSync(join(dir, 'src', 'main.c'));
+    expect(await gitDirty(dir)).toBe(true);
+  });
+
+  it('is true for an untracked file git does not ignore: a port written but not yet added', async () => {
+    mkdirSync(join(dir, 'port', 'src'), { recursive: true });
+    writeFileSync(join(dir, 'port', 'src', 'main.rs'), 'fn main() {}\n');
+    mkdirSync(join(dir, 'target', 'release'), { recursive: true });
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(true);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'port');
+    expect(await gitDirty(join(dir, 'target', 'release'))).toBe(false);
+  });
+
+  it('leaves out the paths it is told to ignore, globs in their last part', async () => {
+    const project = join(dir, 'project');
+    const ignore = [join(project, '.port-anything'), join(project, 'port-anything-badge*.svg')];
+    writeFileSync(join(project, '.port-anything', 'history.jsonl'), '{}\n');
+    writeFileSync(join(project, 'port-anything-badge.svg'), '<svg>changed</svg>\n');
+    expect(await gitDirty(join(dir, 'src'), ignore)).toBe(false);
+    expect(await gitDirty(join(dir, 'src'))).toBe(true);
+    // An ignored path outside the repository changes nothing.
+    expect(await gitDirty(join(dir, 'src'), [...ignore, join(tmpdir(), 'elsewhere')])).toBe(false);
+    writeFileSync(join(dir, 'src', 'main.c'), 'int main = 2;\n');
+    expect(await gitDirty(join(dir, 'src'), ignore)).toBe(true);
+  });
+
+  it('leaves out ignored paths under a directory whose name has glob characters', async () => {
+    const project = join(dir, 'odd [p]roject*?');
+    // A name the directory part would match if it were read as a glob.
+    const sibling = join(dir, 'odd project-x');
+    for (const p of [project, sibling]) {
+      mkdirSync(join(p, '.port-anything'), { recursive: true });
+      writeFileSync(join(p, '.port-anything', 'history.jsonl'), '');
+    }
+    writeFileSync(join(project, 'port-anything-badge.svg'), '<svg/>\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'odd project');
+    const ignore = [join(project, '.port-anything'), join(project, 'port-anything-badge*.svg')];
+    writeFileSync(join(project, '.port-anything', 'history.jsonl'), '{}\n');
+    writeFileSync(join(project, 'port-anything-badge.svg'), '<svg>changed</svg>\n');
+    expect(await gitDirty(dir, ignore)).toBe(false);
+    // Taken literally: the sibling's files still count.
+    writeFileSync(join(sibling, '.port-anything', 'history.jsonl'), '{}\n');
+    expect(await gitDirty(dir, ignore)).toBe(true);
+  });
+
+  it('is null outside a repository and before the first commit', async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'pa-history-outside-')));
+    try {
+      expect(await gitDirty(outside)).toBeNull();
+      git(outside, 'init', '-q', '-b', 'main');
+      writeFileSync(join(outside, 'a'), 'a\n');
+      git(outside, 'add', 'a');
+      expect(await gitDirty(outside)).toBeNull();
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 });
