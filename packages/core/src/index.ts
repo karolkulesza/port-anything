@@ -396,6 +396,7 @@ export {
   HISTORY_GITATTRIBUTES,
   HistoryEntrySchema,
   appendHistory,
+  gitDirty,
   gitHead,
   historyPath,
   readHistory,
