@@ -28,13 +28,50 @@ export interface CliResult {
   stderr: string;
 }
 
-/** A program from the config or the command line; relative paths start at the project directory. */
-export async function resolveCommand(cmd: string | readonly string[], projectDir: string): Promise<ResolvedProgram> {
+/**
+ * A program from the config or the command line; relative paths start at the project directory.
+ * With `build`, the config's build command for it, a program that can't be found or run says to
+ * build it with that command: in sandbox mode local nothing builds it.
+ */
+export async function resolveCommand(cmd: string | readonly string[], projectDir: string, build?: ConfiguredBuild): Promise<ResolvedProgram> {
+  let command;
   try {
-    return await resolveProgram(parseProgramCommand(cmd), { cwd: projectDir });
+    command = parseProgramCommand(cmd);
   } catch (e) {
-    throw new ConfigError((e as Error).message);
+    throw new ConfigError((e as Error).message); // a malformed command: building won't fix it
   }
+  try {
+    return await resolveProgram(command, { cwd: projectDir });
+  } catch (e) {
+    const hint = build === undefined ? '' : ` Build it with \`${build.command}\` (${build.key} in port-anything.yaml; only sandbox mode container runs the build commands).`;
+    throw new ConfigError(`${(e as Error).message}${hint}`);
+  }
+}
+
+/** The config's reference, with `resolveCommand`'s build hint in sandbox mode local. */
+export async function resolveReference(config: Config, projectDir: string): Promise<ResolvedProgram> {
+  return resolveCommand(config.reference.cmd, projectDir, config.sandbox.mode === 'container' ? undefined : configuredBuilds(config, []).reference);
+}
+
+/** A build command from the config, with its key for messages. */
+export interface ConfiguredBuild {
+  key: string;
+  command: string;
+}
+
+/**
+ * The build command of the reference, and of each of `commands` that is a configured candidate (a
+ * candidate given only on the command line has none), in the order of `commands`.
+ */
+export function configuredBuilds(config: Config, commands: readonly (string | readonly string[])[]): { reference?: ConfiguredBuild; candidates: (ConfiguredBuild | undefined)[] } {
+  const same = (a: string | readonly string[], b: string | readonly string[]) => JSON.stringify(a) === JSON.stringify(b);
+  const configured = configCandidates(config);
+  const candidates = commands.map((cmd) => {
+    const i = configured.findIndex((c) => same(c.cmd, cmd));
+    const build = configured[i]?.build;
+    return build === undefined ? undefined : { key: config.candidates === undefined ? 'candidate.build' : `candidates.${i}.build`, command: build };
+  });
+  return { ...(config.reference.build === undefined ? {} : { reference: { key: 'reference.build', command: config.reference.build } }), candidates };
 }
 
 /**
@@ -84,16 +121,9 @@ export async function prepareContainer(
     await ensureImage(engine, image);
     const cpus = await engineCpus(engine);
     const sandbox = containerSandbox({ engine, image, ...(cpus === undefined ? {} : { cpus }) });
-    const same = (a: string | readonly string[], b: string | readonly string[]) => JSON.stringify(a) === JSON.stringify(b);
-    const builds = [
-      ...(config.reference.build === undefined ? [] : [{ key: 'reference.build', command: config.reference.build }]),
-      ...configCandidates(config).flatMap((c, i) =>
-        c.build !== undefined && commands.some((cmd) => same(cmd, c.cmd))
-          ? [{ key: config.candidates === undefined ? 'candidate.build' : `candidates.${i}.build`, command: c.build }]
-          : [],
-      ),
-    ];
-    for (const { key, command } of builds) {
+    const { reference, candidates } = configuredBuilds(config, commands);
+    const builds = new Map([reference, ...candidates].filter((b) => b !== undefined).map((b) => [b.key, b.command])); // each once
+    for (const [key, command] of builds) {
       const built = await buildInImage({ kind: 'container', engine, image }, projectDir, command);
       if (!built.ok) throw new ConfigError(`${key} failed in the image ${image}: ${command}\n${built.output}`);
     }

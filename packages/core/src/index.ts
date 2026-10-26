@@ -154,7 +154,7 @@ export {
 } from './compare.js';
 export { openCaseRunner, runCases, type CandidateRun, type CaseRun, type CaseRunner, type RunCasesOptions, type RunCasesResult } from './run-cases.js';
 export { CONFIG_FILE, ConfigError, ConfigSchema, configCandidates, parseConfig, parseConfigSource, readConfigFile, type Config } from './config.js';
-export { InlineContentSchema, RECORDED_DIR, inlineContent, loadCommittedCases, type InlineContent } from './committed-cases.js';
+export { InlineContentSchema, RECORDED_DIR, committedFeatureTags, inlineContent, loadCommittedCases, type CommittedFeatureTag, type InlineContent } from './committed-cases.js';
 export { DIFF_SHAPES, classifyDiff, classifyText, type DiffShape, type FieldShape, type TextShape } from './diff-shape.js';
 export {
   UNTAGGED_FEATURE,

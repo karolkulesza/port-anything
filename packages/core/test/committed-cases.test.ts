@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BlobStore, cacheDir } from '../src/blob-store.js';
-import { RECORDED_DIR, loadCommittedCases } from '../src/committed-cases.js';
+import { RECORDED_DIR, committedFeatureTags, loadCommittedCases } from '../src/committed-cases.js';
 import { ConfigError } from '../src/config.js';
 import { canonicalCase } from '../src/model.js';
 
@@ -83,5 +83,31 @@ describe('loadCommittedCases', () => {
     expect(await problem({ argv: [], origin: 'recorded', fixtures: { '../out': 'x' } })).toMatch(/recorded\.jsonl:2: .*fixtures/);
     expect(await problem('{"argv":[],"origin":"recorded","fixtures":{"__proto__":"x"}}')).toMatch(/recorded\.jsonl:2: .*__proto__/);
     expect(await problem('[]')).toMatch(/recorded\.jsonl:2: /);
+  });
+});
+
+describe('committedFeatureTags', () => {
+  let project: string;
+  beforeEach(() => {
+    project = mkdtempSync(join(tmpdir(), 'pa-committed-tags-'));
+  });
+  afterEach(() => rmSync(project, { recursive: true, force: true }));
+
+  const write = (file: string, lines: readonly (object | string)[]) => {
+    mkdirSync(join(project, RECORDED_DIR), { recursive: true });
+    writeFileSync(join(project, RECORDED_DIR, file), lines.map((l) => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n');
+  };
+
+  it('gives each tag with the file and line it first appears on and how many cases carry it', async () => {
+    write('b.jsonl', [{ argv: ['-s', '-16'], features: ['opt.s', 'opt.1'], origin: 'recorded' }]);
+    write('a.jsonl', [{ argv: ['x'], origin: 'recorded' }, '', { argv: ['-s', '8'], features: ['opt.s', 'opt.s'], origin: 'recorded' }]);
+    expect(await committedFeatureTags(project)).toEqual([
+      { feature: 'opt.s', where: `${RECORDED_DIR}/a.jsonl:3`, cases: 2 },
+      { feature: 'opt.1', where: `${RECORDED_DIR}/b.jsonl:1`, cases: 1 },
+    ]);
+  });
+
+  it('is empty without the directory', async () => {
+    expect(await committedFeatureTags(project)).toEqual([]);
   });
 });

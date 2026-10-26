@@ -94,8 +94,10 @@ clusters, a time box) is met.
    in -L, as wc-lite does`). One cluster per commit, so a regression found later is easy to trace
    and revert. A full `port-anything run` appends a line to `.port-anything/history.jsonl`, the
    project's committed parity history: commit it with the fix, as the tool wrote it.
-8. **Repeat** from step 1. `next` skips the clusters a later run of that cluster found fixed, so
-   it moves on by itself.
+8. **Repeat** from step 1. `next` skips the clusters a later run of that cluster found fixed,
+   and re-runs each remaining cluster's repro before offering it: one that no longer diverges (a
+   fix for another cluster covered it, as a smoke run's `fixed` count may already show) is
+   skipped with a one-line note, so it moves on by itself.
 
 Every few clusters, and always before you stop, run the whole corpus again
 (`port-anything run`): a fix can change what other cases do, and a full run re-ranks the
@@ -103,8 +105,9 @@ clusters and catches what the smoke subset doesn't sample. Continue with `next` 
 
 ### When a cluster doesn't fit the loop
 
-- **The repro doesn't diverge any more** (`next` shows an empty diff, or the repro is marked as
-  not minimized): a previous fix already covered it. Re-run the cluster to confirm, then move on.
+- **The repro doesn't diverge any more** (`next` names the cluster as skipped, or the repro is
+  marked as not minimized): a previous fix already covered it. Re-run the cluster to confirm,
+  then move on.
 - **The candidate is flaky** (the same case gives different output from run to run, listed as
   flaky-candidate): that is a bug in the port (a race, uninitialized memory, hash-map order,
   time), never noise to hide.

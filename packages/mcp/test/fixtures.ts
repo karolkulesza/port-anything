@@ -63,6 +63,7 @@ export const NEXT: NextReport = {
   kind: 'cluster',
   cluster: cluster(1),
   open: 6,
+  skipped: [],
   programName: 'sort',
   repro: { argv: ['-n', 'in.txt'], env: {}, stdin: null, fixtures: { 'in.txt': '3\n1\n' }, source: 'c_9f2e1a4b', minimized: true, exhausted: false },
   diff: [

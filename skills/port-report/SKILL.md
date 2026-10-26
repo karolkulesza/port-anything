@@ -47,6 +47,24 @@ In the project directory (the one with `port-anything.yaml`):
    It writes `port-anything-report.html` (self-contained, a repro and a diff per cluster),
    `port-anything-report.json` and a badge per candidate (`port-anything-badge.svg`,
    `port-anything-badge-2.svg`…), from the latest full run.
+5. **Corpus strength** (how much a parity on this corpus means; the report files don't include
+   it):
+
+   ```sh
+   port-anything strength --json
+   ```
+
+   It mutates the (first) candidate, builds each mutant and runs the corpus on it: `score` is the
+   share of mutants the corpus catches, `survivors` the mutants it missed (behavior no case
+   tests), `tool` the mutation tool used. Exit `0` it ran, `3` it couldn't (read stderr). It needs
+   a mutation tool for the candidate's language: `cargo-mutants` for Rust (without it `strength`
+   refuses: `cargo install --locked cargo-mutants`), Stryker for JS/TS and `mull` for C/C++ (a
+   generic source mutator runs without them; its `notes` say so). Those install outside the
+   project or into the candidate's dependencies: don't install them yourself; when `strength`
+   refuses for lack of one, report strength as not measured and name the tool. It can take a long
+   time, so say so before starting it: `cargo-mutants` and the generic mutator build the
+   candidate once per mutant, on a sample of `--mutants N` (200 by default); Stryker and `mull`
+   build once but test every mutant, whatever `--mutants` says.
 
 ## 2. Read the numbers
 
@@ -54,7 +72,8 @@ From `port-anything-report.json`:
 
 | Field | Meaning |
 |---|---|
-| `run_id`, `created`, `cases` | The run, when it ran, how many cases. |
+| `run_id`, `created`, `cases` | The run, when it ran, how many cases it compared. |
+| `flaky_reference` | Cases left out because the reference's own output varied between runs in `port-anything baseline`, each with the fields that varied. With `cases` they make up the frozen corpus; `candidates[].raw.flaky_reference` counts them, and they are never scored. |
 | `program_name`, `reference`, `sandbox` | The name every side ran as, the reference command, the sandbox. |
 | `compare.profile` | How strictly outputs are compared. |
 | `normalizers`, `waivers` | What hides run-to-run noise, and the accepted differences: both change what counts as a match. |
@@ -84,7 +103,9 @@ two minutes:
    812 of 860 cases").
 2. **Integrity:** the `verify` result (or "corpus not frozen"), waivers and normalizers in use
    (a waiver covering many cases deserves a line of its own), flaky-reference cases left out,
-   untested and under-sampled features. Numbers mean little without this.
+   untested and under-sampled features, and the corpus strength ("the corpus kills 91.0% of 200
+   mutants, cargo-mutants", or "not measured: cargo-mutants isn't installed"). Numbers mean
+   little without this.
 3. **Open work:** the top clusters (up to 5) in one line each: what differs, how many cases,
    which features. Then the weakest features from `features[]`.
 4. **What was measured:** each side's version or commit, the date, the sandbox, the cases, the

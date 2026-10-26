@@ -85,7 +85,10 @@ Each line of a `port-anything/recorded/*.jsonl` file is one case: a JSON object 
 after the program name, and where the case needs them, `stdin`, `fixtures` (files the case creates
 in its working directory, by relative path), `env`, and `features` (its tags, for the per-feature
 score; an untagged case counts in `base`). Write `origin` as `"recorded"`. Content is UTF-8 text,
-or `{"base64": "…"}` for bytes that aren't.
+or `{"base64": "…"}` for bytes that aren't. With a CLI spec, `run` and `baseline` warn about a tag
+the spec doesn't define (other than `base`), naming the file and line where it first appears: a
+typo would otherwise be scored as a feature of its own. Tags of your own are fine; the warning
+lists them so a typo among them stands out.
 
 ```jsonl
 {"argv": ["{print $2}"], "stdin": "a b c\nd e f\n", "features": ["fields"], "origin": "recorded"}
