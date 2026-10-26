@@ -80,6 +80,13 @@ describe('port-anything spec infer', () => {
     expect(sandboxless.stderr).toMatch(/Install bubblewrap/);
     writeFileSync(join(project, 'frob'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
     expect(await infer()).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/no help text/) });
+    // A reference not built yet: its reference.build is named, since sandbox mode local runs no build.
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference:\n  cmd: ./src/frob\n  build: make -C src\n');
+    expect(await infer()).toEqual({
+      exitCode: 3,
+      stdout: '',
+      stderr: `port-anything spec: Program ${join(project, 'src/frob')} not found. Build it with \`make -C src\` (reference.build in port-anything.yaml; only sandbox mode container runs the build commands).\n`,
+    });
     rmSync(join(project, 'port-anything.yaml'));
     expect(await infer()).toMatchObject({ exitCode: 3, stderr: expect.stringMatching(/No port-anything.yaml/) });
     expect(existsSync(join(project, CLI_SPEC_FILE))).toBe(false);

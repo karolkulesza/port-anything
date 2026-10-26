@@ -6,6 +6,7 @@
   "reference": "./bin/tool",
   "sandbox": "bwrap (no network)",
   "cases": 55,
+  "flaky_reference": [],
   "compare": {
     "profile": "default",
     "stderr": {

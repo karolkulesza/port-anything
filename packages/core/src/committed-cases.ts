@@ -48,27 +48,63 @@ export function inlineContent(bytes: Uint8Array): InlineContent {
  * directory means no committed cases. A broken line is a `ConfigError` naming its file and line.
  */
 export async function loadCommittedCases(projectDir: string, store: BlobStore): Promise<CanonicalCase[]> {
+  const cases = new Map<string, CanonicalCase>();
+  for await (const { where, line } of committedLines(projectDir)) {
+    const c = await parseLine(line, store).catch((e: unknown) => {
+      throw new ConfigError(`${where}: ${(e as Error).message}`);
+    });
+    if (!cases.has(c.id)) cases.set(c.id, c);
+  }
+  return [...cases.values()];
+}
+
+/** A feature tag of the committed cases: where it first appears (`<file>:<line>`) and how many lines carry it. */
+export interface CommittedFeatureTag {
+  feature: string;
+  where: string;
+  cases: number;
+}
+
+/**
+ * The feature tags the committed case files use, in the order they first appear, so a tag can be
+ * traced to the line that wrote it. Lines that aren't cases are skipped (`loadCommittedCases`
+ * reports them).
+ */
+export async function committedFeatureTags(projectDir: string): Promise<CommittedFeatureTag[]> {
+  const tags = new Map<string, CommittedFeatureTag>();
+  for await (const { where, line } of committedLines(projectDir)) {
+    let features: unknown;
+    try {
+      features = (JSON.parse(line) as { features?: unknown } | null)?.features;
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(features)) continue;
+    for (const feature of new Set(features.filter((f): f is string => typeof f === 'string'))) {
+      const tag = tags.get(feature);
+      if (tag === undefined) tags.set(feature, { feature, where, cases: 1 });
+      else tag.cases++;
+    }
+  }
+  return [...tags.values()];
+}
+
+/** The non-blank lines of the committed case files, in file name order, each with its `<file>:<line>`. */
+async function* committedLines(projectDir: string): AsyncGenerator<{ where: string; line: string }> {
   const dir = join(projectDir, RECORDED_DIR);
   let names: string[];
   try {
     names = (await readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && e.name.endsWith('.jsonl')).map((e) => e.name);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw new ConfigError(`Cannot read ${RECORDED_DIR}: ${(e as Error).message}`);
   }
-  const cases = new Map<string, CanonicalCase>();
   for (const name of names.sort()) {
     const lines = (await readFile(join(dir, name), 'utf8')).split('\n');
     for (const [index, line] of lines.entries()) {
-      if (line.trim() === '') continue;
-      const where = `${RECORDED_DIR}/${name}:${index + 1}`;
-      const c = await parseLine(line, store).catch((e: unknown) => {
-        throw new ConfigError(`${where}: ${(e as Error).message}`);
-      });
-      if (!cases.has(c.id)) cases.set(c.id, c);
+      if (line.trim() !== '') yield { where: `${RECORDED_DIR}/${name}:${index + 1}`, line };
     }
   }
-  return [...cases.values()];
 }
 
 async function parseLine(line: string, store: BlobStore): Promise<CanonicalCase> {

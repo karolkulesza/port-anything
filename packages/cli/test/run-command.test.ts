@@ -7,6 +7,7 @@ import {
   blobRef,
   RUN_ID_PATTERN,
   cacheDir,
+  writeBaselineRecord,
   canonicalCase,
   describeSignature,
   findContainerEngine,
@@ -24,7 +25,10 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { unknownFeatureTagsWarning } from '../src/corpus.js';
+import { REPORT_JSON_FILE } from '../src/report-command.js';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
+import { run as cli } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
 const engine = await findContainerEngine().catch(() => undefined);
@@ -378,6 +382,22 @@ describe('executeRun', () => {
     const missing = await executeRun(options({ args: { candidates: ['./bin/nope'], json: false, noSandbox: true } }));
     expect(missing.exitCode).toBe(3);
     expect(missing.stderr).toMatch(/nope not found/);
+
+    // In sandbox mode local, run builds nothing: a missing program with a build command names it.
+    const unbuilt = (config: object, candidates: string[] = []) =>
+      executeRun(options({ config: parseConfig({ version: 1, reference: { cmd: './bin/tool' }, ...config }), args: { candidates, json: false, noSandbox: true } }));
+    const cargo = 'cargo build --release --manifest-path port/Cargo.toml';
+    const hint = (key: string) => `Build it with \`${cargo}\` (${key} in port-anything.yaml; only sandbox mode container runs the build commands).`;
+    const single = await unbuilt({ candidate: { cmd: './port/target/release/tool', build: cargo } });
+    expect(single).toEqual({ exitCode: 3, stdout: '', stderr: `port-anything run: Program ${join(project, 'port/target/release/tool')} not found. ${hint('candidate.build')}\n` });
+    const listed = await unbuilt({ candidates: [{ cmd: './bin/tool-copy' }, { cmd: ['./port/tool', '--quiet'], build: cargo }] });
+    expect(listed.stderr).toContain(`port/tool not found. ${hint('candidates.1.build')}\n`);
+    const reference = await unbuilt({ reference: { cmd: './ref/tool', build: cargo }, candidate: { cmd: './bin/tool-copy' } });
+    expect(reference.stderr).toContain(`ref/tool not found. ${hint('reference.build')}\n`);
+    // Without a build command, for a candidate given only on the command line, or for a malformed command, no hint.
+    expect(await unbuilt({ candidate: { cmd: "./port/tool 'x", build: cargo } })).toEqual({ exitCode: 3, stdout: '', stderr: "port-anything run: Unclosed ' quote in the program command: ./port/tool 'x\n" });
+    expect((await unbuilt({ candidate: { cmd: './port/tool' } })).stderr).toMatch(/port\/tool not found\.\n$/);
+    expect((await unbuilt({ candidate: { cmd: './bin/tool-copy', build: cargo } }, ['./port/tool'])).stderr).toMatch(/port\/tool not found\.\n$/);
 
     // Container mode: --no-sandbox doesn't apply, and a bare name would be the host's program.
     const container = (cmd: string, noSandbox: boolean) =>
@@ -1152,5 +1172,157 @@ describe('executeRun --smoke', () => {
     expect((await exec({ caseIds: [cases[100]!.id] })).stdout).toMatch(/^run \S+, 1 given case only\n/m);
     expect(await exec({ caseIds: ['c_zz'] })).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('is not a case ID') });
     expect(await exec({ caseIds: ['c_1'], smoke: true })).toMatchObject({ exitCode: 3 });
+  });
+});
+
+describe('run with a CLI spec that marks a flag as self-description', () => {
+  // -v prints a version banner, which a port words its own way; nothing in its name says so.
+  const MARKED = (variant: 'ref' | 'port') => `#!/bin/sh
+case "$1" in
+  -v) echo "${variant === 'ref' ? 'tool 1.0' : 'tool-port 0.1'}" ;;
+  -a) shift; echo "$@" ;;
+  *) cat ;;
+esac
+`;
+  const SPEC = [
+    'version: 1',
+    'program: tool',
+    'flags:',
+    '  - { names: [-a], feature: opt.a, arity: 0 }',
+    '  - { names: [-v], feature: opt.v, arity: 0, self_description: true }',
+    '  - { names: [-z], feature: opt.z, arity: 0 }',
+    '',
+  ].join('\n');
+  let project: string;
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-marked-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), MARKED('ref'), { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-port'), MARKED('port'), { mode: 0o755 });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-port }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(project, 'port-anything', 'cli-spec.yaml'), SPEC);
+    const cases = [
+      ...Array.from({ length: 20 }, (_, i) => ({ argv: ['-a', `word ${i}`], features: ['opt.a'] })),
+      ...Array.from({ length: 20 }, (_, i) => ({ argv: ['-v', `${i}`], features: ['opt.v'] })),
+    ];
+    writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), cases.map((c) => JSON.stringify({ ...c, origin: 'recorded' })).join('\n'));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  it('lists the marked flag under self-description, out of the headline, in run and report.json (done when)', async () => {
+    const text = await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: project });
+    expect(text.stdout).toContain(
+      [
+        '  parity 100.0%, mean of 1 feature (20 of 40 scored cases match)',
+        '  self-description, not in the parity: opt.v 0.0% (20 cases)',
+        '  untested: opt.z',
+        '',
+      ].join('\n'),
+    );
+    expect(text.stdout).not.toContain('under-sampled');
+
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--holdout', '0', '--json'], { cwd: project })).stdout);
+    expect(json.candidates[0].score).toMatchObject({ headline: 1, headlineFeatures: ['opt.a'], selfDescription: ['opt.v'], underSampled: [], untested: ['opt.z'] });
+
+    expect((await cli(['report', '--json'], { cwd: project })).exitCode).toBe(0);
+    const report = JSON.parse(readFileSync(join(project, REPORT_JSON_FILE), 'utf8'));
+    const v = report.candidates[0].features.find((f: { feature: string }) => f.feature === 'opt.v');
+    expect(v).toMatchObject({ self_description: true, under_sampled: false, in_headline: false });
+    expect(report.candidates[0].self_description).toEqual(['opt.v']);
+  });
+
+  it('scores a subset run with the same marks, without calling the rest of the spec untested', async () => {
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+    expect(json.candidates[0].score).toMatchObject({ headline: null, selfDescription: ['opt.v'], underSampled: [], untested: [] });
+  });
+
+  it('keeps the mark on a subset run whose cases of the feature were all left out as flaky-reference', async () => {
+    const all = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+    const ids: string[] = all.candidates[0].divergences.map((d: { case: string }) => d.case);
+    expect(ids).toHaveLength(20);
+    await writeBaselineRecord(project, { version: 1, repeats: 2, flaky_reference: ids.map((id) => ({ case: id, fields: ['stdout'] })) });
+    try {
+      const json = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+      expect(json.cases).toBe(0);
+      expect(json.candidates[0].score).toMatchObject({ selfDescription: ['opt.v'], underSampled: [], raw: { cases: 20, flakyReference: 20 } });
+    } finally {
+      rmSync(join(cacheDir(project), 'baseline.json'), { force: true });
+    }
+  });
+
+  it('leaves the marked flag out of the fresh holdout parity too', { timeout: 60_000 }, async () => {
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--holdout', '60', '--json'], { cwd: project })).stdout);
+    expect(json.holdout).toMatchObject({ ran: true });
+    const { holdout } = json.candidates[0];
+    expect(holdout.diverging.length).toBeGreaterThan(0); // the -v cases it drew, which still diverge
+    expect(holdout).toMatchObject({ parity: 1, features: 1 });
+  });
+});
+
+describe('run and baseline with a recorded case tagged with a feature the CLI spec lacks', () => {
+  let project: string;
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-unknown-tag-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), '#!/bin/sh\necho "$@"\n', { mode: 0o755 });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(project, 'port-anything', 'cli-spec.yaml'), 'version: 1\nprogram: tool\nflags:\n  - { names: [-s], feature: opt.s, arity: 1, values: [{ name: N, type: int }] }\n');
+    const lines = [
+      { argv: ['-s', '8'], features: ['opt.s'] },
+      { argv: ['plain'] },
+      { argv: ['-s', '-16'], features: ['opt.s', 'opt.1'] },
+      { argv: ['x'], features: ['base'] },
+      { argv: ['-s', '-1'], features: ['opt.1'] },
+    ];
+    writeFileSync(join(project, 'port-anything', 'recorded', 'cases.jsonl'), `${lines.map((c) => JSON.stringify({ ...c, origin: 'recorded' })).join('\n')}\n`);
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  const WARNING = [
+    'warning: feature tags in port-anything/recorded/ that port-anything/cli-spec.yaml does not define (a typo, or a tag of your own, scored as a feature of its own):',
+    '  opt.1 · 2 cases, first at port-anything/recorded/cases.jsonl:3',
+    '',
+  ].join('\n');
+
+  it('warns on run, naming the tag, its file and line (done when)', async () => {
+    const result = await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: project });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe(`port-anything run: ${WARNING}`);
+  });
+
+  it('warns on baseline too (done when)', async () => {
+    const result = await cli(['baseline', '--no-sandbox', '--repeats', '2'], { cwd: project });
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe(`port-anything baseline: ${WARNING}`);
+  });
+
+  it('lists 10 unknown tags at most', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-many-tags-')));
+    try {
+      for (const f of ['bin', 'port-anything.yaml', 'port-anything']) execFileSync('cp', ['-R', join(project, f), join(other, f)]);
+      const lines = Array.from({ length: 12 }, (_, i) => JSON.stringify({ argv: [`a${i}`], features: [`tag${String(i).padStart(2, '0')}`], origin: 'recorded' }));
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), `${lines.join('\n')}\n`);
+      const warning = (await unknownFeatureTagsWarning(other))!;
+      expect(warning.split('\n').filter((l) => l.startsWith('  tag'))).toHaveLength(10);
+      expect(warning).toContain('  tag09 · 1 case, first at port-anything/recorded/cases.jsonl:10\n  … and 2 more\n');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('says nothing when every tag is the spec\'s or base, or when there is no spec', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-known-tags-')));
+    try {
+      for (const f of ['bin', 'port-anything.yaml', 'port-anything']) execFileSync('cp', ['-R', join(project, f), join(other, f)]);
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), '{"argv":["-s","8"],"features":["opt.s"],"origin":"recorded"}\n{"argv":["x"],"features":["base"],"origin":"recorded"}\n');
+      expect((await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: other })).stderr).toBe('');
+      rmSync(join(other, 'port-anything', 'cli-spec.yaml'));
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), '{"argv":["x"],"features":["fields"],"origin":"recorded"}\n');
+      expect((await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: other })).stderr).toBe('');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });

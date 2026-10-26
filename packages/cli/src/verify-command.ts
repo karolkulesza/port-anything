@@ -24,7 +24,7 @@ import {
   type ManifestProblem,
   type SandboxProbe,
 } from '@port-anything/core';
-import { prepareContainer, resolveCommand, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
+import { prepareContainer, resolveReference, sandboxFingerprint, withScratchDir, type CliResult } from './common.js';
 import { loadCorpus } from './corpus.js';
 import { TOOL_VERSION } from './version.js';
 
@@ -78,7 +78,7 @@ async function execute(args: VerifyArgs, { cwd, probe }: { cwd: string; probe?: 
       ? await prepareContainer(cwd, config, [], { noSandbox: args.noSandbox })
       : chooseSandbox(probe ?? (await probeSandbox()), { noSandbox: args.noSandbox });
   const cases = await loadCorpus(cwd, config, { noSandbox: args.noSandbox, sandbox });
-  const reference = await resolveCommand(config.reference.cmd, cwd);
+  const reference = await resolveReference(config, cwd);
 
   // Only cases with a frozen observation run: a flaky-reference case has nothing to compare with.
   const frozen = new Set(manifest.cases.filter((c) => c.observation !== null).map((c) => c.id));

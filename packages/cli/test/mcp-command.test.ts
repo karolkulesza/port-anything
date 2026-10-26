@@ -4,12 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { promisify } from 'node:util';
-import { blobRef, caseId, findContainerEngine, latestRun, loadProbe, probesDir, reproPath, shortCaseId, type SandboxProbe } from '@port-anything/core';
+import { blobRef, caseId, describeSignature, findContainerEngine, latestRun, loadProbe, probesDir, reproPath, shortCaseId, type SandboxProbe } from '@port-anything/core';
 import { formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatStatus, type Backend, type NextReport } from '@port-anything/mcp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { estimateTokens } from '../../mcp/test/tokens.js';
 import { baselineCommand } from '../src/baseline-command.js';
-import { mcpCommand, projectBackend } from '../src/mcp-command.js';
+import { closeRunners, mcpCommand, projectBackend, type OpenRunner } from '../src/mcp-command.js';
 import { runCommand } from '../src/run-command.js';
 
 // Needs @port-anything/core and @port-anything/mcp built (`pnpm build`), like the other CLI tests.
@@ -121,6 +121,94 @@ describe('projectBackend', () => {
     expect((await baselineCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX })).exitCode).toBe(0);
     expect((await backend.status()).integrity.manifest).toEqual({ cases: 11, environment: 'same' });
     expect(formatStatus(await backend.status())).toContain('integrity: manifest frozen, 11 cases, same environment; port-anything verify checks it');
+  });
+});
+
+describe('projectBackend: next skips clusters a later change fixed', () => {
+  let project: string;
+  let backend: Backend;
+  /** Three behaviors a port gets wrong in three different ways: stdout, exit and stderr. */
+  const tool = (wrong: { upper?: boolean; fail?: boolean; warn?: boolean } = {}) => `#!/bin/sh
+case "$1" in
+  upper) ${wrong.upper ? 'cat' : "tr 'a-z' 'A-Z'"} ;;
+  fail) exit ${wrong.fail ? 2 : 1} ;;
+  warn) echo ${wrong.warn ? 'warning' : 'careful'} >&2 ;;
+esac
+`;
+  const port = (wrong: Parameters<typeof tool>[0]) => writeFileSync(join(project, 'bin', 'tool-port'), tool(wrong), { mode: 0o755 });
+  const cases = [
+    ...Array.from({ length: 3 }, (_, i) => ({ argv: ['upper'], stdin: `word ${i}\n`, features: ['opt.u'] })),
+    ...Array.from({ length: 2 }, (_, i) => ({ argv: ['fail', `f${i}`], features: ['error'] })),
+    { argv: ['warn'], features: ['opt.w'] },
+  ];
+
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-mcp-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), tool(), { mode: 0o755 });
+    port({ upper: true, fail: true, warn: true });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-port }\ncorpus: { min_cases_per_feature: 1 }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(project, 'port-anything', 'recorded', 'cases.jsonl'), cases.map((c) => `${JSON.stringify({ ...c, origin: 'recorded' })}\n`).join(''));
+    backend = projectBackend(project, { probe: NO_SANDBOX, noSandbox: true });
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  it('re-runs the repro first and skips a cluster that no longer diverges, with a one-line note (done when)', async () => {
+    expect((await runCommand(['--no-sandbox'], { cwd: project, probe: NO_SANDBOX })).exitCode).toBe(1);
+    const run = (await latestRun(project))!;
+    expect(run.clusters.map((k) => [k.cluster, k.size, describeSignature(k.signature)])).toEqual([
+      [1, 3, 'stdout other'],
+      [2, 2, 'exit 1 vs 2'],
+      [3, 1, 'stderr message-text'],
+    ]);
+    expect(await backend.next()).toMatchObject({ kind: 'cluster', cluster: { cluster: 1 }, open: 3, skipped: [] });
+    expect(existsSync(reproPath(project, run.run_id, 1))).toBe(true);
+
+    // Fix `upper` and `fail`, and run only the smoke subset: no cluster is re-run on its own.
+    port({ warn: true });
+    expect(await backend.run({ smoke: true })).toMatchObject({ candidates: [{ diverge: 1, broke: 0 }] });
+    expect((await backend.status()).clusters).toMatchObject({ open: 3 });
+    // Cluster 1's stored repro and cluster 2's (minimized now) match: next offers cluster 3.
+    const next = await backend.next();
+    expect(next).toMatchObject({ kind: 'cluster', cluster: { cluster: 3 }, open: 1, skipped: [1, 2], diff: [{ field: 'stderr' }] });
+    const text = formatNext(next);
+    expect(text.split('\n')[0]).toBe(`skipped clusters 1 and 2 of run ${run.run_id}: their repros no longer diverge.`);
+    expect(text).not.toContain('no longer diverges: fixed already?');
+
+    port({});
+    const none = await backend.next();
+    expect(none).toEqual({ kind: 'none-open', run: run.run_id, total: 3, skipped: [1, 2, 3] });
+    expect(formatNext(none)).toBe(`skipped clusters 1, 2 and 3 of run ${run.run_id}: their repros no longer diverge.\nNo open cluster left whose repro still diverges. Run the whole corpus (\`port-anything run\`) to confirm.\n`);
+  });
+});
+
+describe('closeRunners', () => {
+  it('closes every runner and removes every scratch dir even when one close fails, then throws that failure', async () => {
+    const project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-mcp-')));
+    try {
+      const closed: number[] = [];
+      const runners = new Map<number, OpenRunner>();
+      for (const n of [1, 2, 3]) {
+        const workDir = join(project, '.port-anything', 'tmp', `run-${n}`);
+        mkdirSync(workDir, { recursive: true });
+        runners.set(n, {
+          workDir,
+          runner: {
+            close: async () => {
+              closed.push(n);
+              if (n === 1) throw new Error('close 1 failed');
+            },
+          },
+        });
+      }
+      await expect(closeRunners(project, runners)).rejects.toThrow('close 1 failed');
+      expect(closed).toEqual([1, 2, 3]);
+      expect(runners.size).toBe(0);
+      expect(existsSync(join(project, '.port-anything', 'tmp'))).toBe(false);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
 

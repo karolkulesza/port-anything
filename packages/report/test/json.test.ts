@@ -60,6 +60,13 @@ describe('reportJson', () => {
     expect(c1!.raw.timeout_recovered).toBe(0);
   });
 
+  it('lists the flaky-reference cases the run left out, empty when there are none (done when)', () => {
+    expect(json.flaky_reference).toEqual([]);
+    const flaky = reportJson({ ...INPUT, flakyReference: [{ case: id(7), fields: ['stdout'] }] });
+    expect(flaky.flaky_reference).toEqual([{ case: id(7), fields: ['stdout'] }]);
+    expect(ReportJsonSchema.safeParse(JSON.parse(JSON.stringify(flaky))).success).toBe(true);
+  });
+
   it('names each cluster in words, with its repro case by ID, null when the report has none', () => {
     expect(json.clusters.map((k) => [k.cluster, k.candidate, k.description, k.repro])).toEqual([
       [1, 2, 'stdout number-value', id(3)],

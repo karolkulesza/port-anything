@@ -89,8 +89,10 @@ export const ReportJsonSchema = z.strictObject({
   program_name: z.string(),
   reference: z.string(),
   sandbox: z.string(),
-  /** Cases in the run. */
+  /** Cases the run compared; the flaky-reference ones are left out (and listed in `flaky_reference`). */
   cases: Count,
+  /** Cases left out because the reference itself varied in `port-anything baseline`, with the fields that varied. */
+  flaky_reference: z.array(z.strictObject({ case: CaseIdSchema, fields: z.array(z.string()) })),
   compare: z.strictObject({ profile: z.string(), stderr: z.strictObject({ mode: z.string(), similarity: z.number().optional() }).optional() }),
   /** Features with fewer scored cases are left out of the headline. */
   min_cases_per_feature: Count,
@@ -159,6 +161,7 @@ export function reportJson(input: ReportInput): ReportJson {
     reference: input.reference,
     sandbox: input.sandbox,
     cases: input.cases,
+    flaky_reference: (input.flakyReference ?? []).map((f) => ({ case: f.case, fields: [...f.fields] })),
     compare: input.compare,
     min_cases_per_feature: input.candidates[0]?.score.minCasesPerFeature ?? DEFAULT_MIN_CASES_PER_FEATURE,
     normalizers: input.normalizers.map((n) => ({ normalizer: n.normalizer, cases: n.cases })),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FEATURE_ROWS, STATUS_CHARACTERS, cut, formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatStatus, lineDiff } from '../src/index.js';
+import { FEATURE_ROWS, STATUS_CHARACTERS, cut, formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatStatus, lineDiff, type NextReport } from '../src/index.js';
 import { CASE, DELTA, FEATURES, NEXT, PROBE, RUN, STATUS, worstStatus } from './fixtures.js';
 import { estimateTokens } from './tokens.js';
 
@@ -13,13 +13,18 @@ describe('estimateTokens', () => {
 describe('formatStatus', () => {
   it('shows the headline, the top clusters and the integrity state', () => {
     const text = formatStatus(STATUS);
-    expect(text).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases as "sort", sandbox bwrap`);
+    expect(text).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases + 2 flaky-reference left out, as "sort", sandbox bwrap`);
     expect(text).toContain('c1 ./port/target/release/sort: parity 93.4% over 12 features; 467 match, 30 diverge, 3 waived');
     expect(text).toContain('clusters: 7, 6 open; top 5:');
     expect(text).toContain('  #1 c1 · 12 cases · stdout trailing-newline · opt.n (8), base (4)');
     expect(text).toContain('  #5 c1');
     expect(text).toContain('integrity: manifest frozen, 500 cases, same environment; port-anything verify checks it');
     expect(text).toContain('flaky-reference 2 · waivers 1 · normalizers (cases changed): tmp-paths 3');
+  });
+
+  it('counts the flaky-reference cases left out next to the cases the run compared (done when)', () => {
+    expect(formatStatus(STATUS)).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases + 2 flaky-reference left out, as "sort", sandbox bwrap`);
+    expect(formatStatus({ ...STATUS, integrity: { ...STATUS.integrity, flakyReference: 0 } })).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases as "sort"`);
   });
 
   it('stays under 500 tokens', () => {
@@ -88,14 +93,24 @@ describe('formatNext', () => {
     expect(text).toContain(`call run with cluster "${RUN}/1"`);
   });
 
-  it('says when the repro no longer diverges', () => {
-    expect(formatNext({ ...NEXT, diff: [] } as typeof NEXT)).toContain('no longer diverges');
+  const skipping = (skipped: number[]) => ({ ...(NEXT as Extract<NextReport, { kind: 'cluster' }>), skipped });
+
+  it('says first, in one line, which clusters it skipped because their repros no longer diverge', () => {
+    expect(formatNext(NEXT).split('\n')[0]).toMatch(/^cluster /);
+    expect(formatNext(skipping([2])).split('\n')[0]).toBe(`skipped cluster 2 of run ${RUN}: its repro no longer diverges.`);
+    expect(formatNext(skipping([2, 3])).split('\n')[0]).toBe(`skipped clusters 2 and 3 of run ${RUN}: their repros no longer diverge.`);
+    const many = formatNext(skipping(Array.from({ length: 40 }, (_, i) => i + 1))).split('\n');
+    expect(many[0]).toBe(`skipped clusters 1, 2, 3, 4, 5 and 35 more of run ${RUN}: their repros no longer diverge.`);
+    expect(many[1]).toMatch(/^cluster /);
   });
 
   it('handles no run and no open cluster', () => {
     expect(formatNext({ kind: 'no-run' })).toMatch(/No saved run/);
-    expect(formatNext({ kind: 'none-open', run: RUN, total: 0 })).toContain('has no clusters');
-    expect(formatNext({ kind: 'none-open', run: RUN, total: 3 })).toContain('All 3 clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 0, skipped: [] })).toContain('has no clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 3, skipped: [] })).toContain('All 3 clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 3, skipped: [3] })).toBe(
+      `skipped cluster 3 of run ${RUN}: its repro no longer diverges.\nNo open cluster left whose repro still diverges. Run the whole corpus (\`port-anything run\`) to confirm.\n`,
+    );
   });
 });
 
@@ -152,11 +167,23 @@ describe('formatFeatures', () => {
     const text = formatFeatures(FEATURES);
     expect(text).toContain('spec port-anything/cli-spec.yaml: program sort, 3 features\n');
     expect(text).toContain(`parity from run ${RUN} (2026-10-16 08:30 UTC), headline: c1 ./port/target/release/sort 93.4%`);
-    expect(text).toContain('features: 4; under-sampled = fewer than 20 scored cases, not in the headline\n');
+    // The header counts what it lists: the spec's 3 features and base.
+    expect(text).toContain('features: 4 (3 in the spec, base); under-sampled = fewer than 20 scored cases, not in the headline\n');
     expect(text).toContain('  opt.n · -n, --numeric-sort · 40 cases · 95.0%\n');
     expect(text).toContain('  opt.help · --help · 2 cases · 100.0% [self-description]\n');
     expect(text).toContain('  opt.k · -k, --key KEYDEF · 0 cases [untested]\n');
-    expect(text).toContain('  base · 5 cases · 60.0% [under-sampled, not in spec]\n');
+    expect(text).toContain('  base · no flags · 5 cases · 60.0% [under-sampled]\n');
+    expect(text).not.toContain('not in spec');
+  });
+
+  it('counts and marks the features only cases carry apart from the spec\'s and base (done when)', () => {
+    const extra = { feature: 'opt.1', spec: null, cases: 7, parity: [0], selfDescription: false, underSampled: true };
+    const text = formatFeatures({ ...FEATURES, features: [...FEATURES.features, extra] });
+    expect(text).toContain('spec port-anything/cli-spec.yaml: program sort, 3 features\n');
+    expect(text).toContain('features: 5 (3 in the spec, base, 1 not in the spec);');
+    expect(text).toContain('  opt.1 · 7 cases · 0.0% [under-sampled, not in spec]\n');
+    const listed = text.split('\n').filter((l) => l.startsWith('  ')).length;
+    expect(listed).toBe(5);
   });
 
   it('shows parity per candidate when there are several', () => {
@@ -168,7 +195,7 @@ describe('formatFeatures', () => {
     const rows = Array.from({ length: FEATURE_ROWS + 5 }, (_, i) => ({ feature: `opt.f${i}`, spec: `--f${i}`, cases: null, parity: [], selfDescription: false, underSampled: false }));
     const text = formatFeatures({ spec: { program: 'x', features: rows.length }, run: null, candidates: [], prefix: 'opt.', features: rows });
     expect(text).toContain('no saved run of the whole corpus yet');
-    expect(text).toContain('features starting "opt.": 65\n');
+    expect(text).toContain('features starting "opt.": 65 (65 in the spec)\n');
     expect(text).toContain('  opt.f0 · --f0\n');
     expect(text).toContain('  +5 more: pass prefix to narrow');
     expect(formatFeatures({ ...FEATURES, spec: null })).toContain('no CLI spec');

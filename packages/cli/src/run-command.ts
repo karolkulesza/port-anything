@@ -59,6 +59,7 @@ import {
   saveRun,
   savedFieldDiffs,
   scoreCandidate,
+  specFeatures,
   shortCaseId,
   smokeSubset,
   stderrMode,
@@ -66,6 +67,7 @@ import {
   type CanonicalCase,
   type CaseRun,
   type CliSpec,
+  type SpecFeature,
   type CompareOptions,
   type Config,
   type GapCase,
@@ -85,8 +87,8 @@ import {
   type WaiverCoverage,
   type WaiverMatch,
 } from '@port-anything/core';
-import { display, prepareContainer, resolveCommand, type CliResult } from './common.js';
-import { committedParents, loadCorpus, type CommittedParents } from './corpus.js';
+import { configuredBuilds, display, prepareContainer, resolveCommand, resolveReference, type CliResult } from './common.js';
+import { committedParents, loadCorpus, unknownFeatureTagsWarning, type CommittedParents } from './corpus.js';
 
 export { display } from './common.js';
 export type { CliResult } from './common.js';
@@ -163,10 +165,12 @@ export function parseRunArgs(argv: readonly string[]): RunArgs {
  */
 export async function runCommand(argv: readonly string[], options: { cwd: string; probe?: SandboxProbe }): Promise<CliResult> {
   let prepared: ExecuteRunOptions;
+  let warning: string | undefined;
   try {
     const args = parseRunArgs(argv);
     const config = await readConfigFile(options.cwd);
     const cases = await loadCorpus(options.cwd, config, { noSandbox: args.noSandbox, ...(options.probe === undefined ? {} : { probe: options.probe }) });
+    warning = await unknownFeatureTagsWarning(options.cwd);
     const waivers = await readWaiversFile(options.cwd);
     const holdout = await holdoutInputs(options.cwd, config, args);
     prepared = {
@@ -182,7 +186,8 @@ export async function runCommand(argv: readonly string[], options: { cwd: string
     if (e instanceof ConfigError || e instanceof SandboxUnavailableError) return fail(e.message);
     throw e;
   }
-  return executeRun(prepared);
+  const result = await executeRun(prepared);
+  return warning === undefined ? result : { ...result, stderr: `port-anything run: ${warning}${result.stderr}` };
 }
 
 export interface ExecuteRunOptions {
@@ -222,6 +227,20 @@ async function holdoutInputs(projectDir: string, config: Config, args: RunArgs):
   }
   const generator = generatedCorpusSettings(config)?.generator ?? DEFAULT_GENERATOR;
   return { spec, seeds: await readSeedFixtures(projectDir), committed: await committedParents(projectDir, generator) };
+}
+
+/**
+ * The features the project's CLI spec defines (none without a spec): `self_description: true`
+ * marks a feature that is scored apart from the headline, whatever its name.
+ */
+async function projectSpecFeatures(projectDir: string, holdout: HoldoutInputs | undefined): Promise<SpecFeature[]> {
+  if (holdout !== undefined) return specFeatures(holdout.spec);
+  try {
+    return specFeatures(await readCliSpecFile(projectDir));
+  } catch (e) {
+    if (e instanceof ConfigError && e.message.startsWith('No ')) return [];
+    throw e;
+  }
 }
 
 /**
@@ -278,6 +297,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   if (args.holdout !== undefined && !wholeCorpus(args)) throw new ConfigError(HOLDOUT_WITH_SUBSET);
   const corpusIds = new Set(cases.map((c) => c.id));
+  const specMarks = await projectSpecFeatures(projectDir, holdoutFrom);
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
   let picked: { feature: string } | { cases: string[] } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
@@ -315,7 +335,10 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   const { runner: runnerOptions, sandbox, compare } = await prepareSides(projectDir, config, commands, { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) });
   // Cases whose reference output varied in the last baseline are left out of the comparison and listed.
   const flaky = new Map((await readBaselineRecord(projectDir))?.flaky_reference.map((f) => [f.case, f.fields]));
-  const flakyReference = cases.filter((c) => flaky.has(c.id)).map((c) => ({ case: c.id, fields: flaky.get(c.id)! }));
+  const leftOut = cases.filter((c) => flaky.has(c.id));
+  const flakyReference = leftOut.map((c) => ({ case: c.id, fields: flaky.get(c.id)! }));
+  // They don't run, but count in the score as flaky-reference, so its counts add up to the corpus.
+  const leftOutScored: ScoredCase[] = leftOut.map((c) => ({ caseId: c.id, features: c.features, origin: c.origin, verdict: 'match', flakyReference: true }));
   cases = cases.filter((c) => !flaky.has(c.id));
   const { store } = runnerOptions;
   const workDir = scratchDir(projectDir);
@@ -355,6 +378,11 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   const shown = commands.map(() => new Set<string>());
   for (const k of clusters) shown[k.candidate - 1]!.add(k.cases[0]!).add(await pick(k.cases, byId));
   const minCasesPerFeature = config.corpus?.min_cases_per_feature;
+  // A run of the whole corpus lists the spec's features without a case as untested; a subset run
+  // leaves out most features by design, so only the self-description marks of its own features count.
+  // The flaky-reference cases left out are scored too, so their features keep their marks.
+  const ranFeatures = new Set([...cases, ...leftOut].flatMap((c) => c.features));
+  const scoreFeatures = wholeCorpus(args) ? specMarks : specMarks.filter((f) => f.selfDescription && ranFeatures.has(f.name));
   const corpusCandidates = commands.map((command, i) => {
       const matches = waived[i]!;
       const fieldsOf = (n: number, covered: boolean) => result.cases[n]!.candidates[i]!.shapes.filter((_, f) => (matches[n]!.fields[f]!.length > 0) === covered).map((x) => x.field);
@@ -379,7 +407,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       });
       // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
       const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
-      const score = scoreCandidate(scoredCases(result, cases, matches, i), minCasesPerFeature === undefined ? {} : { minCasesPerFeature });
+      const score = scoreCandidate([...scoredCases(result, cases, matches, i), ...leftOutScored], { features: scoreFeatures, ...(minCasesPerFeature === undefined ? {} : { minCasesPerFeature }) });
       const max = config.compare.max_slowdown;
       const slowdown =
         max === undefined
@@ -705,7 +733,7 @@ async function runFreshHoldout(options: {
   const failing = new Set<string>();
   const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {
     const scored = scoredCases(result, cases, waived[i]!, i, flaky);
-    const score = scoreCandidate(scored, { minCasesPerFeature: 1 });
+    const score = scoreCandidate(scored, { minCasesPerFeature: 1, features: specFeatures(inputs.spec) });
     const headline = new Set(corpusScore.headlineFeatures);
     const holdoutGapCases = cases.map((c, n) => toGap(c, scored[n]!));
     const parity = holdoutParity(holdoutGapCases, headline);
@@ -790,8 +818,10 @@ export async function prepareSides(
     config.sandbox.mode === 'container'
       ? await prepareContainer(projectDir, config, commands, options)
       : chooseSandbox(options.probe ?? (await probeSandbox()), { noSandbox: options.noSandbox });
-  const reference = await resolveCommand(config.reference.cmd, projectDir);
-  const candidates = await Promise.all(commands.map((cmd) => resolveCommand(cmd, projectDir)));
+  // In sandbox mode local nothing builds the programs: a missing one says how to build it.
+  const builds = config.sandbox.mode === 'container' ? [] : configuredBuilds(config, commands).candidates;
+  const reference = await resolveReference(config, projectDir);
+  const candidates = await Promise.all(commands.map((cmd, i) => resolveCommand(cmd, projectDir, builds[i])));
   const compare: CompareOptions = { profile: config.compare.profile, stderr: config.compare.fields.stderr };
   const runner = {
     reference,
