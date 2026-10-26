@@ -66,6 +66,7 @@ port-anything compare '<reference>' '<candidate 1>' '<candidate 2>' --json > aud
 | `corpus.stop`, `corpus.observed`, `corpus.dropped` | Why generation stopped (`budget`…), how many cases the reference ran while generating, and how many were dropped (duplicate output, too many errors, over budget). |
 | `corpus.skipped` | Destructive subcommands left out. |
 | `untested` | Features of the spec that no case exercised. Untested, not passing. |
+| `diagnosis` | `null`, or why the generated cases are weak, in one line: the features no case exercised and, when more than half of the reference's answers were one and the same error, that share (usually its usage text: the help was misread, so most cases only test the usage error). compare also prints it on stderr as a warning. Report it as a caveat on every number. |
 | `baseline.repeats`, `baseline.stable`, `baseline.normalized` | Extra reference runs per case, and how many cases gave the same output every time, as is or after the normalizers. |
 | `baseline.flaky_reference` | Cases whose reference output varied between its own runs (`case`, `argv`, `fields`). They are left out of every score. |
 | `normalizers` | Normalizers applied to every side to hide run-to-run noise (timestamps, temp paths, PIDs…), with the number of cases each one changed. |

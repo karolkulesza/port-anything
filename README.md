@@ -54,6 +54,7 @@ coreutils sort: parity 60.6%  (mean of 18 features; 314/500 cases)
   …
 under-sampled: fewer than 20 cases, left out of the parity
 untested (no generated case): opt.batch-size, opt.check, opt.C, opt.files0-from
+port-anything compare: warning: 4 features got no case (opt.batch-size, opt.check, opt.C, opt.files0-from); check the CLI spec read from the help (--save writes it to port-anything/cli-spec.yaml)
 ```
 
 The first argument is the reference: what it does is correct by definition. Every other argument is a candidate, and with several of them you get a feature × candidate matrix:
@@ -80,7 +81,7 @@ The score is the **mean of per-feature parity** (a feature is a flag, subcommand
 
 ## A project, for a real port
 
-`compare` is zero-config. A port you work on for weeks gets a project instead: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. `generate` also mutates the cases recorded in `port-anything/recorded/`: one token at a time in an argument that holds a program or a query, and byte by byte in stdin and input files. That's how a program whose input is code (awk, sed, jq) gets a generated corpus and a fresh holdout, since its `--help` can't write a valid program. A project saved by an earlier version keeps its corpus (`corpus.generator: v1`); set `v2` and run `generate` and `baseline` again to get these cases. When the reference has no help text `spec infer` can read, write the CLI spec and the recorded cases yourself: [the format](docs/cli-spec.md).
+`compare` is zero-config. A port you work on for weeks gets a project instead: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. `generate` also mutates the cases recorded in `port-anything/recorded/`: one token at a time in an argument that holds a program or a query, and byte by byte in stdin and input files. That's how a program whose input is code (awk, sed, jq) gets a generated corpus and a fresh holdout, since its `--help` can't write a valid program. So adding or editing a recorded case changes the generated ones too: `baseline` prints the cases it froze per feature, and says when the recorded cases changed the generated ones since they were last generated. When features get no case, or more than half of the reference's answers are one and the same error (usually its usage text, from a CLI spec whose forms the program rejects), `generate` and `compare` say so in a warning. A project saved by an earlier version keeps its corpus (`corpus.generator: v1`); set `v2` and run `generate` and `baseline` again to get these cases. When the reference has no help text `spec infer` can read, write the CLI spec and the recorded cases yourself: [the format](docs/cli-spec.md).
 
 ```sh
 npx port-anything compare ./ref/tool ./port/tool --save   # writes port-anything.yaml and port-anything/cli-spec.yaml

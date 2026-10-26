@@ -64,6 +64,10 @@ every problem by its key path), and records the generator and seed it used in
 port-anything generate
 ```
 
+If it warns that features got no case, or that most of the reference's answers were its usage
+text, the spec's forms or flag arities don't match the program (a usage line read as a positional,
+a flag value left out): fix them and generate again.
+
 Refine the spec **before** `port-anything baseline` freezes the corpus. After a baseline, a spec
 change changes the cases, so `port-anything verify` fails until the corpus is frozen again: ask
 the user first.
@@ -85,9 +89,10 @@ Order the work so each step builds on the previous one and the parity rises stea
    cat port-anything/recorded/*.jsonl | jq -r '.features[]?' | sort | uniq -c | sort -rn
    ```
 
-   Without recorded cases, use the generated corpus: the per-feature case counts of a run
-   (`port-anything run --json`, each candidate's `score.features[].cases`, once a candidate
-   exists). Break ties by dependency (a flag that changes how others behave first) and by size.
+   Without recorded cases, use the generated corpus: the per-feature case counts `baseline`
+   prints (`froze … per feature: …`), or those of a run (`port-anything run --json`, each
+   candidate's `score.features[].cases`, once a candidate exists). Adding recorded cases changes
+   the generated ones (they are mutated too), so take the counts after the last change. Break ties by dependency (a flag that changes how others behave first) and by size.
 
 Write the plan to `port-plan.md` in the project directory (or where the user asks): the
 reference and its version, the spec's flags, forms and subcommands in short, the ordered list
