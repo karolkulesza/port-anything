@@ -1,5 +1,5 @@
-import { LARGE_WAIVER_SHARE, fieldDiffLines, showLine, type InlineContent } from '@port-anything/core';
-import type { CaseReport, ClusterSummary, FeaturesReport, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
+import { LARGE_WAIVER_SHARE, UNTAGGED_FEATURE, fieldDiffLines, showLine, type InlineContent } from '@port-anything/core';
+import type { CaseReport, ClusterSummary, FeatureRow, FeaturesReport, NextReport, ObservedText, ProbeReport, ReproCase, RunDelta, StatusReport } from './types.js';
 
 // The tools answer an agent, so their text is short and bounded: long commands, signatures and
 // feature lists are cut, and lists stop after a few items. `status` stays within a few hundred tokens.
@@ -209,11 +209,22 @@ export function formatFeatures(r: FeaturesReport): string {
     lines.push(`parity from run ${r.run.id} (${r.run.created.slice(0, 16).replace('T', ' ')} UTC), headline: ${headline}${more(r.candidates.length, LISTED_CANDIDATES)}`);
   }
   const rows = r.features;
-  lines.push(`features${r.prefix === null ? '' : ` starting "${r.prefix}"`}: ${rows.length}${r.run === null ? '' : `; under-sampled = fewer than ${r.run.minCasesPerFeature} scored cases, not in the headline`}`);
+  // Counted by where they come from, so that the spec's count above adds up with the rest.
+  const builtIn = (f: FeatureRow) => f.feature === UNTAGGED_FEATURE && f.spec === null;
+  const origins =
+    r.spec === null
+      ? ''
+      : ` (${[
+          `${rows.filter((f) => f.spec !== null).length} in the spec`,
+          ...(rows.some(builtIn) ? [UNTAGGED_FEATURE] : []),
+          ...(rows.some((f) => f.spec === null && !builtIn(f)) ? [`${rows.filter((f) => f.spec === null && !builtIn(f)).length} not in the spec`] : []),
+        ].join(', ')})`;
+  lines.push(`features${r.prefix === null ? '' : ` starting "${r.prefix}"`}: ${rows.length}${origins}${r.run === null ? '' : `; under-sampled = fewer than ${r.run.minCasesPerFeature} scored cases, not in the headline`}`);
   const many = r.candidates.length > 1;
   for (const f of rows.slice(0, FEATURE_ROWS)) {
     const parts = [cut(f.feature, 40)];
     if (f.spec !== null) parts.push(cut(f.spec, 40));
+    else if (builtIn(f)) parts.push('no flags');
     if (f.cases !== null) parts.push(count(f.cases, 'case'));
     if (f.cases !== null && f.cases > 0) {
       parts.push(
@@ -227,7 +238,7 @@ export function formatFeatures(r: FeaturesReport): string {
       ...(f.cases === 0 ? ['untested'] : []),
       ...(f.selfDescription ? ['self-description'] : []),
       ...(f.underSampled ? ['under-sampled'] : []),
-      ...(r.spec !== null && f.spec === null ? ['not in spec'] : []),
+      ...(r.spec !== null && f.spec === null && !builtIn(f) ? ['not in spec'] : []),
     ];
     lines.push(`  ${parts.join(' · ')}${marks.length > 0 ? ` [${marks.join(', ')}]` : ''}`);
   }

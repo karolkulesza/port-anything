@@ -157,11 +157,23 @@ describe('formatFeatures', () => {
     const text = formatFeatures(FEATURES);
     expect(text).toContain('spec port-anything/cli-spec.yaml: program sort, 3 features\n');
     expect(text).toContain(`parity from run ${RUN} (2026-10-16 08:30 UTC), headline: c1 ./port/target/release/sort 93.4%`);
-    expect(text).toContain('features: 4; under-sampled = fewer than 20 scored cases, not in the headline\n');
+    // The header counts what it lists: the spec's 3 features and base.
+    expect(text).toContain('features: 4 (3 in the spec, base); under-sampled = fewer than 20 scored cases, not in the headline\n');
     expect(text).toContain('  opt.n · -n, --numeric-sort · 40 cases · 95.0%\n');
     expect(text).toContain('  opt.help · --help · 2 cases · 100.0% [self-description]\n');
     expect(text).toContain('  opt.k · -k, --key KEYDEF · 0 cases [untested]\n');
-    expect(text).toContain('  base · 5 cases · 60.0% [under-sampled, not in spec]\n');
+    expect(text).toContain('  base · no flags · 5 cases · 60.0% [under-sampled]\n');
+    expect(text).not.toContain('not in spec');
+  });
+
+  it('counts and marks the features only cases carry apart from the spec\'s and base (done when)', () => {
+    const extra = { feature: 'opt.1', spec: null, cases: 7, parity: [0], selfDescription: false, underSampled: true };
+    const text = formatFeatures({ ...FEATURES, features: [...FEATURES.features, extra] });
+    expect(text).toContain('spec port-anything/cli-spec.yaml: program sort, 3 features\n');
+    expect(text).toContain('features: 5 (3 in the spec, base, 1 not in the spec);');
+    expect(text).toContain('  opt.1 · 7 cases · 0.0% [under-sampled, not in spec]\n');
+    const listed = text.split('\n').filter((l) => l.startsWith('  ')).length;
+    expect(listed).toBe(5);
   });
 
   it('shows parity per candidate when there are several', () => {
@@ -173,7 +185,7 @@ describe('formatFeatures', () => {
     const rows = Array.from({ length: FEATURE_ROWS + 5 }, (_, i) => ({ feature: `opt.f${i}`, spec: `--f${i}`, cases: null, parity: [], selfDescription: false, underSampled: false }));
     const text = formatFeatures({ spec: { program: 'x', features: rows.length }, run: null, candidates: [], prefix: 'opt.', features: rows });
     expect(text).toContain('no saved run of the whole corpus yet');
-    expect(text).toContain('features starting "opt.": 65\n');
+    expect(text).toContain('features starting "opt.": 65 (65 in the spec)\n');
     expect(text).toContain('  opt.f0 · --f0\n');
     expect(text).toContain('  +5 more: pass prefix to narrow');
     expect(formatFeatures({ ...FEATURES, spec: null })).toContain('no CLI spec');
