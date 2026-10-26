@@ -54,7 +54,8 @@ From `port-anything-report.json`:
 
 | Field | Meaning |
 |---|---|
-| `run_id`, `created`, `cases` | The run, when it ran, how many cases. |
+| `run_id`, `created`, `cases` | The run, when it ran, how many cases it compared. |
+| `flaky_reference` | Cases left out because the reference's own output varied between runs in `port-anything baseline`, each with the fields that varied. With `cases` they make up the frozen corpus; `candidates[].raw.flaky_reference` counts them, and they are never scored. |
 | `program_name`, `reference`, `sandbox` | The name every side ran as, the reference command, the sandbox. |
 | `compare.profile` | How strictly outputs are compared. |
 | `normalizers`, `waivers` | What hides run-to-run noise, and the accepted differences: both change what counts as a match. |

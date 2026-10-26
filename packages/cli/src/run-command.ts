@@ -330,7 +330,10 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   const { runner: runnerOptions, sandbox, compare } = await prepareSides(projectDir, config, commands, { noSandbox: args.noSandbox, ...(probe === undefined ? {} : { probe }) });
   // Cases whose reference output varied in the last baseline are left out of the comparison and listed.
   const flaky = new Map((await readBaselineRecord(projectDir))?.flaky_reference.map((f) => [f.case, f.fields]));
-  const flakyReference = cases.filter((c) => flaky.has(c.id)).map((c) => ({ case: c.id, fields: flaky.get(c.id)! }));
+  const leftOut = cases.filter((c) => flaky.has(c.id));
+  const flakyReference = leftOut.map((c) => ({ case: c.id, fields: flaky.get(c.id)! }));
+  // They don't run, but count in the score as flaky-reference, so its counts add up to the corpus.
+  const leftOutScored: ScoredCase[] = leftOut.map((c) => ({ caseId: c.id, features: c.features, origin: c.origin, verdict: 'match', flakyReference: true }));
   cases = cases.filter((c) => !flaky.has(c.id));
   const { store } = runnerOptions;
   const workDir = scratchDir(projectDir);
@@ -398,7 +401,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       });
       // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
       const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
-      const score = scoreCandidate(scoredCases(result, cases, matches, i), { features: scoreFeatures, ...(minCasesPerFeature === undefined ? {} : { minCasesPerFeature }) });
+      const score = scoreCandidate([...scoredCases(result, cases, matches, i), ...leftOutScored], { features: scoreFeatures, ...(minCasesPerFeature === undefined ? {} : { minCasesPerFeature }) });
       const max = config.compare.max_slowdown;
       const slowdown =
         max === undefined

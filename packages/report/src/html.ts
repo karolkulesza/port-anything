@@ -75,7 +75,13 @@ export interface ReportInput {
   sandbox: string;
   reference: string;
   compare: { profile: string; stderr?: { mode: string; similarity?: number } };
+  /** Cases the run compared: the flaky-reference ones are left out. */
   cases: number;
+  /**
+   * The cases the run left out because the reference itself varied in `port-anything baseline`,
+   * with the fields that varied; absent (none listed) for a run saved before they were.
+   */
+  flakyReference?: readonly { case: string; fields: readonly string[] }[];
   /** Per normalizer, the cases where it changed either side of a comparison (any candidate). */
   normalizers: readonly { normalizer: string; cases: number }[];
   waivers: readonly Waiver[];
@@ -338,6 +344,9 @@ ${body}
 </section>`;
 }
 
+/** Flaky-reference cases the integrity panel lists one by one. */
+const LISTED_FLAKY_REFERENCE = 50;
+
 function integritySection(input: ReportInput): string {
   const normalizers =
     input.normalizers.length === 0
@@ -373,6 +382,9 @@ ${input.waivers
       ? []
       : [`<li>candidate ${i + 1}: ${count(c.timeoutRecovered.length, 'case')} (the re-run was compared): ${c.timeoutRecovered.map((id) => `<code>${esc(shortCaseId(id))}</code>`).join(', ')}</li>`],
   );
+  const flaky = input.flakyReference ?? [];
+  const listed = flaky.slice(0, LISTED_FLAKY_REFERENCE).map((f) => `<li><code>${esc(shortCaseId(f.case))}</code>: ${esc(f.fields.join(', '))}</li>`);
+  if (flaky.length > LISTED_FLAKY_REFERENCE) listed.push(`<li>and ${flaky.length - LISTED_FLAKY_REFERENCE} more</li>`);
   const c = input.compare;
   const compare = c.stderr === undefined ? `${c.profile} (stderr ignored)` : `${c.profile} (stderr ${c.stderr.mode}${c.stderr.similarity === undefined ? '' : `, similarity ${c.stderr.similarity}`})`;
   return `<section id="integrity">
@@ -390,6 +402,12 @@ ${input.waivers
 ${normalizers}
 <h3>Waivers</h3>
 ${waivers}
+<h3>Flaky-reference</h3>
+${
+  flaky.length === 0
+    ? '<p>None: the reference gave the same result on every re-run in <code>port-anything baseline</code>.</p>'
+    : `<p class="note">${count(flaky.length, 'case')} where the reference itself varied between runs in <code>port-anything baseline</code>: left out of the run and of the score, with the fields that varied.</p>\n<ul>\n${listed.join('\n')}\n</ul>`
+}
 <h3>Timeout, recovered on re-run</h3>
 ${recovered.length === 0 ? '<p>None: no candidate timed out on a first run and then finished on its re-run.</p>' : `<p class="note">A candidate's first run timed out where the reference finished, and its re-run finished; the re-run is what was compared and scored.</p>\n<ul>\n${recovered.join('\n')}\n</ul>`}
 </section>`;

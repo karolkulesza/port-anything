@@ -45,7 +45,9 @@ function clusterLine(k: ClusterSummary, run?: string): string {
 export function formatStatus(s: StatusReport): string {
   if (s.run === null) return 'No saved run of the whole corpus yet. Run `port-anything run` in the project first.';
   const { run } = s;
-  const head = [`run ${run.id} (${run.created.slice(0, 16).replace('T', ' ')} UTC): ${count(run.cases, 'case')} as "${cut(run.programName, 20)}", sandbox ${run.sandbox}, compare ${run.compare}`];
+  // The cases left out as flaky-reference next to the ones compared, so the two add up to the frozen corpus.
+  const leftOut = s.integrity.flakyReference > 0 ? ` + ${s.integrity.flakyReference} flaky-reference left out,` : '';
+  const head = [`run ${run.id} (${run.created.slice(0, 16).replace('T', ' ')} UTC): ${count(run.cases, 'case')}${leftOut} as "${cut(run.programName, 20)}", sandbox ${run.sandbox}, compare ${run.compare}`];
   for (const c of s.candidates.slice(0, LISTED_CANDIDATES)) {
     const parity = c.parity === null ? 'parity n/a' : `parity ${percent(c.parity)} over ${count(c.features, 'feature')}`;
     head.push(`c${c.candidate} ${cut(c.command, 32)}: ${parity}; ${c.match} match, ${c.diverge} diverge${c.waived > 0 ? `, ${c.waived} waived` : ''}`);

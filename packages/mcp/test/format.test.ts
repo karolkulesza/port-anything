@@ -13,13 +13,18 @@ describe('estimateTokens', () => {
 describe('formatStatus', () => {
   it('shows the headline, the top clusters and the integrity state', () => {
     const text = formatStatus(STATUS);
-    expect(text).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases as "sort", sandbox bwrap`);
+    expect(text).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases + 2 flaky-reference left out, as "sort", sandbox bwrap`);
     expect(text).toContain('c1 ./port/target/release/sort: parity 93.4% over 12 features; 467 match, 30 diverge, 3 waived');
     expect(text).toContain('clusters: 7, 6 open; top 5:');
     expect(text).toContain('  #1 c1 · 12 cases · stdout trailing-newline · opt.n (8), base (4)');
     expect(text).toContain('  #5 c1');
     expect(text).toContain('integrity: manifest frozen, 500 cases, same environment; port-anything verify checks it');
     expect(text).toContain('flaky-reference 2 · waivers 1 · normalizers (cases changed): tmp-paths 3');
+  });
+
+  it('counts the flaky-reference cases left out next to the cases the run compared (done when)', () => {
+    expect(formatStatus(STATUS)).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases + 2 flaky-reference left out, as "sort", sandbox bwrap`);
+    expect(formatStatus({ ...STATUS, integrity: { ...STATUS.integrity, flakyReference: 0 } })).toContain(`run ${RUN} (2026-10-16 08:30 UTC): 500 cases as "sort"`);
   });
 
   it('stays under 500 tokens', () => {

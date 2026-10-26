@@ -92,6 +92,13 @@ describe('renderReportHtml', () => {
     expect(integrity).not.toContain('<li>candidate 1:');
   });
 
+  it('lists the flaky-reference cases the run left out in the integrity panel (done when)', () => {
+    expect(section('integrity')).toContain('<h3>Flaky-reference</h3>\n<p>None: the reference gave the same result on every re-run in <code>port-anything baseline</code>.</p>');
+    const flaky = section('integrity', renderReportHtml({ ...INPUT, flakyReference: [{ case: id(7), fields: ['stdout', 'exit'] }, { case: id(8), fields: ['signal'] }] }));
+    expect(flaky).toContain('<h3>Flaky-reference</h3>\n<p class="note">2 cases where the reference itself varied between runs in <code>port-anything baseline</code>: left out of the run and of the score, with the fields that varied.</p>');
+    expect(flaky).toContain(`<li><code>c_00000007</code>: stdout, exit</li>\n<li><code>c_00000008</code>: signal</li>`);
+  });
+
   it('shows the integrity panel the run has data for, and says what this version does not check', () => {
     const integrity = section('integrity');
     expect(integrity).toContain('<li>sandbox: bwrap (no network)</li>');
