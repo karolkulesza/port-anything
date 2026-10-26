@@ -79,7 +79,7 @@ export function createServer(backend: Backend, options: { version: string }): Mc
     {
       title: 'Next cluster to fix',
       description:
-        'The highest-priority open divergence cluster: signature, size, features, a minimized repro and the reference vs candidate diff. Minimizes the cluster on first call (runs both programs), then reuses the repro.',
+        'The highest-priority open divergence cluster: signature, size, features, a minimized repro and the reference vs candidate diff. Minimizes the cluster on first call (runs both programs), then reuses the repro. Re-runs the repro first: a cluster whose repro no longer diverges (fixed since the run) is skipped, with a note.',
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     () => answer(async () => formatNext(await backend.next())),

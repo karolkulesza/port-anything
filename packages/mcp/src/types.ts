@@ -65,12 +65,20 @@ export interface FieldDiff {
 /** What the `next` tool shows. */
 export type NextReport =
   | { kind: 'no-run' }
-  | { kind: 'none-open'; run: string; total: number }
+  | {
+      kind: 'none-open';
+      run: string;
+      total: number;
+      /** Open clusters of the run passed over because their repro, re-run now, no longer diverges. */
+      skipped: readonly number[];
+    }
   | {
       kind: 'cluster';
       cluster: ClusterSummary;
-      /** Open clusters, this one included. */
+      /** Open clusters, this one included, less the skipped ones. */
       open: number;
+      /** Clusters of the same run ranked before this one, passed over because their repro, re-run now, no longer diverges. */
+      skipped: readonly number[];
       programName: string;
       repro: ReproCase & {
         /** The cluster's case it comes from. */
@@ -80,7 +88,7 @@ export type NextReport =
         /** Minimizing stopped at its run budget, so a smaller repro may exist. */
         exhausted: boolean;
       };
-      /** The repro's diverging fields now; empty when it no longer diverges. */
+      /** The repro's diverging fields now: never empty, a repro that no longer diverges is skipped. */
       diff: readonly FieldDiff[];
     };
 

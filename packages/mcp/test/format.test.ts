@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FEATURE_ROWS, STATUS_CHARACTERS, cut, formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatStatus, lineDiff } from '../src/index.js';
+import { FEATURE_ROWS, STATUS_CHARACTERS, cut, formatCase, formatFeatures, formatNext, formatProbe, formatRun, formatStatus, lineDiff, type NextReport } from '../src/index.js';
 import { CASE, DELTA, FEATURES, NEXT, PROBE, RUN, STATUS, worstStatus } from './fixtures.js';
 import { estimateTokens } from './tokens.js';
 
@@ -93,14 +93,24 @@ describe('formatNext', () => {
     expect(text).toContain(`call run with cluster "${RUN}/1"`);
   });
 
-  it('says when the repro no longer diverges', () => {
-    expect(formatNext({ ...NEXT, diff: [] } as typeof NEXT)).toContain('no longer diverges');
+  const skipping = (skipped: number[]) => ({ ...(NEXT as Extract<NextReport, { kind: 'cluster' }>), skipped });
+
+  it('says first, in one line, which clusters it skipped because their repros no longer diverge', () => {
+    expect(formatNext(NEXT).split('\n')[0]).toMatch(/^cluster /);
+    expect(formatNext(skipping([2])).split('\n')[0]).toBe(`skipped cluster 2 of run ${RUN}: its repro no longer diverges.`);
+    expect(formatNext(skipping([2, 3])).split('\n')[0]).toBe(`skipped clusters 2 and 3 of run ${RUN}: their repros no longer diverge.`);
+    const many = formatNext(skipping(Array.from({ length: 40 }, (_, i) => i + 1))).split('\n');
+    expect(many[0]).toBe(`skipped clusters 1, 2, 3, 4, 5 and 35 more of run ${RUN}: their repros no longer diverge.`);
+    expect(many[1]).toMatch(/^cluster /);
   });
 
   it('handles no run and no open cluster', () => {
     expect(formatNext({ kind: 'no-run' })).toMatch(/No saved run/);
-    expect(formatNext({ kind: 'none-open', run: RUN, total: 0 })).toContain('has no clusters');
-    expect(formatNext({ kind: 'none-open', run: RUN, total: 3 })).toContain('All 3 clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 0, skipped: [] })).toContain('has no clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 3, skipped: [] })).toContain('All 3 clusters');
+    expect(formatNext({ kind: 'none-open', run: RUN, total: 3, skipped: [3] })).toBe(
+      `skipped cluster 3 of run ${RUN}: its repro no longer diverges.\nNo open cluster left whose repro still diverges. Run the whole corpus (\`port-anything run\`) to confirm.\n`,
+    );
   });
 });
 

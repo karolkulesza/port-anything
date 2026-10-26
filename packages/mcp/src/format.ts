@@ -114,23 +114,32 @@ function invocationLines(programName: string, c: ReproCase): string[] {
 /** The `next` tool's answer: the highest-priority open cluster, its repro and the diff. */
 export function formatNext(n: NextReport): string {
   if (n.kind === 'no-run') return 'No saved run of the whole corpus yet. Run `port-anything run` in the project first.';
+  const lines = n.skipped.length === 0 ? [] : [skippedLine(n.kind === 'cluster' ? n.cluster.run : n.run, n.skipped)];
   if (n.kind === 'none-open') {
-    return n.total === 0
-      ? `Run ${n.run} has no clusters: every case matches, or is waived.\n`
-      : `All ${count(n.total, 'cluster')} of run ${n.run} were found fixed when re-run. Run the whole corpus (\`port-anything run\`) to confirm.\n`;
+    if (n.skipped.length > 0) lines.push('No open cluster left whose repro still diverges. Run the whole corpus (`port-anything run`) to confirm.');
+    else if (n.total === 0) lines.push(`Run ${n.run} has no clusters: every case matches, or is waived.`);
+    else lines.push(`All ${count(n.total, 'cluster')} of run ${n.run} were found fixed when re-run. Run the whole corpus (\`port-anything run\`) to confirm.`);
+    return `${lines.join('\n')}\n`;
   }
   const { cluster: k, repro } = n;
-  const lines = [`cluster ${k.run}/${k.cluster} (highest priority of ${n.open} open): ${clusterLine(k).replace(/^#\d+ /, '')}`];
+  lines.push(`cluster ${k.run}/${k.cluster} (highest priority of ${n.open} open): ${clusterLine(k).replace(/^#\d+ /, '')}`);
   const how = repro.minimized ? `minimized from ${repro.source}${repro.exhausted ? ', run budget used up, a smaller one may exist' : ''}` : `case ${repro.source}, not minimized`;
   lines.push(`repro (${how}):`, ...invocationLines(n.programName, repro));
-  if (n.diff.length === 0) {
-    lines.push(`The repro no longer diverges: fixed already? Call run with cluster "${k.run}/${k.cluster}".`);
-  } else {
-    lines.push('diff (reference -, candidate +, after normalizers):');
-    for (const d of n.diff) lines.push(...fieldDiffLines(d));
-    lines.push(`After a fix, call run with cluster "${k.run}/${k.cluster}", then smoke for regressions.`);
-  }
+  lines.push('diff (reference -, candidate +, after normalizers):');
+  for (const d of n.diff) lines.push(...fieldDiffLines(d));
+  lines.push(`After a fix, call run with cluster "${k.run}/${k.cluster}", then smoke for regressions.`);
   return `${lines.join('\n')}\n`;
+}
+
+/** Skipped clusters named in `next`'s note. */
+const NAMED_SKIPPED = 5;
+
+/** `next`'s one-line note on the clusters it passed over: `skipped clusters 1, 2 and 3 of run …`. */
+function skippedLine(run: string, skipped: readonly number[]): string {
+  const named = skipped.slice(0, NAMED_SKIPPED).map(String);
+  if (skipped.length > NAMED_SKIPPED) named.push(`${skipped.length - NAMED_SKIPPED} more`);
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  return skipped.length === 1 ? `skipped cluster ${list} of run ${run}: its repro no longer diverges.` : `skipped clusters ${list} of run ${run}: their repros no longer diverge.`;
 }
 
 /** The `run` tool's answer: per candidate what matches now and what changed since the baseline run. */
