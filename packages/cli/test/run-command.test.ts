@@ -25,6 +25,7 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { unknownFeatureTagsWarning } from '../src/corpus.js';
 import { REPORT_JSON_FILE } from '../src/report-command.js';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
 import { run as cli } from '../src/run.js';
@@ -1244,6 +1245,20 @@ describe('run and baseline with a recorded case tagged with a feature the CLI sp
     const result = await cli(['baseline', '--no-sandbox', '--repeats', '2'], { cwd: project });
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe(`port-anything baseline: ${WARNING}`);
+  });
+
+  it('lists 10 unknown tags at most', async () => {
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-many-tags-')));
+    try {
+      for (const f of ['bin', 'port-anything.yaml', 'port-anything']) execFileSync('cp', ['-R', join(project, f), join(other, f)]);
+      const lines = Array.from({ length: 12 }, (_, i) => JSON.stringify({ argv: [`a${i}`], features: [`tag${String(i).padStart(2, '0')}`], origin: 'recorded' }));
+      writeFileSync(join(other, 'port-anything', 'recorded', 'cases.jsonl'), `${lines.join('\n')}\n`);
+      const warning = (await unknownFeatureTagsWarning(other))!;
+      expect(warning.split('\n').filter((l) => l.startsWith('  tag'))).toHaveLength(10);
+      expect(warning).toContain('  tag09 · 1 case, first at port-anything/recorded/cases.jsonl:10\n  … and 2 more\n');
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 
   it('says nothing when every tag is the spec\'s or base, or when there is no spec', async () => {

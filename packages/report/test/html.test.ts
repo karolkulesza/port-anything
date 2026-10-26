@@ -97,6 +97,9 @@ describe('renderReportHtml', () => {
     const flaky = section('integrity', renderReportHtml({ ...INPUT, flakyReference: [{ case: id(7), fields: ['stdout', 'exit'] }, { case: id(8), fields: ['signal'] }] }));
     expect(flaky).toContain('<h3>Flaky-reference</h3>\n<p class="note">2 cases where the reference itself varied between runs in <code>port-anything baseline</code>: left out of the run and of the score, with the fields that varied.</p>');
     expect(flaky).toContain(`<li><code>c_00000007</code>: stdout, exit</li>\n<li><code>c_00000008</code>: signal</li>`);
+    const many = section('integrity', renderReportHtml({ ...INPUT, flakyReference: Array.from({ length: 53 }, (_, n) => ({ case: id(n + 1), fields: ['stdout'] })) }));
+    expect(many.match(/<li><code>c_[0-9a-f]+<\/code>: stdout<\/li>/g)).toHaveLength(50);
+    expect(many).toContain('<li>and 3 more</li>');
   });
 
   it('shows the integrity panel the run has data for, and says what this version does not check', () => {
