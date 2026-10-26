@@ -57,6 +57,7 @@ import {
   saveRun,
   savedFieldDiffs,
   scoreCandidate,
+  specFeatures,
   shortCaseId,
   smokeSubset,
   stderrMode,
@@ -64,6 +65,7 @@ import {
   type CanonicalCase,
   type CaseRun,
   type CliSpec,
+  type SpecFeature,
   type CompareOptions,
   type Config,
   type GapCase,
@@ -223,6 +225,20 @@ async function holdoutInputs(projectDir: string, config: Config, args: RunArgs):
 }
 
 /**
+ * The features the project's CLI spec defines (none without a spec): `self_description: true`
+ * marks a feature that is scored apart from the headline, whatever its name.
+ */
+async function projectSpecFeatures(projectDir: string, holdout: HoldoutInputs | undefined): Promise<SpecFeature[]> {
+  if (holdout !== undefined) return specFeatures(holdout.spec);
+  try {
+    return specFeatures(await readCliSpecFile(projectDir));
+  } catch (e) {
+    if (e instanceof ConfigError && e.message.startsWith('No ')) return [];
+    throw e;
+  }
+}
+
+/**
  * Runs the cases against the reference and every candidate and reports, per candidate, which cases
  * diverge (under the strictness profile, after the configured normalizers), grouped into ranked
  * clusters, and how many cases each normalizer changed and each waiver covers. A waiver covers
@@ -276,6 +292,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   if (cases.length === 0) throw new ConfigError('No cases to run: add some to port-anything/recorded/*.jsonl, or generate them with port-anything generate.');
   if (args.holdout !== undefined && !wholeCorpus(args)) throw new ConfigError(HOLDOUT_WITH_SUBSET);
   const corpusIds = new Set(cases.map((c) => c.id));
+  const specMarks = await projectSpecFeatures(projectDir, holdoutFrom);
   let smoke: { from: string | null; corpus: number; clusters: number; per_feature: number; passing: number } | undefined;
   let picked: { feature: string } | { cases: string[] } | undefined;
   if (subset !== undefined) cases = await clusterCases(projectDir, subset, cases);
@@ -353,6 +370,10 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
   const shown = commands.map(() => new Set<string>());
   for (const k of clusters) shown[k.candidate - 1]!.add(k.cases[0]!).add(await pick(k.cases, byId));
   const minCasesPerFeature = config.corpus?.min_cases_per_feature;
+  // A run of the whole corpus lists the spec's features without a case as untested; a subset run
+  // leaves out most features by design, so only the self-description marks of its own features count.
+  const ranFeatures = new Set(cases.flatMap((c) => c.features));
+  const scoreFeatures = wholeCorpus(args) ? specMarks : specMarks.filter((f) => f.selfDescription && ranFeatures.has(f.name));
   const corpusCandidates = commands.map((command, i) => {
       const matches = waived[i]!;
       const fieldsOf = (n: number, covered: boolean) => result.cases[n]!.candidates[i]!.shapes.filter((_, f) => (matches[n]!.fields[f]!.length > 0) === covered).map((x) => x.field);
@@ -377,7 +398,7 @@ export async function performRun({ projectDir, config, cases, waivers = [], args
       });
       // Scored on the re-run, whose first run timed out where the reference finished: listed, never silent.
       const timeoutRecovered = result.cases.filter((c) => c.candidates[i]!.timeoutRecovered).map((c) => ({ case: c.caseId }));
-      const score = scoreCandidate(scoredCases(result, cases, matches, i), minCasesPerFeature === undefined ? {} : { minCasesPerFeature });
+      const score = scoreCandidate(scoredCases(result, cases, matches, i), { features: scoreFeatures, ...(minCasesPerFeature === undefined ? {} : { minCasesPerFeature }) });
       const max = config.compare.max_slowdown;
       const slowdown =
         max === undefined
@@ -705,7 +726,7 @@ async function runFreshHoldout(options: {
   const failing = new Set<string>();
   const candidates = options.scores.map((corpusScore, i): CandidateHoldout => {
     const scored = scoredCases(result, cases, waived[i]!, i, flaky);
-    const score = scoreCandidate(scored, { minCasesPerFeature: 1 });
+    const score = scoreCandidate(scored, { minCasesPerFeature: 1, features: specFeatures(inputs.spec) });
     const headline = new Set(corpusScore.headlineFeatures);
     const holdoutGapCases = cases.map((c, n) => toGap(c, scored[n]!));
     const parity = holdoutParity(holdoutGapCases, headline);

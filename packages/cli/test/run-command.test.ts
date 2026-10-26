@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -24,7 +24,9 @@ import {
   type SandboxProbe,
 } from '@port-anything/core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { REPORT_JSON_FILE } from '../src/report-command.js';
 import { executeRun, parseRunArgs, runCommand, type ExecuteRunOptions } from '../src/run-command.js';
+import { run as cli } from '../src/run.js';
 
 // Needs @port-anything/core built (`pnpm build`), like the other CLI tests.
 const engine = await findContainerEngine().catch(() => undefined);
@@ -1117,5 +1119,76 @@ describe('executeRun --smoke', () => {
     expect((await exec({ caseIds: [cases[100]!.id] })).stdout).toMatch(/^run \S+, 1 given case only\n/m);
     expect(await exec({ caseIds: ['c_zz'] })).toMatchObject({ exitCode: 3, stderr: expect.stringContaining('is not a case ID') });
     expect(await exec({ caseIds: ['c_1'], smoke: true })).toMatchObject({ exitCode: 3 });
+  });
+});
+
+describe('run with a CLI spec that marks a flag as self-description', () => {
+  // -v prints a version banner, which a port words its own way; nothing in its name says so.
+  const MARKED = (variant: 'ref' | 'port') => `#!/bin/sh
+case "$1" in
+  -v) echo "${variant === 'ref' ? 'tool 1.0' : 'tool-port 0.1'}" ;;
+  -a) shift; echo "$@" ;;
+  *) cat ;;
+esac
+`;
+  const SPEC = [
+    'version: 1',
+    'program: tool',
+    'flags:',
+    '  - { names: [-a], feature: opt.a, arity: 0 }',
+    '  - { names: [-v], feature: opt.v, arity: 0, self_description: true }',
+    '  - { names: [-z], feature: opt.z, arity: 0 }',
+    '',
+  ].join('\n');
+  let project: string;
+  beforeAll(() => {
+    project = realpathSync(mkdtempSync(join(tmpdir(), 'pa-cli-marked-')));
+    mkdirSync(join(project, 'bin'));
+    writeFileSync(join(project, 'bin', 'tool'), MARKED('ref'), { mode: 0o755 });
+    writeFileSync(join(project, 'bin', 'tool-port'), MARKED('port'), { mode: 0o755 });
+    writeFileSync(join(project, 'port-anything.yaml'), 'version: 1\nprogram_name: tool\nreference: { cmd: ./bin/tool }\ncandidate: { cmd: ./bin/tool-port }\n');
+    mkdirSync(join(project, 'port-anything', 'recorded'), { recursive: true });
+    writeFileSync(join(project, 'port-anything', 'cli-spec.yaml'), SPEC);
+    const cases = [
+      ...Array.from({ length: 20 }, (_, i) => ({ argv: ['-a', `word ${i}`], features: ['opt.a'] })),
+      ...Array.from({ length: 20 }, (_, i) => ({ argv: ['-v', `${i}`], features: ['opt.v'] })),
+    ];
+    writeFileSync(join(project, 'port-anything', 'recorded', 'recorded.jsonl'), cases.map((c) => JSON.stringify({ ...c, origin: 'recorded' })).join('\n'));
+  });
+  afterAll(() => rmSync(project, { recursive: true, force: true }));
+
+  it('lists the marked flag under self-description, out of the headline, in run and report.json (done when)', async () => {
+    const text = await cli(['run', '--no-sandbox', '--holdout', '0'], { cwd: project });
+    expect(text.stdout).toContain(
+      [
+        '  parity 100.0%, mean of 1 feature (20 of 40 scored cases match)',
+        '  self-description, not in the parity: opt.v 0.0% (20 cases)',
+        '  untested: opt.z',
+        '',
+      ].join('\n'),
+    );
+    expect(text.stdout).not.toContain('under-sampled');
+
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--holdout', '0', '--json'], { cwd: project })).stdout);
+    expect(json.candidates[0].score).toMatchObject({ headline: 1, headlineFeatures: ['opt.a'], selfDescription: ['opt.v'], underSampled: [], untested: ['opt.z'] });
+
+    expect((await cli(['report', '--json'], { cwd: project })).exitCode).toBe(0);
+    const report = JSON.parse(readFileSync(join(project, REPORT_JSON_FILE), 'utf8'));
+    const v = report.candidates[0].features.find((f: { feature: string }) => f.feature === 'opt.v');
+    expect(v).toMatchObject({ self_description: true, under_sampled: false, in_headline: false });
+    expect(report.candidates[0].self_description).toEqual(['opt.v']);
+  });
+
+  it('scores a subset run with the same marks, without calling the rest of the spec untested', async () => {
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--feature', 'opt.v', '--json'], { cwd: project })).stdout);
+    expect(json.candidates[0].score).toMatchObject({ headline: null, selfDescription: ['opt.v'], underSampled: [], untested: [] });
+  });
+
+  it('leaves the marked flag out of the fresh holdout parity too', { timeout: 60_000 }, async () => {
+    const json = JSON.parse((await cli(['run', '--no-sandbox', '--holdout', '60', '--json'], { cwd: project })).stdout);
+    expect(json.holdout).toMatchObject({ ran: true });
+    const { holdout } = json.candidates[0];
+    expect(holdout.diverging.length).toBeGreaterThan(0); // the -v cases it drew, which still diverge
+    expect(holdout).toMatchObject({ parity: 1, features: 1 });
   });
 });
