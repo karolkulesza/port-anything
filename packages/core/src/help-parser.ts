@@ -702,10 +702,11 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
     return name;
   };
   // Only the root's help can have been read with something other than `--help`, which is covered anyway.
-  const flagsOf = (parsed: ParsedHelp, prefix: string, helpReadWith?: string): CliFlag[] =>
+  // Guessed spellings only for the root's flags: the probes check those, not a subcommand's.
+  const flagsOf = (parsed: ParsedHelp, prefix: string, helpReadWith?: string, guesses = false): CliFlag[] =>
     parsed.flags.map((f) => ({
       // Guessed spellings go last, so the feature and the probes' first spelling are listed ones.
-      names: [...f.names, ...(f.aliasCandidates ?? [])],
+      names: [...f.names, ...(guesses ? (f.aliasCandidates ?? []) : [])],
       feature: feature(`${prefix}opt.${primaryName(f.names)}`),
       ...(f.description === undefined ? {} : { description: f.description }),
       arity: f.values.length,
@@ -726,7 +727,7 @@ export function cliSpecFromHelp(program: string, help: ParsedHelp, subcommandHel
       subcommands: [],
     };
   });
-  return CliSpecSchema.parse({ version: 1, program, flags: flagsOf(help, '', readWith), forms: help.forms, subcommands });
+  return CliSpecSchema.parse({ version: 1, program, flags: flagsOf(help, '', readWith, true), forms: help.forms, subcommands });
 }
 
 function primaryName(names: readonly string[]): string {

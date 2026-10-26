@@ -378,6 +378,14 @@ Options:
     expect(spec.forms.flatMap((f) => f.args.map((a) => a.name))).toEqual(['infile', 'outfile', 'infile', 'outfile']);
   });
 
+  it("gives no guessed spellings to a subcommand's flags, which no probe checks", () => {
+    const root = parseHelp('usage: frob <command>\n\nCommands:\n  build   Build it\n');
+    const build = parseHelp('usage: frob build [-json] [-v]\n\n  -json   print JSON\n  -race   detect races\n  -v      verbose\n');
+    expect(flag(build.flags, '-json').aliasCandidates).toEqual(['-j']);
+    const spec = cliSpecFromHelp('frob', root, { build });
+    expect(spec.subcommands[0]!.flags.map((f) => f.names)).toEqual([['-json'], ['-race'], ['-v']]);
+  });
+
   it('copes with text that has no usage line or no options', () => {
     expect(parseHelp('')).toEqual({ flags: [], forms: [], subcommands: [] });
     expect(parseHelp('Just a sentence about frob.\n')).toEqual({ flags: [], forms: [], subcommands: [] });
