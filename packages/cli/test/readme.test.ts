@@ -52,7 +52,7 @@ describe('README', () => {
   it('gives a Linux and a macOS one-liner with explicit binaries', () => {
     const quickstart = section('Quickstart');
     expect(quickstart).toContain("npx port-anything compare /usr/bin/sort 'coreutils sort'");
-    expect(quickstart).toContain('npx port-anything compare /usr/bin/sort gsort');
+    expect(quickstart).toContain('npx port-anything compare /usr/bin/sort gsort --budget 2000');
   });
 
   it('names the prior art', () => {

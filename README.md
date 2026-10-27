@@ -2,13 +2,13 @@ v0.1 covers non-interactive CLIs.
 
 # Port Anything
 
-> Rewrite it in Rust (or Go, TS, Swift…) and *show* nothing changed.
+> Check that a rewrite still behaves like the original.
 
-Port Anything records what a program actually does, generates thousands more test cases, runs the original and the port side by side, and reports a parity score with a minimal reproducer for every difference. It is packaged so a coding agent (Claude Code, Codex, Cursor, Gemini CLI) can drive the whole port.
+Port Anything reads a program's `--help`, generates test cases from it (500 by default, more with `--budget`), runs the original and the rewrite side by side in a sandbox, and reports a match rate per flag with a minimal reproducer for every difference.
 
-**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 12 differences nobody had reported; 8 are already fixed upstream. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
+**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 11 differences nobody had reported (8 in the published runs, 3 in an earlier prototype run); 9 are fixed or changed on the projects' main branches, one of them released so far. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
 
-![port-anything compare gnusort 'coreutils sort': GNU sort against uutils sort with no configuration, a parity score and a per-feature matrix in under a minute](docs/demo/compare.gif)
+![port-anything compare with GNU sort as the reference and uutils sort as the candidate: GNU sort against uutils sort with no configuration, a parity score and a per-feature matrix in under a minute](docs/demo/compare.gif)
 
 One command, no configuration: `compare` infers the command-line spec from the reference, generates test cases, runs them in a sandbox against the reference and each candidate, and scores parity per feature. The demo runs in the Linux dev container and is recorded from [`docs/demo/compare.tape`](docs/demo/compare.tape) with `docs/demo/record.sh`.
 
@@ -30,10 +30,12 @@ npx port-anything compare /usr/bin/sort 'coreutils sort'
 
 ```sh
 brew install coreutils
-npx port-anything compare /usr/bin/sort gsort
+npx port-anything compare /usr/bin/sort gsort --budget 2000
 ```
 
-On Debian 12, the first one prints something like this (trimmed):
+BSD and GNU `sort` aren't ports of each other, so expect a low score. `--budget 2000` gives every flag enough cases to be scored and takes a minute or two; with the default 500, most of `sort`'s flags stay under-sampled.
+
+On Debian 12, the first one prints something like this (trimmed). Debian 12's `rust-coreutils` is a 2023 uutils release, far behind current uutils, so read the score as a sample of the output, not as where uutils stands today:
 
 ```
 read "sort --help": 31 flags, 2 positional forms
@@ -81,7 +83,7 @@ The score is the **mean of per-feature parity** (a feature is a flag, subcommand
 
 ## A project, for a real port
 
-`compare` is zero-config. A port you work on for weeks gets a project instead: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. `generate` also mutates the cases recorded in `port-anything/recorded/`: one token at a time in an argument that holds a program or a query, and byte by byte in stdin and input files. That's how a program whose input is code (awk, sed, jq) gets a generated corpus and a fresh holdout, since its `--help` can't write a valid program. So adding or editing a recorded case changes the generated ones too: `baseline` prints the cases it froze per feature, and says when the recorded cases changed the generated ones since they were last generated. When features get no case, or more than half of the reference's answers are one and the same error (usually its usage text, from a CLI spec whose forms the program rejects), `generate` and `compare` say so in a warning. A project saved by an earlier version keeps its corpus (`corpus.generator: v1`); set `v2` and run `generate` and `baseline` again to get these cases. When the reference has no help text `spec infer` can read, write the CLI spec and the recorded cases yourself: [the format](docs/cli-spec.md).
+`compare` is zero-config. A port you work on for weeks gets a project instead, and a coding agent (Claude Code, Codex, Cursor, Gemini CLI) can drive it through the MCP server and skills below: `port-anything.yaml` (how to build and run each side, the normalizers, the strictness profile) and a `port-anything/` directory with the cases, all committed. `compare --save` starts one. The generated cases aren't committed: every checkout regenerates the same ones from the CLI spec and the generator seed in the config. `generate` also mutates the cases recorded in `port-anything/recorded/`: one token at a time in an argument that holds a program or a query, and byte by byte in stdin and input files. That's how a program whose input is code (awk, sed, jq) gets a generated corpus and a fresh holdout, since its `--help` can't write a valid program. So adding or editing a recorded case changes the generated ones too: `baseline` prints the cases it froze per feature, and says when the recorded cases changed the generated ones since they were last generated. When features get no case, or more than half of the reference's answers are one and the same error (usually its usage text, from a CLI spec whose forms the program rejects), `generate` and `compare` say so in a warning. A project saved by an earlier version keeps its corpus (`corpus.generator: v1`); set `v2` and run `generate` and `baseline` again to get these cases. When the reference has no help text `spec infer` can read, write the CLI spec and the recorded cases yourself: [the format](docs/cli-spec.md).
 
 ```sh
 npx port-anything compare ./ref/tool ./port/tool --save   # writes port-anything.yaml and port-anything/cli-spec.yaml
@@ -129,7 +131,7 @@ Snapshot tools compare a program to its own past. Port Anything compares two (or
 | Tool | What it does | How Port Anything differs |
 |---|---|---|
 | [`uufuzz`](https://github.com/uutils/coreutils/tree/main/fuzz) and the uutils fuzz targets | Differential fuzzers that run uutils against GNU, per utility (`cksum`, `cut`, `date`, `sort`, `tr`, `wc`…) | Generic rather than per project; a per-flag parity matrix; clustered, minimized repros; a report. Our coreutils showcase leaves out the utilities they already fuzz. |
-| [flagdiff](https://github.com/uutils/coreutils/issues/15254) | An AI-built differential fuzzer that ran GNU coreutils against uutils and reported about 180 differences in one issue | Findings de-duplicated, clustered and minimized into a few reproducers before anyone reads them; N-way, so busybox and toybox get a column too; inputs whose *content* matters, not only flag combinations. |
+| [flagdiff](https://github.com/uutils/coreutils/issues/15254) | A differential fuzzer that ran GNU coreutils against uutils and reported about 180 differences in one issue | Findings de-duplicated, clustered and minimized into a few reproducers before anyone reads them; N-way, so busybox and toybox get a column too; inputs whose *content* matters, not only flag combinations. |
 | [uutils GNU test suite tracking](https://github.com/uutils/coreutils-tracking) | Runs the GNU test suite against uutils and charts the pass rate over time | Cases generated beyond the GNU suite, a per-flag matrix, minimized repros, and the same thing for any pair of programs. |
 | [Babelmark](https://babelmark.github.io/) | Renders one Markdown input in dozens of implementations side by side | The model for the N-way matrix, but one hand-typed input at a time; no generation, scoring or minimization. |
 | Mutation testing (`cargo-mutants`, Stryker, `mull`) | Measures how good a test suite is by checking it catches injected bugs | Not a competitor: Port Anything uses mutated ports to test its own detection, and `port-anything strength` reports how many mutants of your port a corpus catches. |
@@ -138,7 +140,7 @@ Snapshot tools compare a program to its own past. Port Anything compares two (or
 | `diffoscope` | Deep diffs of files and archives | A diff viewer for two artifacts, not a test harness. |
 | [keploy](https://github.com/keploy/keploy) | Records and replays HTTP traffic for API tests | HTTP services only. Port Anything starts with CLIs and would integrate keploy for services rather than rebuild it. |
 | Google's C → Rust work (giflib-rs) | AI translation plus differential fuzzing, per library | The same method, done in-house for one project at a time. Port Anything packages it for any pair of programs. |
-| [`A-Raphie/parity`](https://github.com/A-Raphie/Parity) | A side-by-side runner built around IBM Bob 2.0 | Demo-level and tied to one agent product; Port Anything works with any agent, or none. |
+| [`A-Raphie/parity`](https://github.com/A-Raphie/Parity) | A side-by-side runner built around IBM Bob 2.0 | Built around one agent product; Port Anything works with any agent, or none. |
 
 ## Integrity: what it can and can't promise
 
