@@ -9,7 +9,7 @@ describe('run', () => {
     for (const argv of [[], ['--help']]) {
       const result = await run(argv);
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('rewrite it in any language and show nothing changed');
+      expect(result.stdout).toContain('port-anything: check that a rewrite still behaves like the original.');
       expect(result.stdout).toContain('Usage: port-anything compare');
     }
   });

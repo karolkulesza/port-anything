@@ -30,7 +30,7 @@ export interface RunOptions {
 // Each command's own usage line, so the overview can't drift from what the command accepts.
 const USAGES = [COMPARE_USAGE, INIT_USAGE, SETUP_USAGE, SPEC_USAGE, GENERATE_USAGE, BASELINE_USAGE, RUN_USAGE, MINIMIZE_USAGE, REPORT_USAGE, WAIVE_USAGE, VERIFY_USAGE, STRENGTH_USAGE, MCP_USAGE, HOOK_USAGE, 'Usage: port-anything --version'];
 
-const NOTICE = `port-anything: rewrite it in any language and show nothing changed.
+const NOTICE = `port-anything: check that a rewrite still behaves like the original.
 
 ${USAGES.map((usage, i) => (i === 0 ? usage : usage.replace(/^Usage:/, '      '))).join('\n')}
 
