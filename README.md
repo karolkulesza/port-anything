@@ -33,7 +33,7 @@ brew install coreutils
 npx port-anything compare /usr/bin/sort gsort --budget 2000
 ```
 
-BSD and GNU `sort` aren't ports of each other, so expect a low score. `--budget 2000` gives every flag enough cases to be scored and takes a minute or two; with the default 500, most of `sort`'s flags stay under-sampled.
+BSD and GNU `sort` aren't ports of each other, so expect a low score. `--budget 2000` gives almost every flag enough cases to be scored (31 features instead of 8) and takes a minute or two; with the default 500, most of `sort`'s flags stay under-sampled. A warning that `opt.C` got no case is expected there.
 
 On Debian 12, the first one prints something like this (trimmed). Debian 12's `rust-coreutils` is a 2023 uutils release, far behind current uutils, so read the score as a sample of the output, not as where uutils stands today:
 

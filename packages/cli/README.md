@@ -27,7 +27,7 @@ brew install coreutils
 npx port-anything compare /usr/bin/sort gsort --budget 2000
 ```
 
-BSD and GNU `sort` aren't ports of each other, so expect a low score. `--budget 2000` gives every flag enough cases to be scored and takes a minute or two; with the default 500, most of `sort`'s flags stay under-sampled.
+BSD and GNU `sort` aren't ports of each other, so expect a low score. `--budget 2000` gives almost every flag enough cases to be scored (31 features instead of 8) and takes a minute or two; with the default 500, most of `sort`'s flags stay under-sampled. A warning that `opt.C` got no case is expected there.
 
 The first argument is the reference; every other argument is a candidate. Name programs by explicit path when the plain name is ambiguous: on Ubuntu 25.10 and later, `sort` already *is* uutils. Both sides run under the reference's program name (`argv[0]` is pinned), so a multicall binary such as `'coreutils sort'` or `'busybox sort'` works as a candidate.
 
