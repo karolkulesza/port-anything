@@ -8,7 +8,7 @@
     {
       "name": "port-anything",
       "source": "./",
-      "description": "Rewrite it in any language and show nothing changed. Differential parity testing for AI-driven ports."
+      "description": "Check that a rewrite still behaves like the original: generated cases, sandboxed side-by-side runs, per-flag parity, minimized repros."
     }
   ]
 }
