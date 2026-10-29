@@ -327,12 +327,22 @@ interface FlagItem {
   literal?: string;
 }
 
+/**
+ * `-M    from first to M'th …` right after `N-M   from N'th …`, at the same depth: an entry of a
+ * list in the prose (GNU cut's and numfmt's ranges), not an option.
+ */
+function listEntry(lines: string[], i: number): boolean {
+  const prev = i > 0 ? expandTabs(lines[i - 1]!) : '';
+  const depth = (line: string) => line.search(/\S/);
+  return prev.trim() !== '' && depth(prev) === depth(expandTabs(lines[i]!)) && !OPTION_LINE.test(prev.trim()) && /^\s+\S+ {2,}\S/.test(prev);
+}
+
 function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[]; lines: Set<number> } {
   const used = new Set<number>();
   const raw = lines.map((line, i) => (!skip.has(i) && OPTION_LINE.test(line.trim()) ? i : -1)).filter((i) => i >= 0);
   const column = descriptionColumn(raw.map((i) => lines[i]!));
   // A line starting with a flag as deep as the descriptions continues one (`--diff, --extract or …`).
-  const isOption = new Set(raw.filter((i) => column === undefined || expandTabs(lines[i]!).search(/\S/) < column));
+  const isOption = new Set(raw.filter((i) => (column === undefined || expandTabs(lines[i]!).search(/\S/) < column) && !listEntry(lines, i)));
   const flags: HelpFlag[] = [];
   for (const i of isOption) {
     if (used.has(i)) continue;
@@ -532,12 +542,16 @@ const stripMeta = (word: string): string =>
 
 /** A placeholder's type from its name: files and directories, counts, sizes, else text. */
 export function valueType(name: string): CliValue['type'] {
+  // `[-]NUM` (head), `[+-]N`: a sign the value may carry doesn't change its type.
+  const unsigned = name.replace(new RegExp(`^${SIGN_PREFIX.source}`), '');
   // `N[,M]`: what may follow the first value doesn't change its type.
-  const n = name.replace(/(?<=[^[])\[.*\]$/, '').replace(/[<>[\]{}=.]/g, '');
+  const n = unsigned.replace(/(?<=[^[])\[.*\]$/, '').replace(/[<>[\]{}=.]/g, '');
   const base = n.replace(/\d+$/, ''); // FILE1 FILE2 (comm, join, diff)
-  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
-  // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`.
-  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|offset|off|seek|len|length|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
+  // `INPUT [OUTPUT]` (uniq) names files.
+  if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?|input|output)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
+  // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`. So is a `LIST` of
+  // bytes or fields (cut), a `FIELD` or `FILENUM` (join), and seq's `FIRST INCREMENT LAST`.
+  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|offset|off|seek|len|length|list|fields?|filenum|first|increment|last|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
   if (/^(size|memsize|bytes)$/i.test(n)) return 'size';
   return 'string';
 }

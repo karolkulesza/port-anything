@@ -121,6 +121,28 @@ Options:
 });
 
 describe('parseHelp: other layouts', () => {
+  it('reads GNU cut: numeric LIST and [-]NUM values, and no flag from the ranges list in the prose', () => {
+    const help = parseHelp(`Usage: cut OPTION... [FILE]...
+Print selected parts of lines from each FILE to standard output.
+
+  -b, --bytes=LIST        select only these bytes
+  -f, --fields=LIST       select only these fields
+  -n, --lines=[-]NUM      print the first NUM lines
+      --help        display this help and exit
+
+Use one, and only one of -b, -c or -f.  Each LIST is made up of one
+range, or many ranges separated by commas.  Each range is one of:
+
+  N     N'th byte, character or field, counted from 1
+  N-    from N'th byte, character or field, to end of line
+  N-M   from N'th to M'th (included) byte, character or field
+  -M    from first to M'th (included) byte, character or field
+`);
+    expect(flag(help.flags, '-b').values).toEqual([{ name: 'LIST', type: 'int' }]);
+    expect(flag(help.flags, '-n').values).toEqual([{ name: '[-]NUM', type: 'int' }]);
+    expect(help.flags.map((f) => f.names[0])).toEqual(['-b', '-f', '-n', '--help']);
+  });
+
   it('reads lowercase placeholders up to the description column (jq style)', () => {
     const help = parseHelp(`Usage:\tfrob [options] <frob filter> [file...]
 \tfrob [options] --raw <frob filter> [strings...]
@@ -428,6 +450,17 @@ describe('valueType', () => {
     ['offset', 'int'],
     ['seek', 'int'],
     ['len', 'int'],
+    ['[-]NUM', 'int'],
+    ['[+-]N', 'int'],
+    ['LIST', 'int'],
+    ['FIELD', 'int'],
+    ['FIELDS', 'int'],
+    ['FILENUM', 'int'],
+    ['FIRST', 'int'],
+    ['INCREMENT', 'int'],
+    ['LAST', 'int'],
+    ['INPUT', 'path'],
+    ['OUTPUT', 'path'],
   ] as const)('%s is %s', (name, type) => expect(valueType(name)).toBe(type));
 });
 

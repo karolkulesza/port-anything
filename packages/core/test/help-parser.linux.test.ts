@@ -88,7 +88,7 @@ const TOOLS: Tool[] = [
   {
     argv: ['gnucut', '--help'],
     program: 'gnucut',
-    expected: { minFlags: 8, args: [file], flags: { '-f': { names: ['-f', '--fields'], values: [{ name: 'LIST', type: 'string' }] }, '-d': { values: [{ name: 'DELIM' }] } } },
+    expected: { minFlags: 8, args: [file], flags: { '-f': { names: ['-f', '--fields'], values: [{ name: 'LIST', type: 'int' }] }, '-d': { values: [{ name: 'DELIM' }] } } },
   },
   {
     argv: ['gnunumfmt', '--help'],
@@ -105,7 +105,7 @@ const TOOLS: Tool[] = [
   {
     argv: ['gnuhead', '--help'],
     program: 'gnuhead',
-    expected: { minFlags: 6, args: [file], flags: { '-n': { names: ['-n', '--lines'], values: [{ type: 'string' }] }, '-q': { names: ['-q', '--quiet', '--silent'] } } },
+    expected: { minFlags: 6, args: [file], flags: { '-n': { names: ['-n', '--lines'], values: [{ name: '[-]NUM', type: 'int' }] }, '-q': { names: ['-q', '--quiet', '--silent'] } } },
   },
   {
     argv: ['gnuod', '--help'],
