@@ -1,5 +1,12 @@
 # @port-anything/mcp
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [eab5f2a]
+  - @port-anything/core@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@port-anything/report",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Port Anything static HTML report and badge.",
   "license": "Apache-2.0",
   "repository": {
