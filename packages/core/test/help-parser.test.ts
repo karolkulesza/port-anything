@@ -121,26 +121,43 @@ Options:
 });
 
 describe('parseHelp: other layouts', () => {
-  it('reads GNU cut: numeric LIST and [-]NUM values, and no flag from the ranges list in the prose', () => {
-    const help = parseHelp(`Usage: cut OPTION... [FILE]...
-Print selected parts of lines from each FILE to standard output.
+  it('reads a LIST of positions and a signed [-]NUM as numbers, and no flag from a range list in the prose', () => {
+    const help = parseHelp(`Usage: slice OPTION... [FILE]...
+Show chosen pieces of each input line.
 
-  -b, --bytes=LIST        select only these bytes
-  -f, --fields=LIST       select only these fields
-  -n, --lines=[-]NUM      print the first NUM lines
-      --help        display this help and exit
+  -p, --pieces=LIST       show just the pieces in LIST
+  -w, --words=LIST        show just the words in LIST
+  -m, --max=[-]NUM        stop after NUM lines
+      --help        print this text
 
-Use one, and only one of -b, -c or -f.  Each LIST is made up of one
-range, or many ranges separated by commas.  Each range is one of:
+LIST is one range or several, joined by commas.  A range is written as:
 
-  N     N'th byte, character or field, counted from 1
-  N-    from N'th byte, character or field, to end of line
-  N-M   from N'th to M'th (included) byte, character or field
-  -M    from first to M'th (included) byte, character or field
+  A     piece A alone
+  A-    piece A up to the line end
+  A-B   pieces A to B
+  -B    pieces 1 to B
 `);
-    expect(flag(help.flags, '-b').values).toEqual([{ name: 'LIST', type: 'int' }]);
-    expect(flag(help.flags, '-n').values).toEqual([{ name: '[-]NUM', type: 'int' }]);
-    expect(help.flags.map((f) => f.names[0])).toEqual(['-b', '-f', '-n', '--help']);
+    expect(flag(help.flags, '-p').values).toEqual([{ name: 'LIST', type: 'int' }]);
+    expect(flag(help.flags, '-m').values).toEqual([{ name: '[-]NUM', type: 'int' }]);
+    expect(help.flags.map((f) => f.names[0])).toEqual(['-p', '-w', '-m', '--help']);
+  });
+
+  it('keeps an option right under a two-column line that is not a range', () => {
+    const help = parseHelp(`Usage: check EXPR
+
+  EXPR is true or false:
+
+  WORD                 true when WORD isn't empty
+  -e WORD              true when WORD is empty
+  NAME                 the context to use
+  -c, --compute        work out the context first
+`);
+    expect(help.flags.map((f) => f.names[0])).toEqual(['-e', '-c']);
+  });
+
+  it('types an uppercase LIST as numbers, a lowercase list (Go CLIs) as text', () => {
+    expect(valueType('LIST')).toBe('int');
+    expect(valueType('list')).toBe('string');
   });
 
   it('reads lowercase placeholders up to the description column (jq style)', () => {
@@ -452,7 +469,6 @@ describe('valueType', () => {
     ['len', 'int'],
     ['[-]NUM', 'int'],
     ['[+-]N', 'int'],
-    ['LIST', 'int'],
     ['FIELD', 'int'],
     ['FIELDS', 'int'],
     ['FILENUM', 'int'],

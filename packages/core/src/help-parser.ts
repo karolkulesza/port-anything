@@ -328,13 +328,16 @@ interface FlagItem {
 }
 
 /**
- * `-M    from first to M'th …` right after `N-M   from N'th …`, at the same depth: an entry of a
- * list in the prose (GNU cut's and numfmt's ranges), not an option.
+ * `-M    from first to M'th …` right under `N-M   from N'th …`: an entry of a range list in the
+ * prose (GNU cut's and numfmt's), not an option. Only a flag word that ends the range on the line
+ * above counts, so an option under any other two-column line (test's `STRING  …` then `-z STRING`)
+ * stays an option.
  */
-function listEntry(lines: string[], i: number): boolean {
-  const prev = i > 0 ? expandTabs(lines[i - 1]!) : '';
-  const depth = (line: string) => line.search(/\S/);
-  return prev.trim() !== '' && depth(prev) === depth(expandTabs(lines[i]!)) && !OPTION_LINE.test(prev.trim()) && /^\s+\S+ {2,}\S/.test(prev);
+function rangeListEntry(lines: string[], i: number): boolean {
+  if (i === 0) return false;
+  const word = lines[i]!.trim().split(/\s+/)[0]!;
+  const above = lines[i - 1]!.trim().split(/\s+/)[0] ?? '';
+  return /^[A-Z]+-[A-Z]*$/.test(above) && above !== word && above.endsWith(word);
 }
 
 function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[]; lines: Set<number> } {
@@ -342,7 +345,7 @@ function readOptionLines(lines: string[], skip: Set<number>): { flags: HelpFlag[
   const raw = lines.map((line, i) => (!skip.has(i) && OPTION_LINE.test(line.trim()) ? i : -1)).filter((i) => i >= 0);
   const column = descriptionColumn(raw.map((i) => lines[i]!));
   // A line starting with a flag as deep as the descriptions continues one (`--diff, --extract or …`).
-  const isOption = new Set(raw.filter((i) => (column === undefined || expandTabs(lines[i]!).search(/\S/) < column) && !listEntry(lines, i)));
+  const isOption = new Set(raw.filter((i) => (column === undefined || expandTabs(lines[i]!).search(/\S/) < column) && !rangeListEntry(lines, i)));
   const flags: HelpFlag[] = [];
   for (const i of isOption) {
     if (used.has(i)) continue;
@@ -549,9 +552,11 @@ export function valueType(name: string): CliValue['type'] {
   const base = n.replace(/\d+$/, ''); // FILE1 FILE2 (comm, join, diff)
   // `INPUT [OUTPUT]` (uniq) names files.
   if (/^(files?|filenames?|dirs?|director(y|ies)|paths?|pathnames?|input|output)$/i.test(base) || /(file|dir|path)s?$/i.test(base)) return 'path';
-  // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`. So is a `LIST` of
-  // bytes or fields (cut), a `FIELD` or `FILENUM` (join), and seq's `FIRST INCREMENT LAST`.
-  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|offset|off|seek|len|length|list|fields?|filenum|first|increment|last|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
+  // A sort key (`KEYDEF`, `POS1`) is at its simplest a field number: `-k 2`. So is a `FIELD` or
+  // `FILENUM` (join), seq's `FIRST INCREMENT LAST`, and an uppercase `LIST` of bytes or fields (cut;
+  // paste's delimiter LIST takes digits too). Go CLIs' lowercase `list` is a repeatable string flag.
+  if (n === 'LIST') return 'int';
+  if (/^(n|num|number|count|width|cols|columns|level|levels|depth|pid|uid|gid|fd|strsize|nmerge|keydef|pos\d*|offset|off|seek|len|length|fields?|filenum|first|increment|last|#)$/i.test(n) || /^(n|num|max|min)[_-]\w+$/i.test(n)) return 'int';
   if (/^(size|memsize|bytes)$/i.test(n)) return 'size';
   return 'string';
 }
