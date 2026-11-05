@@ -1,0 +1,109 @@
+utility,implementation,seed_42,seed_7,seed_1234,mean
+base64,GNU 9.7 (Ubuntu 26.04),99.8,99.6,99.9,99.8
+base64,uutils 0.10.0 (Ubuntu 26.04),91.4,83.6,91.3,88.8
+base64,uutils 0.12.0 (latest release),91.4,83.5,91.3,88.7
+base64,uutils main,91.4,83.7,91.3,88.8
+basename,GNU 9.7 (Ubuntu 26.04),99.6,99.7,99.3,99.5
+basename,uutils 0.10.0 (Ubuntu 26.04),94.5,94.9,94.3,94.6
+basename,uutils 0.12.0 (latest release),94.5,94.9,94.3,94.6
+basename,uutils main,94.5,94.9,94.2,94.5
+cat,GNU 9.7 (Ubuntu 26.04),100.0,99.7,99.8,99.8
+cat,uutils 0.10.0 (Ubuntu 26.04),99.8,99.6,99.4,99.6
+cat,uutils 0.12.0 (latest release),99.9,99.5,99.5,99.6
+cat,uutils main,99.9,99.6,99.5,99.7
+comm,GNU 9.7 (Ubuntu 26.04),99.9,100.0,100.0,100.0
+comm,uutils 0.10.0 (Ubuntu 26.04),88.5,48.2,35.7,57.5
+comm,uutils 0.12.0 (latest release),93.6,50.6,39.6,61.3
+comm,uutils main,94.9,94.2,95.9,95.0
+cut,GNU 9.7 (Ubuntu 26.04),62.3,75.0,75.9,71.1
+cut,uutils 0.10.0 (Ubuntu 26.04),67.3,65.0,67.4,66.6
+cut,uutils 0.12.0 (latest release),99.8,99.7,99.0,99.5
+cut,uutils main,99.7,99.6,99.1,99.5
+date,GNU 9.7 (Ubuntu 26.04),100.0,86.1,100.0,95.4
+date,uutils 0.10.0 (Ubuntu 26.04),76.3,75.8,82.4,78.2
+date,uutils 0.12.0 (latest release),84.9,75.8,87.3,82.7
+date,uutils main,84.9,75.8,87.3,82.7
+dirname,GNU 9.7 (Ubuntu 26.04),,100.0,,
+dirname,uutils 0.10.0 (Ubuntu 26.04),,75.0,,
+dirname,uutils 0.12.0 (latest release),,70.0,,
+dirname,uutils main,,75.0,,
+expr,GNU 9.7 (Ubuntu 26.04),100.0,100.0,100.0,100.0
+expr,uutils 0.10.0 (Ubuntu 26.04),100.0,100.0,100.0,100.0
+expr,uutils 0.12.0 (latest release),100.0,100.0,100.0,100.0
+expr,uutils main,100.0,100.0,100.0,100.0
+fmt,GNU 9.7 (Ubuntu 26.04),96.6,99.4,99.4,98.5
+fmt,uutils 0.10.0 (Ubuntu 26.04),87.1,88.5,93.2,89.6
+fmt,uutils 0.12.0 (latest release),87.1,88.4,93.2,89.6
+fmt,uutils main,95.9,97.4,98.2,97.2
+head,GNU 9.7 (Ubuntu 26.04),63.9,54.2,83.5,67.2
+head,uutils 0.10.0 (Ubuntu 26.04),63.8,51.9,81.7,65.8
+head,uutils 0.12.0 (latest release),63.8,51.9,81.8,65.8
+head,uutils main,99.6,97.3,98.0,98.3
+join,GNU 9.7 (Ubuntu 26.04),100.0,100.0,99.9,100.0
+join,uutils 0.10.0 (Ubuntu 26.04),93.0,90.1,77.1,86.7
+join,uutils 0.12.0 (latest release),93.0,91.9,77.2,87.4
+join,uutils main,96.6,96.9,79.5,91.0
+ls,GNU 9.7 (Ubuntu 26.04),99.4,99.4,99.8,99.5
+ls,uutils 0.10.0 (Ubuntu 26.04),75.5,83.0,83.5,80.7
+ls,uutils 0.12.0 (latest release),75.5,83.0,83.5,80.7
+ls,uutils main,81.9,91.6,88.7,87.4
+nl,GNU 9.7 (Ubuntu 26.04),99.8,100.0,99.7,99.8
+nl,uutils 0.10.0 (Ubuntu 26.04),80.7,78.4,86.3,81.8
+nl,uutils 0.12.0 (latest release),80.4,78.1,86.2,81.6
+nl,uutils main,81.6,79.4,86.6,82.5
+numfmt,GNU 9.7 (Ubuntu 26.04),69.5,90.1,90.3,83.3
+numfmt,uutils 0.10.0 (Ubuntu 26.04),83.0,75.5,85.5,81.3
+numfmt,uutils 0.12.0 (latest release),85.5,77.5,86.6,83.2
+numfmt,uutils main,85.7,77.7,86.5,83.3
+od,GNU 9.7 (Ubuntu 26.04),99.5,99.3,99.5,99.4
+od,uutils 0.10.0 (Ubuntu 26.04),89.0,86.7,86.2,87.3
+od,uutils 0.12.0 (latest release),92.5,87.9,89.8,90.1
+od,uutils main,93.0,88.4,90.5,90.6
+paste,GNU 9.7 (Ubuntu 26.04),100.0,99.8,99.9,99.9
+paste,uutils 0.10.0 (Ubuntu 26.04),99.1,99.2,99.5,99.3
+paste,uutils 0.12.0 (latest release),99.5,99.3,99.5,99.4
+paste,uutils main,99.6,99.2,99.5,99.4
+printf,GNU 9.7 (Ubuntu 26.04),100.0,100.0,100.0,100.0
+printf,uutils 0.10.0 (Ubuntu 26.04),100.0,100.0,100.0,100.0
+printf,uutils 0.12.0 (latest release),98.1,100.0,100.0,99.4
+printf,uutils main,100.0,100.0,100.0,100.0
+seq,GNU 9.7 (Ubuntu 26.04),99.5,100.0,100.0,99.8
+seq,uutils 0.10.0 (Ubuntu 26.04),99.5,100.0,100.0,99.8
+seq,uutils 0.12.0 (latest release),99.5,100.0,98.6,99.4
+seq,uutils main,99.1,100.0,100.0,99.7
+sha256sum,GNU 9.7 (Ubuntu 26.04),99.8,99.7,99.8,99.8
+sha256sum,uutils 0.10.0 (Ubuntu 26.04),99.7,99.5,99.5,99.6
+sha256sum,uutils 0.12.0 (latest release),99.7,99.4,99.6,99.6
+sha256sum,uutils main,99.7,99.5,99.6,99.6
+sort,GNU 9.7 (Ubuntu 26.04),99.8,99.8,99.7,99.8
+sort,uutils 0.10.0 (Ubuntu 26.04),86.3,84.3,86.7,85.8
+sort,uutils 0.12.0 (latest release),86.2,84.3,86.7,85.7
+sort,uutils main,87.3,85.6,87.7,86.9
+split,GNU 9.7 (Ubuntu 26.04),98.6,98.4,98.4,98.5
+split,uutils 0.10.0 (Ubuntu 26.04),88.7,80.0,79.9,82.9
+split,uutils 0.12.0 (latest release),88.9,79.8,79.5,82.7
+split,uutils main,90.6,81.4,81.0,84.3
+tac,GNU 9.7 (Ubuntu 26.04),99.9,99.8,99.8,99.8
+tac,uutils 0.10.0 (Ubuntu 26.04),99.5,99.5,99.6,99.5
+tac,uutils 0.12.0 (latest release),99.6,99.5,99.5,99.5
+tac,uutils main,99.6,99.5,99.6,99.6
+tail,GNU 9.7 (Ubuntu 26.04),30.9,42.3,76.0,49.7
+tail,uutils 0.10.0 (Ubuntu 26.04),96.0,93.7,97.1,95.6
+tail,uutils 0.12.0 (latest release),96.5,94.9,97.7,96.4
+tail,uutils main,97.3,98.0,97.7,97.7
+touch,GNU 9.7 (Ubuntu 26.04),,100.0,98.5,
+touch,uutils 0.10.0 (Ubuntu 26.04),,92.4,95.7,
+touch,uutils 0.12.0 (latest release),,92.4,95.7,
+touch,uutils main,,92.4,95.7,
+tr,GNU 9.7 (Ubuntu 26.04),99.7,99.1,99.7,99.5
+tr,uutils 0.10.0 (Ubuntu 26.04),99.7,99.5,98.4,99.2
+tr,uutils 0.12.0 (latest release),99.6,99.3,98.4,99.1
+tr,uutils main,99.7,99.5,98.3,99.2
+uniq,GNU 9.7 (Ubuntu 26.04),99.7,99.8,99.9,99.8
+uniq,uutils 0.10.0 (Ubuntu 26.04),93.3,67.7,94.6,85.2
+uniq,uutils 0.12.0 (latest release),93.3,68.2,95.1,85.5
+uniq,uutils main,93.3,68.3,95.1,85.6
+wc,GNU 9.7 (Ubuntu 26.04),99.9,99.6,99.7,99.7
+wc,uutils 0.10.0 (Ubuntu 26.04),60.1,70.5,45.7,58.8
+wc,uutils 0.12.0 (latest release),60.0,70.5,45.7,58.7
+wc,uutils main,60.1,70.5,45.7,58.8
