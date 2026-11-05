@@ -1,4 +1,4 @@
-# Ubuntu 26.04's coreutils vs current GNU
+# How close are Ubuntu 26.04's Rust coreutils to GNU? I diffed 27 utilities
 
 *Made with [port-anything](../../README.md), which checks that a rewrite still behaves like the program it replaces: `npx port-anything compare <reference> <candidate>`.*
 
