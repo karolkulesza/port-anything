@@ -1,0 +1,56 @@
+Ran 1000 cases as "nl", sandbox: bwrap, no network
+run 20261015-112121-0720
+reference /opt/gnu/bin/nl
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils nl: 851 of 1000 cases match, 149 diverge
+  parity 81.3%, mean of 11 features (851 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_761c1690  c_ae51c185
+  cluster 2: 100 cases · stderr message-text · features opt.footer-numbering (18), opt.join-blank-lines (15), opt.line-increment (15), opt.number-width (15), opt.starting-line-number (15), opt.body-numbering (9), opt.header-numbering (9), opt.section-delimiter (4), base (2), opt.number-separator (1)
+    c_0021f053  c_02d79042  c_03014449  c_06e3b367  c_17f165d4  … and 95 more
+  cluster 3: 47 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.join-blank-lines (17), opt.line-increment (17), opt.starting-line-number (13)
+    c_05d7ad56  c_0752d2f2  c_08151776  c_0a0ab2e6  c_0dfba572  … and 42 more
+candidate 2 /opt/uu-main/coreutils nl: 851 of 1000 cases match, 149 diverge
+  parity 81.3%, mean of 11 features (851 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 4: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_761c1690  c_ae51c185
+  cluster 5: 100 cases · stderr message-text · features opt.footer-numbering (18), opt.join-blank-lines (15), opt.line-increment (15), opt.number-width (15), opt.starting-line-number (15), opt.body-numbering (9), opt.header-numbering (9), opt.section-delimiter (4), base (2), opt.number-separator (1)
+    c_0021f053  c_02d79042  c_03014449  c_06e3b367  c_17f165d4  … and 95 more
+  cluster 6: 47 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.join-blank-lines (17), opt.line-increment (17), opt.starting-line-number (13)
+    c_05d7ad56  c_0752d2f2  c_08151776  c_0a0ab2e6  c_0dfba572  … and 42 more
+candidate 3 /opt/busybox/busybox nl: 575 of 1000 cases match, 425 diverge
+  parity 48.5%, mean of 11 features (575 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 7: 346 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.section-delimiter (149), opt.join-blank-lines (99), opt.starting-line-number (67), opt.footer-numbering (47), opt.line-increment (46), opt.header-numbering (21), opt.version (1)
+    c_004258fa  c_029ace12  c_038b227b  c_0552c302  c_05d7ad56  … and 341 more
+  cluster 8: 64 cases · stderr message-text · features opt.footer-numbering (18), opt.join-blank-lines (15), opt.header-numbering (9), opt.number-width (8), opt.line-increment (6), opt.section-delimiter (4), opt.starting-line-number (3), base (2), opt.body-numbering (1), opt.number-separator (1)
+    c_02d79042  c_06e3b367  c_17f165d4  c_1c4aab3b  c_20dbcda3  … and 59 more
+  cluster 9: 2 cases · stdout other · features base (1), opt.help (1)
+    c_7daddba8  c_ae51c185
+  cluster 10: 11 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.body-numbering (8), opt.number-width (3)
+    c_03014449  c_4e346290  c_588a870b  c_9b3d8a00  c_cc7dcdd6  … and 6 more
+  cluster 11: 2 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.section-delimiter (2)
+    c_8da209ae  c_c83da073
+candidate 4 /opt/toybox/toybox nl: 162 of 1000 cases match, 838 diverge
+  parity 14.3%, mean of 11 features (162 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 12: 633 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.no-renumber (163), opt.section-delimiter (149), opt.join-blank-lines (89), opt.starting-line-number (88), opt.line-increment (85), opt.number-separator (54), opt.footer-numbering (47), opt.body-numbering (21), opt.header-numbering (21)
+    c_004258fa  c_005df4a7  c_023bf0d5  c_029ace12  c_038b227b  … and 628 more
+  cluster 13: 3 cases · stdout other · features base (1), opt.help (1), opt.version (1)
+    c_761c1690  c_7daddba8  c_ae51c185
+  cluster 14: 88 cases · stderr message-text · features opt.footer-numbering (18), opt.line-increment (15), opt.number-width (13), opt.join-blank-lines (12), opt.body-numbering (9), opt.header-numbering (9), opt.starting-line-number (9), opt.section-delimiter (4), base (1), opt.number-separator (1)
+    c_02d79042  c_03014449  c_06e3b367  c_17f165d4  c_1bf8f561  … and 83 more
+  cluster 15: 86 cases · stdout missing-trailing-newline (candidate) · features opt.number-separator (44), base (25), opt.number-width (13), opt.join-blank-lines (4)
+    c_02d858dd  c_032f8d4c  c_04953279  c_055051ca  c_0602d450  … and 81 more
+  cluster 16: 18 cases · stdout whitespace-only · features base (14), opt.starting-line-number (4)
+    c_0f5012a7  c_2a7154ea  c_49cfa717  c_4c31bab5  c_537ad60d  … and 13 more
+  cluster 17: 5 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.section-delimiter (2), opt.body-numbering (1), opt.no-renumber (1), opt.number-separator (1)
+    c_38b13b98  c_4659ffcc  c_8da209ae  c_9e2a9ec9  c_c83da073
+  cluster 18: 4 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.join-blank-lines (3), opt.number-width (1)
+    c_3957a745  c_90d59bc3  c_a93bf9f4  c_edf79fe0
+  cluster 19: 1 case · exit 1 vs 0, stderr empty (candidate empty) · features opt.number-width (1)
+    c_2df38747
+run exit 1

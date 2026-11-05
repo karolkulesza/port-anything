@@ -1,0 +1,110 @@
+version: 1
+program: numfmt
+flags:
+  - names: [ --debug ]
+    feature: opt.debug
+    arity: 0
+  - names: [ -d, --delimiter ]
+    feature: opt.delimiter
+    arity: 1
+    values:
+      - name: X
+        type: string
+  - names: [ --field ]
+    feature: opt.field
+    arity: 1
+    values:
+      - name: FIELDS
+        type: string
+  - names: [ --format ]
+    feature: opt.format
+    arity: 1
+    values:
+      - name: FORMAT
+        type: string
+  - names: [ --from ]
+    feature: opt.from
+    arity: 1
+    values:
+      - name: UNIT
+        type: string
+  - names: [ --from-unit ]
+    feature: opt.from-unit
+    arity: 1
+    values:
+      - name: N
+        type: int
+  - names: [ --grouping ]
+    feature: opt.grouping
+    arity: 0
+  - names: [ --header ]
+    feature: opt.header
+    arity: 1
+    values:
+      - name: N
+        type: int
+        optional: true
+  - names: [ --invalid ]
+    feature: opt.invalid
+    arity: 1
+    values:
+      - name: MODE
+        type: enum
+        choices: [ abort, fail, warn, ignore ]
+  - names: [ --padding ]
+    feature: opt.padding
+    arity: 1
+    values:
+      - name: N
+        type: int
+  - names: [ --round ]
+    feature: opt.round
+    arity: 1
+    values:
+      - name: METHOD
+        type: enum
+        choices: [ up, down, from-zero, towards-zero, nearest ]
+  - names: [ --suffix ]
+    feature: opt.suffix
+    arity: 1
+    values:
+      - name: SUFFIX
+        type: string
+  - names: [ --unit-separator ]
+    feature: opt.unit-separator
+    arity: 1
+    values:
+      - name: SEP
+        type: string
+  - names: [ --to ]
+    feature: opt.to
+    arity: 1
+    values:
+      - name: UNIT
+        type: string
+  - names: [ --to-unit ]
+    feature: opt.to-unit
+    arity: 1
+    values:
+      - name: N
+        type: int
+  - names: [ -z, --zero-terminated ]
+    feature: opt.zero-terminated
+    arity: 0
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+  - names: [ -M ]
+    feature: opt.M
+    arity: 0
+forms:
+  - usage: numfmt [OPTION]... [NUMBER]...
+    args:
+      - name: NUMBER
+        type: int
+        arity: "*"

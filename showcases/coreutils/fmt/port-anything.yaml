@@ -1,0 +1,18 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "fmt"
+reference:
+  cmd: "/opt/gnu/bin/fmt"
+candidates:
+  - cmd: "/opt/uu/coreutils fmt"
+  - cmd: "/opt/uu-main/coreutils fmt"
+  - cmd: "/opt/toybox/toybox fmt"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "fmt: GNU coreutils vs uutils, busybox, toybox"

@@ -1,0 +1,11 @@
+arch: aarch64
+distro: Ubuntu 25.10
+kernel: 5.15.49-linuxkit-pr
+bwrap: bubblewrap 0.11.0
+node: v22.23.3
+/opt/gnu/bin/od: od (GNU coreutils) 9.12
+/opt/uu/coreutils: coreutils 0.12.0 (multi-call binary)
+/opt/uu-main/coreutils: coreutils 0.13.0 (multi-call binary)
+/opt/busybox/busybox: BusyBox v1.38.0 (2026-10-14 16:55:36 UTC)
+/opt/toybox/toybox: toybox 0.8.15
+uutils main commit: 2fb77e8b927b5614438d288b0c72827a87106663

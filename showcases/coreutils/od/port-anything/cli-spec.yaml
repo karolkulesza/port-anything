@@ -1,0 +1,131 @@
+version: 1
+program: od
+flags:
+  - names: [ -A, --address-radix ]
+    feature: opt.address-radix
+    arity: 1
+    values:
+      - name: RADIX
+        type: string
+  - names: [ --endian ]
+    feature: opt.endian
+    arity: 1
+    values:
+      - name: "{big|little}"
+        type: string
+  - names: [ -j, --skip-bytes ]
+    feature: opt.skip-bytes
+    arity: 1
+    values:
+      - name: BYTES
+        type: size
+  - names: [ -N, --read-bytes ]
+    feature: opt.read-bytes
+    arity: 1
+    values:
+      - name: BYTES
+        type: size
+  - names: [ -S, --strings ]
+    feature: opt.strings
+    arity: 1
+    values:
+      - name: BYTES
+        type: size
+  - names: [ -t, --format ]
+    feature: opt.format
+    arity: 1
+    values:
+      - name: TYPE
+        type: string
+  - names: [ -v, --output-duplicates ]
+    feature: opt.output-duplicates
+    arity: 0
+  - names: [ -w, --width ]
+    feature: opt.width
+    arity: 1
+    values:
+      - name: BYTES
+        type: size
+        optional: true
+  - names: [ --traditional ]
+    feature: opt.traditional
+    arity: 0
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+  - names: [ -a ]
+    feature: opt.a
+    arity: 0
+  - names: [ -b ]
+    feature: opt.b
+    arity: 0
+  - names: [ -c ]
+    feature: opt.c
+    arity: 0
+  - names: [ -d ]
+    feature: opt.d
+    arity: 0
+  - names: [ -f ]
+    feature: opt.f
+    arity: 0
+  - names: [ -i ]
+    feature: opt.i
+    arity: 0
+  - names: [ -l ]
+    feature: opt.l
+    arity: 0
+  - names: [ -o ]
+    feature: opt.o
+    arity: 0
+  - names: [ -s ]
+    feature: opt.s
+    arity: 0
+  - names: [ -x ]
+    feature: opt.x
+    arity: 0
+forms:
+  - usage: od [OPTION]... [FILE]...
+    args:
+      - name: FILE
+        type: path
+        arity: "*"
+  - usage: od [-abcdfilosx]... [FILE] [[+]OFFSET[.][b]]
+    args:
+      - name: FILE
+        type: path
+        arity: "?"
+      - name: +
+        type: string
+        arity: "?"
+      - name: OFFSET[.][b]
+        type: string
+        arity: "?"
+  - usage: od --traditional [OPTION]... [FILE] [[+]OFFSET[.][b] [+][LABEL][.][b]]
+    flags: [ --traditional ]
+    args:
+      - name: FILE
+        type: path
+        arity: "?"
+      - name: +
+        type: string
+        arity: "?"
+      - name: OFFSET[.][b]
+        type: string
+        arity: "?"
+      - name: +
+        type: string
+        arity: "?"
+      - name: LABEL
+        type: string
+        arity: "?"
+      - name: .
+        type: string
+        arity: "?"
+      - name: b
+        type: string
+        arity: "?"

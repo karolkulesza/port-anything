@@ -1,0 +1,1 @@
+{"version":1,"run_id":"20261015-154811-6a1d","created":"2026-10-15T15:48:11.914Z","cases":3470,"candidates":[{"command":"/opt/jaq/jaq","sha":null,"parity":0.7214467397226018,"features":3,"scored":3470,"match":2714},{"command":"/opt/gojq/gojq","sha":null,"parity":0.8121742625190901,"features":3,"scored":3470,"match":2993}]}

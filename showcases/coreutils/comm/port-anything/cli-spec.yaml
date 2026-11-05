@@ -1,0 +1,47 @@
+version: 1
+program: comm
+flags:
+  - names: [ "-1" ]
+    feature: opt.1
+    arity: 0
+  - names: [ "-2" ]
+    feature: opt.2
+    arity: 0
+  - names: [ "-3" ]
+    feature: opt.3
+    arity: 0
+  - names: [ --check-order ]
+    feature: opt.check-order
+    arity: 0
+  - names: [ --nocheck-order ]
+    feature: opt.nocheck-order
+    arity: 0
+  - names: [ --output-delimiter ]
+    feature: opt.output-delimiter
+    arity: 1
+    values:
+      - name: STR
+        type: string
+  - names: [ --total ]
+    feature: opt.total
+    arity: 0
+  - names: [ -z, --zero-terminated ]
+    feature: opt.zero-terminated
+    arity: 0
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+forms:
+  - usage: comm [OPTION]... FILE1 FILE2
+    args:
+      - name: FILE1
+        type: path
+        arity: "1"
+      - name: FILE2
+        type: path
+        arity: "1"

@@ -1,0 +1,21 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "jq"
+reference:
+  cmd: "/opt/jq/jq"
+candidates:
+  - cmd: "/opt/jaq/jaq"
+  - cmd: "/opt/gojq/gojq"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "jq vs jaq and gojq"
+compare:
+  profile: lenient
+normalizers:
+  - { tmp-paths: null, scope: stdout } # added by port-anything baseline: needed in 1 case

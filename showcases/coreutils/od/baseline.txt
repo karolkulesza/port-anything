@@ -1,0 +1,4 @@
+Ran 1000 cases 3 times each as "od", sandbox: bwrap, no network
+reference /opt/gnu/bin/od
+stable: 1000, stable after normalizers: 0, flaky-reference: 0
+proposed normalizers: none

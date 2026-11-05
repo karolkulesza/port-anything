@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="port-anything">
+<title>Port Anything report: jq</title>
+<style>
+:root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #ffffff; --soft: #f6f8fa; --good: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --bg: #0d1117; --soft: #151b23; --good: #3fb950; --warn: #d29922; --bad: #f85149; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+code, pre { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.meta, .note { color: var(--muted); }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card { flex: 1 1 18rem; border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; }
+.card .parity { font-size: 2.2rem; font-weight: 700; }
+table { border-collapse: collapse; margin: .5rem 0; }
+th, td { border: 1px solid var(--line); padding: .25rem .6rem; text-align: left; vertical-align: top; }
+thead th { background: var(--soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.group th { background: var(--soft); font-weight: 600; }
+.full { color: var(--good); }
+.high { color: var(--warn); }
+.low { color: var(--bad); }
+.out { color: var(--muted); font-style: italic; }
+.flag { color: var(--bad); font-weight: 600; }
+.cluster { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: .75rem 0; }
+.cluster h3 { margin-top: .25rem; }
+</style>
+</head>
+<body>
+<header>
+<h1>Port Anything report: jq</h1>
+<p class="meta">run 20261015-154811-6a1d · 2026-10-15T15:48:11.914Z · 3470 cases · reference <code>/opt/jq/jq</code></p>
+</header>
+<main>
+<section id="headline">
+<h2>Parity</h2>
+<div class="cards">
+<div class="card">
+<p class="meta">candidate 1</p>
+<p><code>/opt/jaq/jaq</code></p>
+<p class="parity low">72.1%</p><p>mean of 3 features · 2714 of 3470 scored cases match (raw 78.2%)</p>
+<p>2714 cases match · 756 diverge · 0 waived (not scored)</p>
+<p>by origin: imported 66.7% (550 cases) · generated 74.8% (2920 cases)</p>
+<p>0 flaky-reference (not scored) · 4 flaky-candidate (diverge) · 3 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 2</p>
+<p><code>/opt/gojq/gojq</code></p>
+<p class="parity low">81.2%</p><p>mean of 3 features · 2993 of 3470 scored cases match (raw 86.2%)</p>
+<p>2993 cases match · 477 diverge · 0 waived (not scored)</p>
+<p>by origin: imported 81.6% (550 cases) · generated 81.0% (2920 cases)</p>
+<p>0 flaky-reference (not scored) · 4 flaky-candidate (diverge) · 2 timed out (diverge)</p>
+</div>
+</div>
+</section>
+<section id="matrix">
+<h2>Features × candidates</h2>
+<p class="note">Parity per feature: matching cases over scored cases (waived and flaky-reference cases are not scored).</p>
+<table>
+<thead><tr><th scope="col">feature</th><th scope="col">candidate 1<br><code>/opt/jaq/jaq</code></th><th scope="col">candidate 2<br><code>/opt/gojq/gojq</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">headline (mean)</th><td class="num low"><strong>72.1%</strong></td><td class="num low"><strong>81.2%</strong></td></tr>
+<tr class="group"><th colspan="3" scope="rowgroup">In the headline</th></tr>
+<tr><th scope="row"><code>base</code></th><td class="num low">66.7% <span class="note">(367/550)</span></td><td class="num low">81.6% <span class="note">(449/550)</span></td></tr>
+<tr><th scope="row"><code>mutated-filter</code></th><td class="num low">84.0% <span class="note">(1966/2340)</span></td><td class="num high">91.1% <span class="note">(2133/2340)</span></td></tr>
+<tr><th scope="row"><code>mutated-input</code></th><td class="num low">65.6% <span class="note">(381/580)</span></td><td class="num low">70.8% <span class="note">(411/580)</span></td></tr>
+</tbody>
+</table>
+</section>
+<section id="untested">
+<h2>Untested features</h2>
+<p class="note">Features in the CLI spec that no case carries. They don't count toward the headline, so they are listed here instead.</p>
+<p>None: every feature the CLI spec defines has cases.</p>
+</section>
+<section id="under-sampled">
+<h2>Under-sampled features</h2>
+<p class="note">Features with fewer than 20 scored cases (<code>corpus.min_cases_per_feature</code>): shown, but left out of the headline so a single case can't swing it.</p>
+<p>None.</p>
+</section>
+<section id="self-description">
+<h2>Self-description features</h2>
+<p class="note"><code>--help</code>, <code>--version</code>, <code>--usage</code> and features marked <code>self_description: true</code> in the CLI spec. Their text differs between implementations by design, so they are reported here and left out of the headline.</p>
+<p>None.</p>
+</section>
+<section id="clusters">
+<h2>Clusters</h2>
+<p class="note">Diverging cases grouped by what differs, heaviest first: a cluster's weight is how much of the per-feature headline it holds down. The repro is the cluster's smallest case.</p>
+<h3>candidate 1 <code>/opt/jaq/jaq</code>: 31 clusters</h3>
+<div class="cluster" id="cluster-1">
+<h3>cluster 1: 231 cases · stdout other</h3>
+<p>features mutated-filter (103), base (68), mutated-input (60)</p>
+<p>repro: case <code>c_1cbec2b5</code></p>
+<pre>$ jq -c nan</pre>
+<p class="note">stdin (8 bytes):</p>
+<pre>[false]
+</pre>
+<p class="note">cases: <code>c_0106913a</code> <code>c_083d9cc2</code> <code>c_09dd3f9c</code> <code>c_1249cde9</code> <code>c_13710283</code> <code>c_16eb9174</code> <code>c_21ed53a4</code> <code>c_247b49c1</code> <code>c_27468ac2</code> <code>c_328b790f</code> <code>c_3399869f</code> <code>c_346dfd67</code> <code>c_386c20e3</code> <code>c_39755fea</code> <code>c_3b6025be</code> <code>c_3ffb9c7a</code> <code>c_447fc655</code> <code>c_46643f80</code> <code>c_493460e2</code> <code>c_4f105c4f</code> … and 211 more</p>
+</div>
+<div class="cluster" id="cluster-2">
+<h3>cluster 2: 159 cases · exit 0 vs 3, stdout empty (candidate empty)</h3>
+<p>features mutated-filter (75), base (43), mutated-input (41)</p>
+<p>repro: case <code>c_e105b530</code></p>
+<pre>$ jq -c &#39;IN(not)&#39;</pre>
+<p class="note">stdin (3 bytes):</p>
+<pre>[]
+</pre>
+<p class="note">cases: <code>c_05f76004</code> <code>c_07ae9543</code> <code>c_115488b8</code> <code>c_1546404b</code> <code>c_28cdc9d2</code> <code>c_2d88fa1f</code> <code>c_2dff6455</code> <code>c_2e7f468c</code> <code>c_392508fc</code> <code>c_4575b728</code> <code>c_457b4a1e</code> <code>c_49931b3b</code> <code>c_4af70d83</code> <code>c_4b524d86</code> <code>c_51d0047a</code> <code>c_565042e3</code> <code>c_5b00a5e0</code> <code>c_5bd14121</code> <code>c_609ad335</code> <code>c_656682db</code> … and 139 more</p>
+</div>
+<div class="cluster" id="cluster-3">
+<h3>cluster 3: 119 cases · exit 0 vs 5, stdout empty (candidate empty)</h3>
+<p>features mutated-filter (53), mutated-input (36), base (30)</p>
+<p>repro: case <code>c_b70791c9</code></p>
+<pre>$ jq -c 2-1</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>nan
+</pre>
+<p class="note">cases: <code>c_039c9549</code> <code>c_066f6736</code> <code>c_0d8f9d45</code> <code>c_26344911</code> <code>c_27df8303</code> <code>c_28afee69</code> <code>c_3098bb35</code> <code>c_3f95797a</code> <code>c_503a0d6f</code> <code>c_5e531bfa</code> <code>c_63a8dd67</code> <code>c_68274c3d</code> <code>c_6c2d8287</code> <code>c_876ef446</code> <code>c_88179c0d</code> <code>c_89945da6</code> <code>c_8c7f54aa</code> <code>c_8da42f06</code> <code>c_a14b0751</code> <code>c_a3dc0cd0</code> … and 99 more</p>
+</div>
+<div class="cluster" id="cluster-4">
+<h3>cluster 4: 51 cases · stdout number-format</h3>
+<p>features mutated-filter (21), mutated-input (17), base (13)</p>
+<p>repro: case <code>c_4d694220</code></p>
+<pre>$ jq -c 2/1</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_2e666b19</code> <code>c_48b61fa4</code> <code>c_4e43c927</code> <code>c_64a97789</code> <code>c_7eb05d26</code> <code>c_7f8f2fa9</code> <code>c_a63edeb6</code> <code>c_d9a4e3e3</code> <code>c_da171ea7</code> <code>c_da6e0ea4</code> <code>c_e585ca8d</code> <code>c_f4e992e9</code> <code>c_fcd80862</code> <code>c_0407d140</code> <code>c_06854809</code> <code>c_08219802</code> <code>c_0ead9ec4</code> <code>c_1535d313</code> <code>c_1640d3ac</code> <code>c_2c8e8147</code> … and 31 more</p>
+</div>
+<div class="cluster" id="cluster-5">
+<h3>cluster 5: 62 cases · exit 5 vs 3</h3>
+<p>features mutated-filter (37), mutated-input (18), base (7)</p>
+<p>repro: case <code>c_0f4d0def</code></p>
+<pre>$ jq -c modulemeta</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>&quot;c&quot;
+</pre>
+<p class="note">cases: <code>c_0f4d0def</code> <code>c_11aff068</code> <code>c_2f2b3e82</code> <code>c_a66e0eec</code> <code>c_abdf00d3</code> <code>c_e57865ec</code> <code>c_fbc716e5</code> <code>c_030d891a</code> <code>c_0d644bcc</code> <code>c_22ffc490</code> <code>c_24a3e990</code> <code>c_2daaab8f</code> <code>c_2f21b7b4</code> <code>c_30f39f7d</code> <code>c_321155c2</code> <code>c_335d92ea</code> <code>c_3dadfb23</code> <code>c_41d325db</code> <code>c_48f945e2</code> <code>c_4f8b1509</code> … and 42 more</p>
+</div>
+<div class="cluster" id="cluster-6">
+<h3>cluster 6: 12 cases · stdout empty (reference empty)</h3>
+<p>features mutated-input (8), mutated-filter (4)</p>
+<p>repro: case <code>c_269a553d</code></p>
+<pre>$ jq -c &#39;tojson | fromjson&#39;</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>5,3
+</pre>
+<p class="note">cases: <code>c_01d690d5</code> <code>c_269a553d</code> <code>c_296b62bf</code> <code>c_2b90de65</code> <code>c_3afdef19</code> <code>c_4942e106</code> <code>c_8d2afd08</code> <code>c_ad00a6d4</code> <code>c_b4235318</code> <code>c_d24bcdec</code> <code>c_d4134d59</code> <code>c_eddee649</code></p>
+</div>
+<div class="cluster" id="cluster-7">
+<h3>cluster 7: 21 cases · exit 5 vs 0, stdout empty (reference empty)</h3>
+<p>features mutated-filter (17), mutated-input (4)</p>
+<p>repro: case <code>c_92927715</code></p>
+<pre>$ jq -c &#39;def a: 0; . | a&#39;</pre>
+<p class="note">stdin (7 bytes):</p>
+<pre>18null
+</pre>
+<p class="note">cases: <code>c_0c506dd1</code> <code>c_0c7ef613</code> <code>c_1384acbd</code> <code>c_15d5e0c6</code> <code>c_19b6bf78</code> <code>c_63139336</code> <code>c_858c9983</code> <code>c_871342c5</code> <code>c_92927715</code> <code>c_94486ba4</code> <code>c_98f49b01</code> <code>c_aff4aea1</code> <code>c_b710a0c6</code> <code>c_ba1a801f</code> <code>c_cd1a64c8</code> <code>c_def4f959</code> <code>c_df2261ba</code> <code>c_e6861c9c</code> <code>c_f62474e6</code> <code>c_f7c2644b</code> … and 1 more</p>
+</div>
+<div class="cluster" id="cluster-8">
+<h3>cluster 8: 16 cases · exit 3 vs 0</h3>
+<p>features mutated-filter (11), base (5)</p>
+<p>repro: case <code>c_e57c3ae4</code></p>
+<pre>$ jq -c &#39;{(0):1}&#39;</pre>
+<p class="note">cases: <code>c_1a4a6040</code> <code>c_7dad9aea</code> <code>c_8faf860a</code> <code>c_e57c3ae4</code> <code>c_fb801ec9</code> <code>c_2100b782</code> <code>c_29e5a456</code> <code>c_31cb8026</code> <code>c_3d335398</code> <code>c_5ad4c478</code> <code>c_5db236d9</code> <code>c_6265d492</code> <code>c_8b496ff5</code> <code>c_8f0a7db5</code> <code>c_97666e9d</code> <code>c_9f399732</code></p>
+</div>
+<div class="cluster" id="cluster-9">
+<h3>cluster 9: 11 cases · stdout number-value</h3>
+<p>features mutated-filter (5), base (4), mutated-input (2)</p>
+<p>repro: case <code>c_1fae6631</code></p>
+<pre>$ jq -c &#39;. - 10&#39;</pre>
+<p class="note">stdin (18 bytes):</p>
+<pre>13911860366432393
+</pre>
+<p class="note">cases: <code>c_1fae6631</code> <code>c_46c99433</code> <code>c_6a42b40c</code> <code>c_f0e0cfe1</code> <code>c_0e9851c3</code> <code>c_225ca825</code> <code>c_529ce68a</code> <code>c_6d68b087</code> <code>c_d30db0c1</code> <code>c_f9b702b2</code> <code>c_fdacaea7</code></p>
+</div>
+<div class="cluster" id="cluster-10">
+<h3>cluster 10: 7 cases · exit 0 vs 134, stdout other</h3>
+<p>features base (3), mutated-input (3), mutated-filter (1)</p>
+<p>repro: case <code>c_34a0d678</code></p>
+<pre>$ jq -c &#39;try (reduce range(10001) as $_ ({}; {a: .}) as $x | $x * $x) catch .&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_21a2d9b5</code> <code>c_34a0d678</code> <code>c_53195152</code> <code>c_5c4c6bd7</code> <code>c_86a67855</code> <code>c_d60be52b</code> <code>c_ee8035bc</code></p>
+</div>
+<div class="cluster" id="cluster-11">
+<h3>cluster 11: 8 cases · exit 0 vs 134, stdout empty (candidate empty)</h3>
+<p>features base (3), mutated-filter (3), mutated-input (2)</p>
+<p>repro: case <code>c_23d06d72</code></p>
+<pre>$ jq -c &#39;reduce range(9999) as $_ ([];[.]) | tojson | fromjson | 0&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_108f6e26</code> <code>c_964adbab</code> <code>c_9c64e628</code> <code>c_23d06d72</code> <code>c_43c3d2d4</code> <code>c_66b5e992</code> <code>c_811b4871</code> <code>c_b20aa6ff</code></p>
+</div>
+<div class="cluster" id="cluster-12">
+<h3>cluster 12: 10 cases · exit 0 vs 5, stdout prefix-suffix (candidate stops early)</h3>
+<p>features mutated-filter (7), base (2), mutated-input (1)</p>
+<p>repro: case <code>c_d59c007e</code></p>
+<pre>$ jq -c &#39;[range(3)] | .[1,nan]&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_2a022568</code> <code>c_e599e5ab</code> <code>c_1dac84cf</code> <code>c_45f0f0dc</code> <code>c_57e579ad</code> <code>c_be58d17c</code> <code>c_ca34bc41</code> <code>c_cb24afa8</code> <code>c_d59c007e</code> <code>c_daa8afc9</code></p>
+</div>
+<div class="cluster" id="cluster-13">
+<h3>cluster 13: 8 cases · stdout empty (candidate empty)</h3>
+<p>features mutated-filter (5), base (2), mutated-input (1)</p>
+<p>repro: case <code>c_e360b5ce</code></p>
+<pre>$ jq -c &#39;try input catch .&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_1a3a8ce8</code> <code>c_e360b5ce</code> <code>c_0fc37f93</code> <code>c_18ff8cbe</code> <code>c_2e3175be</code> <code>c_46850cc2</code> <code>c_73286459</code> <code>c_8d9a3297</code></p>
+</div>
+<div class="cluster" id="cluster-14">
+<h3>cluster 14: 4 cases · exit 5 vs 3, stdout empty (candidate empty)</h3>
+<p>features mutated-input (3), mutated-filter (1)</p>
+<p>repro: case <code>c_29f4eaab</code></p>
+<pre>$ jq -c &#39;[range(3)] | .0,1,error(&quot;foo&quot;)&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_0eaeb9dd</code> <code>c_29f4eaab</code> <code>c_8e3c0483</code> <code>c_d21b188b</code></p>
+</div>
+<div class="cluster" id="cluster-15">
+<h3>cluster 15: 6 cases · exit 0 vs 3</h3>
+<p>features mutated-filter (5), base (1)</p>
+<p>repro: case <code>c_068a467c</code></p>
+<pre>$ jq -c &#39;[] |(select(IN({}, []) | not))&#39;</pre>
+<p class="note">stdin (15 bytes):</p>
+<pre>{&quot;a&quot;:1,&quot;b&quot;:[]}
+</pre>
+<p class="note">cases: <code>c_7a0b6f83</code> <code>c_068a467c</code> <code>c_4d141880</code> <code>c_61624bb5</code> <code>c_a4271a19</code> <code>c_e289e1c7</code></p>
+</div>
+<div class="cluster" id="cluster-16">
+<h3>cluster 16: 6 cases · exit 3 vs 0, stdout empty (reference empty)</h3>
+<p>features mutated-filter (6)</p>
+<p>repro: case <code>c_8e58d20e</code></p>
+<pre>$ jq -c &#39;([1,2] ?// [4,5])&#39;</pre>
+<p class="note">stdin (8 bytes):</p>
+<pre>[1,2,3]
+</pre>
+<p class="note">cases: <code>c_6a1a0a76</code> <code>c_773b550f</code> <code>c_8e58d20e</code> <code>c_93a40929</code> <code>c_c8cacbc4</code> <code>c_c984c7c6</code></p>
+</div>
+<div class="cluster" id="cluster-17">
+<h3>cluster 17: 1 case · exit 0 vs SIGTERM, stdout other</h3>
+<p>features base (1)</p>
+<p>repro: case <code>c_9ecb49c9</code></p>
+<pre>$ jq -c &#39;try (. * 1000000000) catch .&#39;</pre>
+<p class="note">stdin (6 bytes):</p>
+<pre>&quot;abc&quot;
+</pre>
+<p class="note">cases: <code>c_9ecb49c9</code></p>
+</div>
+<div class="cluster" id="cluster-18">
+<h3>cluster 18: 1 case · exit 0 vs 5, stdout other</h3>
+<p>features base (1)</p>
+<p>repro: case <code>c_3d019ce0</code></p>
+<pre>$ jq -c &#39;del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x)&#39;</pre>
+<p class="note">stdin (35 bytes):</p>
+<pre>{&quot;foo&quot;: [0,1,2,3,4], &quot;bar&quot;: [0,1]}
+</pre>
+<p class="note">cases: <code>c_3d019ce0</code></p>
+</div>
+<div class="cluster" id="cluster-19">
+<h3>cluster 19: 1 case · exit timeout vs 137</h3>
+<p>features mutated-input (1)</p>
+<p>repro: case <code>c_97752e27</code></p>
+<pre>$ jq -c &#39;[while(.&lt;100; .*2)]&#39;</pre>
+<p class="note">stdin (3 bytes):</p>
+<pre>-1
+</pre>
+<p class="note">cases: <code>c_97752e27</code></p>
+</div>
+<div class="cluster" id="cluster-20">
+<h3>cluster 20: 1 case · exit 0 vs 137, stdout empty (candidate empty)</h3>
+<p>features mutated-input (1)</p>
+<p>repro: case <code>c_d466884d</code></p>
+<pre>$ jq -c &#39;try (. * 1000000000) catch .&#39;</pre>
+<p class="note">stdin (10 bytes):</p>
+<pre>&quot;abc&quot;true
+</pre>
+<p class="note">cases: <code>c_d466884d</code></p>
+</div>
+<div class="cluster" id="cluster-21">
+<h3>cluster 21: 1 case · exit 5 vs 134, stdout empty (reference empty)</h3>
+<p>features mutated-input (1)</p>
+<p>repro: case <code>c_f09f7870</code></p>
+<pre>$ jq -c &#39;try ((reduce range(10001) as $_ ({}; {a: .})) as $x | [$x, $x] | sort) catch .&#39;</pre>
+<p class="note">stdin (6 bytes):</p>
+<pre>null-
+</pre>
+<p class="note">cases: <code>c_f09f7870</code></p>
+</div>
+<div class="cluster" id="cluster-22">
+<h3>cluster 22: 4 cases · exit 0 vs 134, stdout prefix-suffix (candidate stops early)</h3>
+<p>features mutated-filter (4)</p>
+<p>repro: case <code>c_485b2059</code></p>
+<pre>$ jq -c &#39;try (reduce range(10001) as $_ ({}; {a: .}) ,.) catch .&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_485b2059</code> <code>c_9e6d7130</code> <code>c_cc27fe4a</code> <code>c_f3c496c4</code></p>
+</div>
+<div class="cluster" id="cluster-23">
+<h3>cluster 23: 2 cases · exit timeout vs 5</h3>
+<p>features mutated-filter (2)</p>
+<p>repro: case <code>c_742f3533</code></p>
+<pre>$ jq -c &#39;setpath([range(10000) + 0]; 0) | flatten&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_0021f73c</code> <code>c_742f3533</code></p>
+</div>
+<div class="cluster" id="cluster-24">
+<h3>cluster 24: 2 cases · exit 3 vs 101</h3>
+<p>features mutated-filter (2)</p>
+<p>repro: case <code>c_3d69b987</code></p>
+<pre>$ jq -c &#39;&quot;foo&quot; | try ((try . catch &quot;caught too much&quot;) # error) catch &quot;caught just right&quot;&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_3d69b987</code> <code>c_b51e8b22</code></p>
+</div>
+<div class="cluster" id="cluster-25">
+<h3>cluster 25: 2 cases · exit 5 vs 134</h3>
+<p>features mutated-filter (2)</p>
+<p>repro: case <code>c_9e2f0cdb</code></p>
+<pre>$ jq -c &#39;reduce range(9999) as $_ ([];[.]) | tojson | . | flatten&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_9e2f0cdb</code> <code>c_d3c314ae</code></p>
+</div>
+<div class="cluster" id="cluster-26">
+<h3>cluster 26: 1 case · exit 0 vs timeout, stdout empty (candidate empty)</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_87d21ba1</code></p>
+<pre>$ jq -c &#39;try [&quot;OK&quot;, range([])] catch [&quot;KO&quot;, .]&#39;</pre>
+<p class="note">stdin (2 bytes):</p>
+<pre>0
+</pre>
+<p class="note">cases: <code>c_87d21ba1</code></p>
+</div>
+<div class="cluster" id="cluster-27">
+<h3>cluster 27: 1 case · exit 3 vs 5</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_969c972c</code></p>
+<pre>$ jq -c &#39;.[2].[1.7:4294967295]&#39;</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>[4]
+</pre>
+<p class="note">cases: <code>c_969c972c</code></p>
+</div>
+<div class="cluster" id="cluster-28">
+<h3>cluster 28: 1 case · stdout prefix-suffix (candidate misses the start)</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_3c872a22</code></p>
+<pre>$ jq -c &#39;.[] | try (getpath([&quot;a&quot;,0,&quot;b&quot;]) |= 5) []|.&#39;</pre>
+<p class="note">stdin (87 bytes):</p>
+<pre>[null,{&quot;b&quot;:0},{&quot;a&quot;:0},{&quot;a&quot;:null},{&quot;a&quot;:[0,1]},{&quot;a&quot;:{&quot;b&quot;:1}},{&quot;a&quot;:[{}]},{&quot;a&quot;:[{&quot;c&quot;:3}]}]
+</pre>
+<p class="note">cases: <code>c_3c872a22</code></p>
+</div>
+<div class="cluster" id="cluster-29">
+<h3>cluster 29: 1 case · timeout timeout vs 0, stdout other</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_84e8497c</code></p>
+<pre>$ jq -c &#39;try nth(&quot;%Y-%m-%dT%H:%M:%SZ&quot;) catch .&#39;</pre>
+<p class="note">stdin (20 bytes):</p>
+<pre>[&quot;a&quot;,1,2,3,4,5,6,7]
+</pre>
+<p class="note">cases: <code>c_84e8497c</code></p>
+</div>
+<div class="cluster" id="cluster-30">
+<h3>cluster 30: 1 case · timeout timeout vs SIGTERM, stdout empty (reference empty)</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_e7eddc1e</code></p>
+<pre>$ jq -c &#39;.[] as [$x, $y] | try [&quot;ok&quot;, ($x * 1000000000)] catch [&quot;ko&quot;, .]&#39;</pre>
+<p class="note">stdin (38 bytes):</p>
+<pre>[[&quot;hi&quot;,1],[1,&quot;hi&quot;],[&quot;hi&quot;,&quot;hi&quot;],[1,1]]
+</pre>
+<p class="note">cases: <code>c_e7eddc1e</code></p>
+</div>
+<div class="cluster" id="cluster-31">
+<h3>cluster 31: 1 case · timeout timeout vs 0</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_84dfc2d4</code></p>
+<pre>$ jq -c &#39;[range(0,1,43;4,3,2;2,3)]&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_84dfc2d4</code></p>
+</div>
+<h3>candidate 2 <code>/opt/gojq/gojq</code>: 20 clusters</h3>
+<div class="cluster" id="cluster-32">
+<h3>cluster 32: 244 cases · stdout other</h3>
+<p>features mutated-filter (115), base (72), mutated-input (57)</p>
+<p>repro: case <code>c_8759ee0f</code></p>
+<pre>$ jq -c env</pre>
+<p class="note">stdin (15 bytes):</p>
+<pre>&quot;Zm/Ds2Jhcgo=&quot;
+</pre>
+<p class="note">cases: <code>c_0106913a</code> <code>c_083d9cc2</code> <code>c_09dd3f9c</code> <code>c_108f6e26</code> <code>c_127eb591</code> <code>c_13710283</code> <code>c_16eb9174</code> <code>c_194c9ab8</code> <code>c_21a2d9b5</code> <code>c_21ed53a4</code> <code>c_247b49c1</code> <code>c_27468ac2</code> <code>c_2ccde70e</code> <code>c_328b790f</code> <code>c_3399869f</code> <code>c_346dfd67</code> <code>c_34a0d678</code> <code>c_386c20e3</code> <code>c_39755fea</code> <code>c_3d019ce0</code> … and 224 more</p>
+</div>
+<div class="cluster" id="cluster-33">
+<h3>cluster 33: 88 cases · exit 0 vs 5, stdout empty (candidate empty)</h3>
+<p>features mutated-input (70), mutated-filter (12), base (6)</p>
+<p>repro: case <code>c_cb634dc6</code></p>
+<pre>$ jq -c 1</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>NaN
+</pre>
+<p class="note">cases: <code>c_0b3216b9</code> <code>c_26344911</code> <code>c_3098bb35</code> <code>c_5e531bfa</code> <code>c_d47fbc19</code> <code>c_dd59c88d</code> <code>c_0290d656</code> <code>c_039eb790</code> <code>c_0d987a20</code> <code>c_0fa1d11e</code> <code>c_0fad10d6</code> <code>c_10564472</code> <code>c_128ae73c</code> <code>c_15c0915c</code> <code>c_162cc7a9</code> <code>c_1712c5f6</code> <code>c_19996db0</code> <code>c_1f3ca7b2</code> <code>c_22e555c2</code> <code>c_29c6e82b</code> … and 68 more</p>
+</div>
+<div class="cluster" id="cluster-34">
+<h3>cluster 34: 41 cases · exit 0 vs 3, stdout empty (candidate empty)</h3>
+<p>features mutated-filter (19), base (13), mutated-input (9)</p>
+<p>repro: case <code>c_4c9c10a4</code></p>
+<pre>$ jq -c have_decnum</pre>
+<p class="note">stdin (11 bytes):</p>
+<pre>1425599507
+</pre>
+<p class="note">cases: <code>c_07ae9543</code> <code>c_115488b8</code> <code>c_1546404b</code> <code>c_2d88fa1f</code> <code>c_457b4a1e</code> <code>c_5bd14121</code> <code>c_67a38d92</code> <code>c_83cbfb2c</code> <code>c_9107f824</code> <code>c_a1ab8b9a</code> <code>c_c4426cc3</code> <code>c_f9b3d378</code> <code>c_fbb75ff9</code> <code>c_0867aa54</code> <code>c_0ab98187</code> <code>c_0c1afd24</code> <code>c_16f96d29</code> <code>c_1f002cc1</code> <code>c_24882929</code> <code>c_307df5c7</code> … and 21 more</p>
+</div>
+<div class="cluster" id="cluster-35">
+<h3>cluster 35: 25 cases · stdout number-format</h3>
+<p>features mutated-filter (12), mutated-input (11), base (2)</p>
+<p>repro: case <code>c_d9a4e3e3</code></p>
+<pre>$ jq -c &#39;1 / 1e-17&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_a63edeb6</code> <code>c_d9a4e3e3</code> <code>c_1e6218ce</code> <code>c_29f4eaab</code> <code>c_35985293</code> <code>c_454eef1b</code> <code>c_4651ad51</code> <code>c_4da46c7f</code> <code>c_4e2c690d</code> <code>c_529ce68a</code> <code>c_568265eb</code> <code>c_653318fb</code> <code>c_65740cae</code> <code>c_69539489</code> <code>c_6e00d1c8</code> <code>c_93a855f9</code> <code>c_a6f03a4d</code> <code>c_a7028ddf</code> <code>c_abf5211f</code> <code>c_aea9a76a</code> … and 5 more</p>
+</div>
+<div class="cluster" id="cluster-36">
+<h3>cluster 36: 12 cases · stdout empty (reference empty)</h3>
+<p>features mutated-input (10), mutated-filter (2)</p>
+<p>repro: case <code>c_269a553d</code></p>
+<pre>$ jq -c &#39;tojson | fromjson&#39;</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>5,3
+</pre>
+<p class="note">cases: <code>c_01d690d5</code> <code>c_269a553d</code> <code>c_2b90de65</code> <code>c_3afdef19</code> <code>c_466a0877</code> <code>c_4942e106</code> <code>c_765a7db5</code> <code>c_8d2afd08</code> <code>c_94284d78</code> <code>c_ad00a6d4</code> <code>c_d24bcdec</code> <code>c_f09f7870</code></p>
+</div>
+<div class="cluster" id="cluster-37">
+<h3>cluster 37: 16 cases · stdout number-value</h3>
+<p>features mutated-filter (9), base (5), mutated-input (2)</p>
+<p>repro: case <code>c_a73d4aeb</code></p>
+<pre>$ jq -c &#39;[[1e999999999]]&#39;</pre>
+<p class="note">stdin (4 bytes):</p>
+<pre>[3]
+</pre>
+<p class="note">cases: <code>c_1fae6631</code> <code>c_46c99433</code> <code>c_6a42b40c</code> <code>c_f0e0cfe1</code> <code>c_fcd80862</code> <code>c_06854809</code> <code>c_0e9851c3</code> <code>c_2c8e8147</code> <code>c_5fb90142</code> <code>c_62834bd5</code> <code>c_6d68b087</code> <code>c_71d26e29</code> <code>c_8007d6e7</code> <code>c_a73d4aeb</code> <code>c_b389f7b7</code> <code>c_d30db0c1</code></p>
+</div>
+<div class="cluster" id="cluster-38">
+<h3>cluster 38: 11 cases · exit 5 vs 0, stdout empty (reference empty)</h3>
+<p>features mutated-filter (7), mutated-input (4)</p>
+<p>repro: case <code>c_22a4d0fb</code></p>
+<pre>$ jq -c &#39;indices([1,2])&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_0c506dd1</code> <code>c_22a4d0fb</code> <code>c_24a3e990</code> <code>c_4f746f6a</code> <code>c_66435369</code> <code>c_92927715</code> <code>c_b2d94a6a</code> <code>c_b4125fac</code> <code>c_b813cd4f</code> <code>c_d8a8a9c9</code> <code>c_f303f204</code></p>
+</div>
+<div class="cluster" id="cluster-39">
+<h3>cluster 39: 11 cases · exit 3 vs 0</h3>
+<p>features mutated-filter (8), base (3)</p>
+<p>repro: case <code>c_e57c3ae4</code></p>
+<pre>$ jq -c &#39;{(0):1}&#39;</pre>
+<p class="note">cases: <code>c_8faf860a</code> <code>c_e57c3ae4</code> <code>c_fb801ec9</code> <code>c_2100b782</code> <code>c_29e5a456</code> <code>c_31cb8026</code> <code>c_3d335398</code> <code>c_5ad4c478</code> <code>c_6265d492</code> <code>c_8b496ff5</code> <code>c_8f0a7db5</code></p>
+</div>
+<div class="cluster" id="cluster-40">
+<h3>cluster 40: 2 cases · exit 5 vs 3, stdout empty (candidate empty)</h3>
+<p>features mutated-input (2)</p>
+<p>repro: case <code>c_d21b188b</code></p>
+<pre>$ jq -c &#39;try error(&quot;\($__loc__)&quot;) catch .&#39;</pre>
+<p class="note">stdin (13 bytes):</p>
+<pre>&quot;b&quot;:5, &quot;c&quot;:6
+</pre>
+<p class="note">cases: <code>c_0eaeb9dd</code> <code>c_d21b188b</code></p>
+</div>
+<div class="cluster" id="cluster-41">
+<h3>cluster 41: 4 cases · exit 5 vs 3</h3>
+<p>features mutated-filter (3), mutated-input (1)</p>
+<p>repro: case <code>c_321155c2</code></p>
+<pre>$ jq -c &#39;.[0] | tostring | . - if have_decnum then &quot;13911860366432393&quot; else &quot;13911860366432392&quot; end&#39;</pre>
+<p class="note">stdin (20 bytes):</p>
+<pre>[13911860366432393]
+</pre>
+<p class="note">cases: <code>c_321155c2</code> <code>c_6590ea76</code> <code>c_c7775f4e</code> <code>c_e19af097</code></p>
+</div>
+<div class="cluster" id="cluster-42">
+<h3>cluster 42: 6 cases · exit 3 vs 0, stdout empty (reference empty)</h3>
+<p>features mutated-filter (6)</p>
+<p>repro: case <code>c_89f4205f</code></p>
+<pre>$ jq -c &#39;+ 1e-20&#39;</pre>
+<p class="note">stdin (2 bytes):</p>
+<pre>7
+</pre>
+<p class="note">cases: <code>c_42551d54</code> <code>c_5f8c394c</code> <code>c_89f4205f</code> <code>c_969c972c</code> <code>c_a30b071a</code> <code>c_c8cacbc4</code></p>
+</div>
+<div class="cluster" id="cluster-43">
+<h3>cluster 43: 5 cases · exit 3 vs 5</h3>
+<p>features mutated-filter (5)</p>
+<p>repro: case <code>c_f3706433</code></p>
+<pre>$ jq -c &#39;+ .&#39;</pre>
+<p class="note">stdin (23 bytes):</p>
+<pre>&quot;&lt;script&gt;hax&lt;/script&gt;&quot;
+</pre>
+<p class="note">cases: <code>c_0c9de019</code> <code>c_66ff87bf</code> <code>c_c5d3c416</code> <code>c_ee815a62</code> <code>c_f3706433</code></p>
+</div>
+<div class="cluster" id="cluster-44">
+<h3>cluster 44: 1 case · exit timeout vs 137</h3>
+<p>features mutated-input (1)</p>
+<p>repro: case <code>c_97752e27</code></p>
+<pre>$ jq -c &#39;[while(.&lt;100; .*2)]&#39;</pre>
+<p class="note">stdin (3 bytes):</p>
+<pre>-1
+</pre>
+<p class="note">cases: <code>c_97752e27</code></p>
+</div>
+<div class="cluster" id="cluster-45">
+<h3>cluster 45: 1 case · stdout empty (candidate empty)</h3>
+<p>features mutated-input (1)</p>
+<p>repro: case <code>c_eaaa2b32</code></p>
+<pre>$ jq -c &#39;try path(.a | map(select(.b == 0)) | .[]) catch .&#39;</pre>
+<p class="note">stdin (9 bytes):</p>
+<pre>{&quot;a&quot;:[]}
+</pre>
+<p class="note">cases: <code>c_eaaa2b32</code></p>
+</div>
+<div class="cluster" id="cluster-46">
+<h3>cluster 46: 1 case · exit timeout vs 0, stdout empty (reference empty)</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_0021f73c</code></p>
+<pre>$ jq -c &#39;setpath([range(10000) | 123]; 0) | flatten&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_0021f73c</code></p>
+</div>
+<div class="cluster" id="cluster-47">
+<h3>cluster 47: 1 case · exit 0 vs 3</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_4d141880</code></p>
+<pre>$ jq -c &#39;1 as $x | try error(&quot;\($__loc__)&quot;) as $y | [$x,$y,$x]&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_4d141880</code></p>
+</div>
+<div class="cluster" id="cluster-48">
+<h3>cluster 48: 1 case · exit 5 vs 0</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_74bfb87f</code></p>
+<pre>$ jq -c &#39;.[] | try (fromjson | isnan) * .&#39;</pre>
+<p class="note">stdin (72 bytes):</p>
+<pre>[&quot;NaN&quot;,&quot;-NaN&quot;,&quot;NaN1&quot;,&quot;NaN10&quot;,&quot;NaN100&quot;,&quot;NaN1000&quot;,&quot;NaN10000&quot;,&quot;NaN100000&quot;]
+</pre>
+<p class="note">cases: <code>c_74bfb87f</code></p>
+</div>
+<div class="cluster" id="cluster-49">
+<h3>cluster 49: 1 case · stdout prefix-suffix (candidate adds to the start)</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_3213a283</code></p>
+<pre>$ jq -c &#39;try setpath([range(10001) | 0]; 0) ,[5]&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_3213a283</code></p>
+</div>
+<div class="cluster" id="cluster-50">
+<h3>cluster 50: 1 case · timeout timeout vs 0, stdout other</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_84e8497c</code></p>
+<pre>$ jq -c &#39;try nth(&quot;%Y-%m-%dT%H:%M:%SZ&quot;) catch .&#39;</pre>
+<p class="note">stdin (20 bytes):</p>
+<pre>[&quot;a&quot;,1,2,3,4,5,6,7]
+</pre>
+<p class="note">cases: <code>c_84e8497c</code></p>
+</div>
+<div class="cluster" id="cluster-51">
+<h3>cluster 51: 1 case · timeout timeout vs 0</h3>
+<p>features mutated-filter (1)</p>
+<p>repro: case <code>c_84dfc2d4</code></p>
+<pre>$ jq -c &#39;[range(0,1,43;4,3,2;2,3)]&#39;</pre>
+<p class="note">stdin (5 bytes):</p>
+<pre>null
+</pre>
+<p class="note">cases: <code>c_84dfc2d4</code></p>
+</div>
+</section>
+<section id="reference-bugs">
+<h2>Reference bugs found</h2>
+<p class="note">Divergences where the candidate is right and the reference is wrong, waived with category <code>reference-bug</code> in <code>port-anything/waivers.yaml</code>.</p>
+<p>None in this run.</p>
+</section>
+<section id="integrity">
+<h2>Integrity</h2>
+<ul>
+<li>sandbox: bwrap, no network</li>
+<li>program name (argv[0], both sides): <code>jq</code></li>
+<li>compared under: lenient (stderr ignored)</li>
+<li>manifest verification: not run by this version</li>
+<li>environment fingerprint: not recorded by this version</li>
+<li>fresh holdout: not run by this version</li>
+<li>candidate language composition: not measured by this version</li>
+</ul>
+<h3>Normalizers</h3>
+<table>
+<thead><tr><th scope="col">normalizer</th><th scope="col">cases changed</th></tr></thead>
+<tbody>
+<tr><td><code>tmp-paths on stdout</code></td><td class="num">1 (0.0%)</td></tr>
+</tbody>
+</table>
+<h3>Waivers</h3>
+<p>Waivers: none.</p>
+</section>
+<section id="rules">
+<h2>How the score is counted</h2>
+<ul>
+<li>The headline is the mean of per-feature parity, so each feature weighs the same however many cases it has.</li>
+<li>A case tagged with several features counts once in each of them; a case without flags counts in <code>base</code>.</li>
+<li>Self-description features are reported on their own and left out of the headline.</li>
+<li>Features with fewer than 20 scored cases are under-sampled: shown, but left out of the headline.</li>
+<li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
+<li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

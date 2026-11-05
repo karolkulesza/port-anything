@@ -1,0 +1,8 @@
+arch: aarch64
+distro: Ubuntu 25.10
+kernel: 5.15.49-linuxkit-pr
+bwrap: bubblewrap 0.11.0
+node: v22.23.3
+/opt/jq/jq: jq-1.8.2
+/opt/jaq/jaq: jaq 3.1.1
+/opt/gojq/gojq: gojq 0.12.19 (rev: b7ebffb/go1.26.1)

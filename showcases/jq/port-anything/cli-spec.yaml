@@ -1,0 +1,174 @@
+version: 1
+program: jq
+flags:
+  - names: [ -n, --null-input ]
+    feature: opt.null-input
+    description: use `null` as the single input value;
+    arity: 0
+  - names: [ -R, --raw-input ]
+    feature: opt.raw-input
+    description: read each line as string instead of JSON;
+    arity: 0
+  - names: [ -s, --slurp ]
+    feature: opt.slurp
+    description: read all inputs into an array and use it as the single input value;
+    arity: 0
+  - names: [ -c, --compact-output ]
+    feature: opt.compact-output
+    description: compact instead of pretty-printed output;
+    arity: 0
+  - names: [ -r, --raw-output ]
+    feature: opt.raw-output
+    description: output strings without escapes and quotes;
+    arity: 0
+  - names: [ --raw-output0 ]
+    feature: opt.raw-output0
+    description: implies -r and output NUL after each output;
+    arity: 0
+  - names: [ -j, --join-output ]
+    feature: opt.join-output
+    description: implies -r and output without newline after each output;
+    arity: 0
+  - names: [ -a, --ascii-output ]
+    feature: opt.ascii-output
+    description: output strings by only ASCII characters using escape sequences;
+    arity: 0
+  - names: [ -S, --sort-keys ]
+    feature: opt.sort-keys
+    description: sort keys of each object on output;
+    arity: 0
+  - names: [ -C, --color-output ]
+    feature: opt.color-output
+    description: colorize JSON output;
+    arity: 0
+  - names: [ -M, --monochrome-output ]
+    feature: opt.monochrome-output
+    description: disable colored output;
+    arity: 0
+  - names: [ --tab ]
+    feature: opt.tab
+    description: use tabs for indentation;
+    arity: 0
+  - names: [ --indent ]
+    feature: opt.indent
+    description: use n spaces for indentation (max 7 spaces);
+    arity: 1
+    values:
+      - name: n
+        type: int
+  - names: [ --unbuffered ]
+    feature: opt.unbuffered
+    description: flush output stream after each output;
+    arity: 0
+  - names: [ --stream ]
+    feature: opt.stream
+    description: parse the input value in streaming fashion;
+    arity: 0
+  - names: [ --stream-errors ]
+    feature: opt.stream-errors
+    description: implies --stream and report parse error as an array;
+    arity: 0
+  - names: [ --seq ]
+    feature: opt.seq
+    description: parse input/output as application/json-seq;
+    arity: 0
+  - names: [ -f, --from-file ]
+    feature: opt.from-file
+    description: load the filter from a file;
+    arity: 0
+  - names: [ -L, --library-path ]
+    feature: opt.library-path
+    description: search modules from the directory;
+    arity: 1
+    values:
+      - name: dir
+        type: path
+  - names: [ --arg ]
+    feature: opt.arg
+    description: set $name to the string value;
+    arity: 2
+    values:
+      - name: name
+        type: string
+      - name: value
+        type: string
+  - names: [ --argjson ]
+    feature: opt.argjson
+    description: set $name to the JSON value;
+    arity: 2
+    values:
+      - name: name
+        type: string
+      - name: value
+        type: string
+  - names: [ --slurpfile ]
+    feature: opt.slurpfile
+    description: set $name to an array of JSON values read from the file;
+    arity: 2
+    values:
+      - name: name
+        type: string
+      - name: file
+        type: path
+  - names: [ --rawfile ]
+    feature: opt.rawfile
+    description: set $name to string contents of file;
+    arity: 2
+    values:
+      - name: name
+        type: string
+      - name: file
+        type: path
+  - names: [ --args ]
+    feature: opt.args
+    description: consume remaining arguments as positional string values;
+    arity: 0
+  - names: [ --jsonargs ]
+    feature: opt.jsonargs
+    description: consume remaining arguments as positional JSON values;
+    arity: 0
+  - names: [ -e, --exit-status ]
+    feature: opt.exit-status
+    description: set exit status code based on the output;
+    arity: 0
+  - names: [ -V, --version ]
+    feature: opt.version
+    description: show the version;
+    arity: 0
+    self_description: true
+  - names: [ --build-configuration ]
+    feature: opt.build-configuration
+    description: show jq's build configuration;
+    arity: 0
+  - names: [ -h, --help ]
+    feature: opt.help
+    description: show the help;
+    arity: 0
+    self_description: true
+forms:
+  - usage: jq [options] <jq filter> [file...]
+    args:
+      - name: jq filter
+        type: string
+        arity: "1"
+      - name: file
+        type: path
+        arity: "*"
+  - usage: jq [options] --args <jq filter> [strings...]
+    flags: [ --args ]
+    args:
+      - name: jq filter
+        type: string
+        arity: "1"
+      - name: strings
+        type: string
+        arity: "*"
+  - usage: jq [options] --jsonargs <jq filter> [JSON_TEXTS...]
+    flags: [ --jsonargs ]
+    args:
+      - name: jq filter
+        type: string
+        arity: "1"
+      - name: JSON_TEXTS
+        type: string
+        arity: "*"

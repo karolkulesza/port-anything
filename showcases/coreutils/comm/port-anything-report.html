@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="port-anything">
+<title>Port Anything report: comm</title>
+<style>
+:root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #ffffff; --soft: #f6f8fa; --good: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --bg: #0d1117; --soft: #151b23; --good: #3fb950; --warn: #d29922; --bad: #f85149; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+code, pre { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.meta, .note { color: var(--muted); }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card { flex: 1 1 18rem; border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; }
+.card .parity { font-size: 2.2rem; font-weight: 700; }
+table { border-collapse: collapse; margin: .5rem 0; }
+th, td { border: 1px solid var(--line); padding: .25rem .6rem; text-align: left; vertical-align: top; }
+thead th { background: var(--soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.group th { background: var(--soft); font-weight: 600; }
+.full { color: var(--good); }
+.high { color: var(--warn); }
+.low { color: var(--bad); }
+.out { color: var(--muted); font-style: italic; }
+.flag { color: var(--bad); font-weight: 600; }
+.cluster { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: .75rem 0; }
+.cluster h3 { margin-top: .25rem; }
+</style>
+</head>
+<body>
+<header>
+<h1>Port Anything report: comm</h1>
+<p class="meta">run 20261015-112916-3afe · 2026-10-15T11:29:16.421Z · 1000 cases · reference <code>/opt/gnu/bin/comm</code></p>
+</header>
+<main>
+<section id="headline">
+<h2>Parity</h2>
+<div class="cards">
+<div class="card">
+<p class="meta">candidate 1</p>
+<p><code>/opt/uu/coreutils comm</code></p>
+<p class="parity high">97.4%</p><p>mean of 9 features · 987 of 1000 scored cases match (raw 98.7%)</p>
+<p>987 cases match · 13 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 97.4% (1000 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 2</p>
+<p><code>/opt/uu-main/coreutils comm</code></p>
+<p class="parity high">99.6%</p><p>mean of 9 features · 990 of 1000 scored cases match (raw 99.0%)</p>
+<p>990 cases match · 10 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 99.6% (1000 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 3</p>
+<p><code>/opt/busybox/busybox comm</code></p>
+<p class="parity low">11.3%</p><p>mean of 9 features · 161 of 1000 scored cases match (raw 16.1%)</p>
+<p>161 cases match · 839 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 11.3% (1000 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 4</p>
+<p><code>/opt/toybox/toybox comm</code></p>
+<p class="parity low">11.3%</p><p>mean of 9 features · 162 of 1000 scored cases match (raw 16.2%)</p>
+<p>162 cases match · 838 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 11.3% (1000 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+</div>
+</section>
+<section id="matrix">
+<h2>Features × candidates</h2>
+<p class="note">Parity per feature: matching cases over scored cases (waived and flaky-reference cases are not scored).</p>
+<table>
+<thead><tr><th scope="col">feature</th><th scope="col">candidate 1<br><code>/opt/uu/coreutils comm</code></th><th scope="col">candidate 2<br><code>/opt/uu-main/coreutils comm</code></th><th scope="col">candidate 3<br><code>/opt/busybox/busybox comm</code></th><th scope="col">candidate 4<br><code>/opt/toybox/toybox comm</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">headline (mean)</th><td class="num high"><strong>97.4%</strong></td><td class="num high"><strong>99.6%</strong></td><td class="num low"><strong>11.3%</strong></td><td class="num low"><strong>11.3%</strong></td></tr>
+<tr class="group"><th colspan="5" scope="rowgroup">In the headline</th></tr>
+<tr><th scope="row"><code>base</code></th><td class="num high">97.6% <span class="note">(211/216)</span></td><td class="num high">97.6% <span class="note">(211/216)</span></td><td class="num low">68.5% <span class="note">(148/216)</span></td><td class="num low">68.9% <span class="note">(149/216)</span></td></tr>
+<tr><th scope="row"><code>opt.1</code></th><td class="num full">100.0% <span class="note">(40/40)</span></td><td class="num full">100.0% <span class="note">(40/40)</span></td><td class="num low">22.5% <span class="note">(9/40)</span></td><td class="num low">22.5% <span class="note">(9/40)</span></td></tr>
+<tr><th scope="row"><code>opt.2</code></th><td class="num high">96.8% <span class="note">(93/96)</span></td><td class="num full">100.0% <span class="note">(96/96)</span></td><td class="num low">1.0% <span class="note">(1/96)</span></td><td class="num low">1.0% <span class="note">(1/96)</span></td></tr>
+<tr><th scope="row"><code>opt.3</code></th><td class="num high">90.0% <span class="note">(27/30)</span></td><td class="num full">100.0% <span class="note">(30/30)</span></td><td class="num low">10.0% <span class="note">(3/30)</span></td><td class="num low">10.0% <span class="note">(3/30)</span></td></tr>
+<tr><th scope="row"><code>opt.check-order</code></th><td class="num high">96.7% <span class="note">(89/92)</span></td><td class="num full">100.0% <span class="note">(92/92)</span></td><td class="num low">0.0% <span class="note">(0/92)</span></td><td class="num low">0.0% <span class="note">(0/92)</span></td></tr>
+<tr><th scope="row"><code>opt.nocheck-order</code></th><td class="num high">98.1% <span class="note">(162/165)</span></td><td class="num full">100.0% <span class="note">(165/165)</span></td><td class="num low">0.0% <span class="note">(0/165)</span></td><td class="num low">0.0% <span class="note">(0/165)</span></td></tr>
+<tr><th scope="row"><code>opt.output-delimiter</code></th><td class="num high">98.4% <span class="note">(375/381)</span></td><td class="num high">99.2% <span class="note">(378/381)</span></td><td class="num low">0.0% <span class="note">(0/381)</span></td><td class="num low">0.0% <span class="note">(0/381)</span></td></tr>
+<tr><th scope="row"><code>opt.total</code></th><td class="num full">100.0% <span class="note">(252/252)</span></td><td class="num full">100.0% <span class="note">(252/252)</span></td><td class="num low">0.0% <span class="note">(0/252)</span></td><td class="num low">0.0% <span class="note">(0/252)</span></td></tr>
+<tr><th scope="row"><code>opt.zero-terminated</code></th><td class="num high">99.1% <span class="note">(331/334)</span></td><td class="num full">100.0% <span class="note">(334/334)</span></td><td class="num low">0.0% <span class="note">(0/334)</span></td><td class="num low">0.0% <span class="note">(0/334)</span></td></tr>
+<tr class="group"><th colspan="5" scope="rowgroup">Self-description (not in the headline)</th></tr>
+<tr><th scope="row"><code>opt.help</code></th><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td></tr>
+<tr><th scope="row"><code>opt.version</code></th><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td></tr>
+</tbody>
+</table>
+</section>
+<section id="untested">
+<h2>Untested features</h2>
+<p class="note">Features in the CLI spec that no case carries. They don't count toward the headline, so they are listed here instead.</p>
+<p>None: every feature the CLI spec defines has cases.</p>
+</section>
+<section id="under-sampled">
+<h2>Under-sampled features</h2>
+<p class="note">Features with fewer than 20 scored cases (<code>corpus.min_cases_per_feature</code>): shown, but left out of the headline so a single case can't swing it.</p>
+<p>None.</p>
+</section>
+<section id="self-description">
+<h2>Self-description features</h2>
+<p class="note"><code>--help</code>, <code>--version</code>, <code>--usage</code> and features marked <code>self_description: true</code> in the CLI spec. Their text differs between implementations by design, so they are reported here and left out of the headline.</p>
+<ul>
+<li>candidate 1: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+<li>candidate 2: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+<li>candidate 3: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+<li>candidate 4: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+</ul>
+</section>
+<section id="clusters">
+<h2>Clusters</h2>
+<p class="note">Diverging cases grouped by what differs, heaviest first: a cluster's weight is how much of the per-feature headline it holds down. The repro is the cluster's smallest case.</p>
+<h3>candidate 1 <code>/opt/uu/coreutils comm</code>: 3 clusters</h3>
+<div class="cluster" id="cluster-1">
+<h3>cluster 1: 2 cases · stdout other</h3>
+<p>features opt.help (1), opt.version (1)</p>
+<p>repro: case <code>c_a5e61537</code></p>
+<pre>$ comm --version data.txt data.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>data.txt</code> (35 bytes):</p>
+<pre>hello world
+foo bar baz
+
+last line
+</pre>
+<p class="note">cases: <code>c_131c1053</code> <code>c_a5e61537</code></p>
+</div>
+<div class="cluster" id="cluster-2">
+<h3>cluster 2: 3 cases · exit 0 vs 1, stderr empty (reference empty)</h3>
+<p>features opt.2 (3), opt.3 (3), opt.check-order (3), opt.nocheck-order (3), opt.output-delimiter (3), opt.zero-terminated (3)</p>
+<p>repro: case <code>c_769c3617</code></p>
+<pre>$ comm -2 -3 --check-order --nocheck-order --output-delimiter hello -z data.txt data.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>data.txt</code> (28 bytes):</p>
+<pre>{&quot;a&quot;:1,&quot;b&quot;:[1,2,3],&quot;c&quot;:&quot;x&quot;}
+</pre>
+<p class="note">cases: <code>c_1d08161a</code> <code>c_769c3617</code> <code>c_c90efdd3</code></p>
+</div>
+<div class="cluster" id="cluster-3">
+<h3>cluster 3: 8 cases · stderr message-text</h3>
+<p>features base (5), opt.output-delimiter (3)</p>
+<p>repro: case <code>c_136d6c6e</code></p>
+<pre>$ comm</pre>
+<p class="note">stdin (10 bytes):</p>
+<pre>3
+1
+2
+1
+-
+</pre>
+<p class="note">cases: <code>c_08c2b584</code> <code>c_136d6c6e</code> <code>c_2be638f1</code> <code>c_544631db</code> <code>c_9f64df75</code> <code>c_a9afc2ef</code> <code>c_b732ccb1</code> <code>c_fb1f54b1</code></p>
+</div>
+<h3>candidate 2 <code>/opt/uu-main/coreutils comm</code>: 2 clusters</h3>
+<div class="cluster" id="cluster-4">
+<h3>cluster 4: 2 cases · stdout other</h3>
+<p>features opt.help (1), opt.version (1)</p>
+<p>repro: case <code>c_a5e61537</code></p>
+<pre>$ comm --version data.txt data.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>data.txt</code> (35 bytes):</p>
+<pre>hello world
+foo bar baz
+
+last line
+</pre>
+<p class="note">cases: <code>c_131c1053</code> <code>c_a5e61537</code></p>
+</div>
+<div class="cluster" id="cluster-5">
+<h3>cluster 5: 8 cases · stderr message-text</h3>
+<p>features base (5), opt.output-delimiter (3)</p>
+<p>repro: case <code>c_136d6c6e</code></p>
+<pre>$ comm</pre>
+<p class="note">stdin (10 bytes):</p>
+<pre>3
+1
+2
+1
+-
+</pre>
+<p class="note">cases: <code>c_08c2b584</code> <code>c_136d6c6e</code> <code>c_2be638f1</code> <code>c_544631db</code> <code>c_9f64df75</code> <code>c_a9afc2ef</code> <code>c_b732ccb1</code> <code>c_fb1f54b1</code></p>
+</div>
+<h3>candidate 3 <code>/opt/busybox/busybox comm</code>: 6 clusters</h3>
+<div class="cluster" id="cluster-6">
+<h3>cluster 6: 624 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)</h3>
+<p>features opt.zero-terminated (330), opt.output-delimiter (262), opt.total (252), opt.nocheck-order (161), opt.2 (79), opt.check-order (71), opt.1 (18), opt.3 (15), opt.version (1)</p>
+<p>repro: case <code>c_2bfac231</code></p>
+<pre>$ comm --output-delimiter=a input.txt input.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>input.txt</code> (2 bytes):</p>
+<pre>{&quot;</pre>
+<p class="note">cases: <code>c_00ddc890</code> <code>c_0119354b</code> <code>c_0209c0d4</code> <code>c_02bf2df6</code> <code>c_04567b4f</code> <code>c_0598d50a</code> <code>c_05aa906a</code> <code>c_05f03035</code> <code>c_0707fee0</code> <code>c_07b4d2b6</code> <code>c_07d897d2</code> <code>c_086f8349</code> <code>c_0965df24</code> <code>c_0994a62e</code> <code>c_09eeacc8</code> <code>c_0a2cf51c</code> <code>c_0adbac9d</code> <code>c_0b15745d</code> <code>c_0b6c7540</code> <code>c_0bbf72e4</code> … and 604 more</p>
+</div>
+<div class="cluster" id="cluster-7">
+<h3>cluster 7: 3 cases · stdout other</h3>
+<p>features base (2), opt.help (1)</p>
+<p>repro: case <code>c_89a6af4f</code></p>
+<pre>$ comm data.txt data.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>data.txt</code> (36 bytes):</p>
+<p class="note">(binary, not shown)</p>
+<p class="note">cases: <code>c_131c1053</code> <code>c_89a6af4f</code> <code>c_9e68ab2b</code></p>
+</div>
+<div class="cluster" id="cluster-8">
+<h3>cluster 8: 115 cases · stdout empty (candidate empty), stderr message-text</h3>
+<p>features opt.output-delimiter (111), opt.check-order (16), opt.1 (12)</p>
+<p>repro: case <code>c_1be897b8</code></p>
+<pre>$ comm --output-delimiter &#39;&#39; input.txt data.txt</pre>
+<p class="note">stdin (12 bytes):</p>
+<pre>a,b,c
+1,2,3
+</pre>
+<p class="note">file <code>data.txt</code> (6 bytes):</p>
+<pre>b
+a
+c
+</pre>
+<p class="note">file <code>input.txt</code> (3 bytes):</p>
+<pre>no </pre>
+<p class="note">cases: <code>c_073e2a52</code> <code>c_08227040</code> <code>c_092b0fc5</code> <code>c_0b132654</code> <code>c_0f43ee27</code> <code>c_1196ac7c</code> <code>c_12ad224b</code> <code>c_15bdfa3b</code> <code>c_15ddeaea</code> <code>c_1984d49f</code> <code>c_1bbbcfbc</code> <code>c_1be897b8</code> <code>c_1d2cd03a</code> <code>c_1d6d9b02</code> <code>c_1e1bb368</code> <code>c_1ea4fb55</code> <code>c_26c67b3a</code> <code>c_26f5c5f7</code> <code>c_27ab32fd</code> <code>c_27de56e7</code> … and 95 more</p>
+</div>
+<div class="cluster" id="cluster-9">
+<h3>cluster 9: 82 cases · exit 1 vs 0, stderr empty (candidate empty)</h3>
+<p>features base (61), opt.2 (12), opt.3 (9)</p>
+<p>repro: case <code>c_189e6af6</code></p>
+<pre>$ comm -2 data.txt input.txt</pre>
+<p class="note">stdin (6 bytes):</p>
+<pre>b
+a
+c
+</pre>
+<p class="note">file <code>data.txt</code> (5 bytes):</p>
+<pre>3
+1
+2</pre>
+<p class="note">file <code>input.txt</code> (19 bytes):</p>
+<pre>no trailing newline</pre>
+<p class="note">cases: <code>c_0360da58</code> <code>c_093f3794</code> <code>c_09648cdd</code> <code>c_0b9eea1e</code> <code>c_0c3b7a1d</code> <code>c_0d6f46f6</code> <code>c_12fda300</code> <code>c_178e1364</code> <code>c_189e6af6</code> <code>c_18b56136</code> <code>c_19b85ceb</code> <code>c_1ec7a795</code> <code>c_207c2425</code> <code>c_2695fa73</code> <code>c_29da2f87</code> <code>c_2a8d67e7</code> <code>c_2d453aa5</code> <code>c_30f36d15</code> <code>c_35335004</code> <code>c_3631e51c</code> … and 62 more</p>
+</div>
+<div class="cluster" id="cluster-10">
+<h3>cluster 10: 7 cases · exit 0 vs 1, stderr empty (reference empty)</h3>
+<p>features opt.check-order (5), opt.output-delimiter (5), opt.2 (4), opt.nocheck-order (4), opt.zero-terminated (4), opt.3 (3), opt.1 (1)</p>
+<p>repro: case <code>c_577637c0</code></p>
+<pre>$ comm --output-delimiter=a input.txt input.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>input.txt</code> (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_1d08161a</code> <code>c_3d72de85</code> <code>c_4f95bf96</code> <code>c_577637c0</code> <code>c_769c3617</code> <code>c_8a46e5d2</code> <code>c_c90efdd3</code></p>
+</div>
+<div class="cluster" id="cluster-11">
+<h3>cluster 11: 8 cases · stderr message-text</h3>
+<p>features base (5), opt.output-delimiter (3)</p>
+<p>repro: case <code>c_136d6c6e</code></p>
+<pre>$ comm</pre>
+<p class="note">stdin (10 bytes):</p>
+<pre>3
+1
+2
+1
+-
+</pre>
+<p class="note">cases: <code>c_08c2b584</code> <code>c_136d6c6e</code> <code>c_2be638f1</code> <code>c_544631db</code> <code>c_9f64df75</code> <code>c_a9afc2ef</code> <code>c_b732ccb1</code> <code>c_fb1f54b1</code></p>
+</div>
+<h3>candidate 4 <code>/opt/toybox/toybox comm</code>: 6 clusters</h3>
+<div class="cluster" id="cluster-12">
+<h3>cluster 12: 623 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)</h3>
+<p>features opt.zero-terminated (330), opt.output-delimiter (262), opt.total (252), opt.nocheck-order (161), opt.2 (79), opt.check-order (71), opt.1 (18), opt.3 (15)</p>
+<p>repro: case <code>c_2bfac231</code></p>
+<pre>$ comm --output-delimiter=a input.txt input.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>input.txt</code> (2 bytes):</p>
+<pre>{&quot;</pre>
+<p class="note">cases: <code>c_00ddc890</code> <code>c_0119354b</code> <code>c_0209c0d4</code> <code>c_02bf2df6</code> <code>c_04567b4f</code> <code>c_0598d50a</code> <code>c_05aa906a</code> <code>c_05f03035</code> <code>c_0707fee0</code> <code>c_07b4d2b6</code> <code>c_07d897d2</code> <code>c_086f8349</code> <code>c_0965df24</code> <code>c_0994a62e</code> <code>c_09eeacc8</code> <code>c_0a2cf51c</code> <code>c_0adbac9d</code> <code>c_0b15745d</code> <code>c_0b6c7540</code> <code>c_0bbf72e4</code> … and 603 more</p>
+</div>
+<div class="cluster" id="cluster-13">
+<h3>cluster 13: 4 cases · stdout other</h3>
+<p>features base (2), opt.help (1), opt.version (1)</p>
+<p>repro: case <code>c_89a6af4f</code></p>
+<pre>$ comm data.txt data.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>data.txt</code> (36 bytes):</p>
+<p class="note">(binary, not shown)</p>
+<p class="note">cases: <code>c_131c1053</code> <code>c_89a6af4f</code> <code>c_9e68ab2b</code> <code>c_a5e61537</code></p>
+</div>
+<div class="cluster" id="cluster-14">
+<h3>cluster 14: 115 cases · stdout empty (candidate empty), stderr message-text</h3>
+<p>features opt.output-delimiter (111), opt.check-order (16), opt.1 (12)</p>
+<p>repro: case <code>c_1be897b8</code></p>
+<pre>$ comm --output-delimiter &#39;&#39; input.txt data.txt</pre>
+<p class="note">stdin (12 bytes):</p>
+<pre>a,b,c
+1,2,3
+</pre>
+<p class="note">file <code>data.txt</code> (6 bytes):</p>
+<pre>b
+a
+c
+</pre>
+<p class="note">file <code>input.txt</code> (3 bytes):</p>
+<pre>no </pre>
+<p class="note">cases: <code>c_073e2a52</code> <code>c_08227040</code> <code>c_092b0fc5</code> <code>c_0b132654</code> <code>c_0f43ee27</code> <code>c_1196ac7c</code> <code>c_12ad224b</code> <code>c_15bdfa3b</code> <code>c_15ddeaea</code> <code>c_1984d49f</code> <code>c_1bbbcfbc</code> <code>c_1be897b8</code> <code>c_1d2cd03a</code> <code>c_1d6d9b02</code> <code>c_1e1bb368</code> <code>c_1ea4fb55</code> <code>c_26c67b3a</code> <code>c_26f5c5f7</code> <code>c_27ab32fd</code> <code>c_27de56e7</code> … and 95 more</p>
+</div>
+<div class="cluster" id="cluster-15">
+<h3>cluster 15: 82 cases · exit 1 vs 0, stderr empty (candidate empty)</h3>
+<p>features base (61), opt.2 (12), opt.3 (9)</p>
+<p>repro: case <code>c_189e6af6</code></p>
+<pre>$ comm -2 data.txt input.txt</pre>
+<p class="note">stdin (6 bytes):</p>
+<pre>b
+a
+c
+</pre>
+<p class="note">file <code>data.txt</code> (5 bytes):</p>
+<pre>3
+1
+2</pre>
+<p class="note">file <code>input.txt</code> (19 bytes):</p>
+<pre>no trailing newline</pre>
+<p class="note">cases: <code>c_0360da58</code> <code>c_093f3794</code> <code>c_09648cdd</code> <code>c_0b9eea1e</code> <code>c_0c3b7a1d</code> <code>c_0d6f46f6</code> <code>c_12fda300</code> <code>c_178e1364</code> <code>c_189e6af6</code> <code>c_18b56136</code> <code>c_19b85ceb</code> <code>c_1ec7a795</code> <code>c_207c2425</code> <code>c_2695fa73</code> <code>c_29da2f87</code> <code>c_2a8d67e7</code> <code>c_2d453aa5</code> <code>c_30f36d15</code> <code>c_35335004</code> <code>c_3631e51c</code> … and 62 more</p>
+</div>
+<div class="cluster" id="cluster-16">
+<h3>cluster 16: 7 cases · exit 0 vs 1, stderr empty (reference empty)</h3>
+<p>features opt.check-order (5), opt.output-delimiter (5), opt.2 (4), opt.nocheck-order (4), opt.zero-terminated (4), opt.3 (3), opt.1 (1)</p>
+<p>repro: case <code>c_577637c0</code></p>
+<pre>$ comm --output-delimiter=a input.txt input.txt</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">file <code>input.txt</code> (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_1d08161a</code> <code>c_3d72de85</code> <code>c_4f95bf96</code> <code>c_577637c0</code> <code>c_769c3617</code> <code>c_8a46e5d2</code> <code>c_c90efdd3</code></p>
+</div>
+<div class="cluster" id="cluster-17">
+<h3>cluster 17: 7 cases · stderr message-text</h3>
+<p>features base (4), opt.output-delimiter (3)</p>
+<p>repro: case <code>c_136d6c6e</code></p>
+<pre>$ comm</pre>
+<p class="note">stdin (10 bytes):</p>
+<pre>3
+1
+2
+1
+-
+</pre>
+<p class="note">cases: <code>c_08c2b584</code> <code>c_136d6c6e</code> <code>c_2be638f1</code> <code>c_544631db</code> <code>c_a9afc2ef</code> <code>c_b732ccb1</code> <code>c_fb1f54b1</code></p>
+</div>
+</section>
+<section id="reference-bugs">
+<h2>Reference bugs found</h2>
+<p class="note">Divergences where the candidate is right and the reference is wrong, waived with category <code>reference-bug</code> in <code>port-anything/waivers.yaml</code>.</p>
+<p>None in this run.</p>
+</section>
+<section id="integrity">
+<h2>Integrity</h2>
+<ul>
+<li>sandbox: bwrap, no network</li>
+<li>program name (argv[0], both sides): <code>comm</code></li>
+<li>compared under: standard (stderr loose, similarity 0.6)</li>
+<li>manifest verification: not run by this version</li>
+<li>environment fingerprint: not recorded by this version</li>
+<li>fresh holdout: not run by this version</li>
+<li>candidate language composition: not measured by this version</li>
+</ul>
+<h3>Normalizers</h3>
+<p>Normalizers: none.</p>
+<h3>Waivers</h3>
+<p>Waivers: none.</p>
+</section>
+<section id="rules">
+<h2>How the score is counted</h2>
+<ul>
+<li>The headline is the mean of per-feature parity, so each feature weighs the same however many cases it has.</li>
+<li>A case tagged with several features counts once in each of them; a case without flags counts in <code>base</code>.</li>
+<li>Self-description features are reported on their own and left out of the headline.</li>
+<li>Features with fewer than 20 scored cases are under-sampled: shown, but left out of the headline.</li>
+<li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
+<li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

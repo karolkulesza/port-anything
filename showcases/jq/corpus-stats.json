@@ -1,0 +1,34 @@
+{
+ "import": {
+  "source": "jq tests/jq.test",
+  "license": {
+   "licenses": [
+    "BSD-2-Clause",
+    "MIT"
+   ],
+   "category": "permissive",
+   "method": "detected",
+   "files": [
+    "/opt/jq-src/COPYING"
+   ]
+  },
+  "cases": 550,
+  "duplicates": 0,
+  "skipped": []
+ },
+ "dictionary": {
+  "filter": 1032,
+  "input": 207
+ },
+ "mutants": {
+  "requested": 3000,
+  "filter": 2400,
+  "input": 600,
+  "distinct_new": 2923,
+  "seeds": [
+   42,
+   43
+  ],
+  "generator": "v1"
+ }
+}

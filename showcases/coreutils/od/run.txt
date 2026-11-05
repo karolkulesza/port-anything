@@ -1,0 +1,74 @@
+Ran 1000 cases as "od", sandbox: bwrap, no network
+run 20261015-111849-6729
+reference /opt/gnu/bin/od
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils od: 927 of 1000 cases match, 73 diverge
+  parity 90.5%, mean of 18 features (927 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.strings 75.0% (4 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 10 cases · stdout other · features opt.f (8), opt.a (6), opt.b (6), opt.c (6), opt.i (6), opt.l (6), opt.o (6), opt.x (6), opt.help (1), opt.version (1)
+    c_022db168  c_1e9d0118  c_2eddd753  c_60a523cd  c_664ce932  … and 5 more
+  cluster 2: 32 cases · stderr message-text · features opt.format (12), opt.address-radix (11), opt.traditional (7), base (2)
+    c_10342ee6  c_10489bf4  c_2340f0e6  c_2758761f  c_36e00753  … and 27 more
+  cluster 3: 21 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.width (21)
+    c_08364e73  c_168f5aab  c_42c2dce6  c_4628f505  c_4c1750c4  … and 16 more
+  cluster 4: 1 case · exit 0 vs 1, stderr empty (reference empty) · features opt.strings (1)
+    c_b0ee6875
+  cluster 5: 7 cases · stdout prefix-suffix (candidate stops early) · features base (7)
+    c_0de4a1fa  c_478c8310  c_6f991396  c_75cf84ce  c_79d20edd  … and 2 more
+  cluster 6: 2 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.width (2)
+    c_417537f5  c_d1d60504
+candidate 2 /opt/uu-main/coreutils od: 927 of 1000 cases match, 73 diverge
+  parity 90.5%, mean of 18 features (927 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.strings 75.0% (4 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 7: 10 cases · stdout other · features opt.f (8), opt.a (6), opt.b (6), opt.c (6), opt.i (6), opt.l (6), opt.o (6), opt.x (6), opt.help (1), opt.version (1)
+    c_022db168  c_1e9d0118  c_2eddd753  c_60a523cd  c_664ce932  … and 5 more
+  cluster 8: 32 cases · stderr message-text · features opt.format (12), opt.address-radix (11), opt.traditional (7), base (2)
+    c_10342ee6  c_10489bf4  c_2340f0e6  c_2758761f  c_36e00753  … and 27 more
+  cluster 9: 21 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.width (21)
+    c_08364e73  c_168f5aab  c_42c2dce6  c_4628f505  c_4c1750c4  … and 16 more
+  cluster 10: 1 case · exit 0 vs 1, stderr empty (reference empty) · features opt.strings (1)
+    c_b0ee6875
+  cluster 11: 7 cases · stdout prefix-suffix (candidate stops early) · features base (7)
+    c_0de4a1fa  c_478c8310  c_6f991396  c_75cf84ce  c_79d20edd  … and 2 more
+  cluster 12: 2 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.width (2)
+    c_417537f5  c_d1d60504
+candidate 3 /opt/busybox/busybox od: 739 of 1000 cases match, 261 diverge
+  parity 54.3%, mean of 18 features (739 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.strings 75.0% (4 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 13: 207 cases · stdout other · features opt.f (206), opt.a (176), opt.b (176), opt.c (176), opt.i (176), opt.l (176), opt.o (176), opt.x (176), opt.help (1)
+    c_008c4fc8  c_00cf78ce  c_022db168  c_03ed6fea  c_042d34dc  … and 202 more
+  cluster 14: 20 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.read-bytes (19), opt.version (1)
+    c_0303d97d  c_0eaabd4d  c_187b018d  c_22e97029  c_27f7e2ec  … and 15 more
+  cluster 15: 27 cases · stderr message-text · features opt.skip-bytes (8), opt.traditional (7), opt.width (5), opt.read-bytes (4), base (2), opt.address-radix (1)
+    c_159593aa  c_1e584971  c_384d489e  c_417537f5  c_4c33896d  … and 22 more
+  cluster 16: 1 case · exit 0 vs 1, stderr empty (reference empty) · features opt.strings (1)
+    c_3d0bcb87
+  cluster 17: 3 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.address-radix (3)
+    c_10342ee6  c_670eab5c  c_9bad6838
+  cluster 18: 3 cases · exit 1 vs 0, stdout empty (reference empty), stderr message-text · features opt.width (3)
+    c_0fbe6b64  c_d4de96cc  c_e056dbdc
+candidate 4 /opt/toybox/toybox od: 160 of 1000 cases match, 840 diverge
+  parity 9.4%, mean of 18 features (160 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.strings 0.0% (4 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 19: 432 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.a (232), opt.l (222), opt.f (211), opt.i (204), opt.b (177), opt.c (177), opt.o (177), opt.x (177), opt.address-radix (27), opt.format (23), opt.width (21), opt.traditional (17), opt.read-bytes (6)
+    c_008c4fc8  c_00cf78ce  c_022db168  c_023a93cf  c_03ed6fea  … and 427 more
+  cluster 20: 323 cases · stdout whitespace-only · features opt.output-duplicates (103), opt.s (62), base (50), opt.skip-bytes (31), opt.o (29), opt.x (22), opt.read-bytes (19), opt.format (7)
+    c_00691119  c_0152fc5b  c_02c08c6c  c_0303d97d  c_03268402  … and 318 more
+  cluster 21: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_2eddd753  c_60a523cd
+  cluster 22: 57 cases · stderr message-text · features opt.format (12), opt.width (12), opt.address-radix (11), opt.read-bytes (9), opt.traditional (7), opt.skip-bytes (4), base (1), opt.strings (1)
+    c_0fbe6b64  c_10342ee6  c_10489bf4  c_1e584971  c_2340f0e6  … and 52 more
+  cluster 23: 3 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.strings (3)
+    c_26e94026  c_3d0bcb87  c_b0ee6875
+  cluster 24: 12 cases · exit 0 vs 1, stdout empty (candidate empty), stderr message-text · features opt.width (12)
+    c_0a9d9e29  c_1b67c1bb  c_20f050df  c_2f4d23cd  c_6e2c423e  … and 7 more
+  cluster 25: 8 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.skip-bytes (6), opt.width (2)
+    c_019cec2d  c_06502d3c  c_417537f5  c_8e085220  c_bb81155f  … and 3 more
+  cluster 26: 3 cases · stdout empty (reference empty) · features base (3)
+    c_193f489b  c_50fed520  c_da101a3b
+run exit 1

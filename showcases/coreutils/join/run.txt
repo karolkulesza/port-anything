@@ -1,0 +1,26 @@
+Ran 1000 cases as "join", sandbox: bwrap, no network
+run 20261015-160350-c62d
+reference /opt/gnu/bin/join
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils join: 970 of 1000 cases match, 30 diverge
+  parity 97.8%, mean of 4 features (970 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.ignore-case 100.0% (4 cases), opt.nocheck-order 100.0% (3 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_3f658673  c_46c5cc24
+  cluster 2: 20 cases · stdout whitespace-only · features opt.zero-terminated (12), base (8)
+    c_079583c7  c_0dcc83b4  c_13d21e95  c_18e1b081  c_2242d42a  … and 15 more
+  cluster 3: 8 cases · stderr message-text · features base (5), opt.t (3)
+    c_08c2b584  c_19da564a  c_1dc907ff  c_1ff9140b  c_21d5a1e1  … and 3 more
+candidate 2 /opt/uu-main/coreutils join: 976 of 1000 cases match, 24 diverge
+  parity 98.6%, mean of 4 features (976 of 1000 scored cases match)
+  under-sampled, not in the parity: opt.ignore-case 100.0% (4 cases), opt.nocheck-order 100.0% (3 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 4: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_3f658673  c_46c5cc24
+  cluster 5: 20 cases · stdout whitespace-only · features opt.zero-terminated (12), base (8)
+    c_079583c7  c_0dcc83b4  c_13d21e95  c_18e1b081  c_2242d42a  … and 15 more
+  cluster 6: 2 cases · stderr message-text · features base (2)
+    c_19da564a  c_1dc907ff
+run exit 1

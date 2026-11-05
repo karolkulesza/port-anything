@@ -1,0 +1,131 @@
+Ran 3470 cases as "jq", sandbox: bwrap, no network
+run 20261015-154811-6a1d
+reference /opt/jq/jq
+compare lenient (stderr ignored)
+flaky-reference, left out (the reference varied in port-anything baseline): 3
+  c_78113a25  exit, signal, timeout, stdout
+  c_7833d206  exit, signal, timeout, stderr
+  c_7842c13c  exit, signal, timeout, stdout
+normalizers (cases changed):
+  tmp-paths on stdout: 1
+candidate 1 /opt/jaq/jaq: 2714 of 3470 cases match, 756 diverge (4 flaky-candidate)
+  parity 72.1%, mean of 3 features (2714 of 3470 scored cases match)
+  by origin: imported 66.7% (550 cases), generated 74.8% (2920 cases)
+  4 flaky-candidate (diverge) · 3 timed out (diverge)
+  cluster 1: 231 cases · stdout other · features mutated-filter (103), base (68), mutated-input (60)
+    c_0106913a  c_083d9cc2  c_09dd3f9c  c_1249cde9  c_13710283  … and 226 more
+  cluster 2: 159 cases · exit 0 vs 3, stdout empty (candidate empty) · features mutated-filter (75), base (43), mutated-input (41)
+    c_05f76004  c_07ae9543  c_115488b8  c_1546404b  c_28cdc9d2  … and 154 more
+  cluster 3: 119 cases · exit 0 vs 5, stdout empty (candidate empty) · features mutated-filter (53), mutated-input (36), base (30)
+    c_039c9549  c_066f6736  c_0d8f9d45  c_26344911  c_27df8303  … and 114 more
+  cluster 4: 51 cases · stdout number-format · features mutated-filter (21), mutated-input (17), base (13)
+    c_2e666b19  c_48b61fa4  c_4e43c927  c_64a97789  c_7eb05d26  … and 46 more
+  cluster 5: 62 cases · exit 5 vs 3 · features mutated-filter (37), mutated-input (18), base (7)
+    c_0f4d0def  c_11aff068  c_2f2b3e82  c_a66e0eec  c_abdf00d3  … and 57 more
+  cluster 6: 12 cases · stdout empty (reference empty) · features mutated-input (8), mutated-filter (4)
+    c_01d690d5  c_269a553d  c_296b62bf  c_2b90de65  c_3afdef19  … and 7 more
+  cluster 7: 21 cases · exit 5 vs 0, stdout empty (reference empty) · features mutated-filter (17), mutated-input (4)
+    c_0c506dd1  c_0c7ef613  c_1384acbd  c_15d5e0c6  c_19b6bf78  … and 16 more
+  cluster 8: 16 cases · exit 3 vs 0 · features mutated-filter (11), base (5)
+    c_1a4a6040  c_7dad9aea  c_8faf860a  c_e57c3ae4  c_fb801ec9  … and 11 more
+  cluster 9: 11 cases · stdout number-value · features mutated-filter (5), base (4), mutated-input (2)
+    c_1fae6631  c_46c99433  c_6a42b40c  c_f0e0cfe1  c_0e9851c3  … and 6 more
+  cluster 10: 7 cases · exit 0 vs 134, stdout other · features base (3), mutated-input (3), mutated-filter (1)
+    c_21a2d9b5  c_34a0d678  c_53195152  c_5c4c6bd7  c_86a67855  … and 2 more
+  cluster 11: 8 cases · exit 0 vs 134, stdout empty (candidate empty) · features base (3), mutated-filter (3), mutated-input (2)
+    c_108f6e26  c_964adbab  c_9c64e628  c_23d06d72  c_43c3d2d4  … and 3 more
+  cluster 12: 10 cases · exit 0 vs 5, stdout prefix-suffix (candidate stops early) · features mutated-filter (7), base (2), mutated-input (1)
+    c_2a022568  c_e599e5ab  c_1dac84cf  c_45f0f0dc  c_57e579ad  … and 5 more
+  cluster 13: 8 cases · stdout empty (candidate empty) · features mutated-filter (5), base (2), mutated-input (1)
+    c_1a3a8ce8  c_e360b5ce  c_0fc37f93  c_18ff8cbe  c_2e3175be  … and 3 more
+  cluster 14: 4 cases · exit 5 vs 3, stdout empty (candidate empty) · features mutated-input (3), mutated-filter (1)
+    c_0eaeb9dd  c_29f4eaab  c_8e3c0483  c_d21b188b
+  cluster 15: 6 cases · exit 0 vs 3 · features mutated-filter (5), base (1)
+    c_7a0b6f83  c_068a467c  c_4d141880  c_61624bb5  c_a4271a19  … and 1 more
+  cluster 16: 6 cases · exit 3 vs 0, stdout empty (reference empty) · features mutated-filter (6)
+    c_6a1a0a76  c_773b550f  c_8e58d20e  c_93a40929  c_c8cacbc4  … and 1 more
+  cluster 17: 1 case · exit 0 vs SIGTERM, stdout other · features base (1)
+    c_9ecb49c9
+  cluster 18: 1 case · exit 0 vs 5, stdout other · features base (1)
+    c_3d019ce0
+  cluster 19: 1 case · exit timeout vs 137 · features mutated-input (1)
+    c_97752e27
+  cluster 20: 1 case · exit 0 vs 137, stdout empty (candidate empty) · features mutated-input (1)
+    c_d466884d
+  cluster 21: 1 case · exit 5 vs 134, stdout empty (reference empty) · features mutated-input (1)
+    c_f09f7870
+  cluster 22: 4 cases · exit 0 vs 134, stdout prefix-suffix (candidate stops early) · features mutated-filter (4)
+    c_485b2059  c_9e6d7130  c_cc27fe4a  c_f3c496c4
+  cluster 23: 2 cases · exit timeout vs 5 · features mutated-filter (2)
+    c_0021f73c  c_742f3533
+  cluster 24: 2 cases · exit 3 vs 101 · features mutated-filter (2)
+    c_3d69b987  c_b51e8b22
+  cluster 25: 2 cases · exit 5 vs 134 · features mutated-filter (2)
+    c_9e2f0cdb  c_d3c314ae
+  cluster 26: 1 case · exit 0 vs timeout, stdout empty (candidate empty) · features mutated-filter (1)
+    c_87d21ba1
+  cluster 27: 1 case · exit 3 vs 5 · features mutated-filter (1)
+    c_969c972c
+  cluster 28: 1 case · stdout prefix-suffix (candidate misses the start) · features mutated-filter (1)
+    c_3c872a22
+  cluster 29: 1 case · timeout timeout vs 0, stdout other · features mutated-filter (1)
+    c_84e8497c
+  cluster 30: 1 case · timeout timeout vs SIGTERM, stdout empty (reference empty) · features mutated-filter (1)
+    c_e7eddc1e
+  cluster 31: 1 case · timeout timeout vs 0 · features mutated-filter (1)
+    c_84dfc2d4
+  flaky-candidate, a re-run gave a different result:
+    c_4b871bcf  timeout, stdout
+    c_e45d435d  exit, signal, timeout
+    c_f114d8d5  exit
+    c_fc85dcb2  exit, signal, stdout
+candidate 2 /opt/gojq/gojq: 2993 of 3470 cases match, 477 diverge (4 flaky-candidate)
+  parity 81.2%, mean of 3 features (2993 of 3470 scored cases match)
+  by origin: imported 81.6% (550 cases), generated 81.0% (2920 cases)
+  4 flaky-candidate (diverge) · 2 timed out (diverge)
+  cluster 32: 244 cases · stdout other · features mutated-filter (115), base (72), mutated-input (57)
+    c_0106913a  c_083d9cc2  c_09dd3f9c  c_108f6e26  c_127eb591  … and 239 more
+  cluster 33: 88 cases · exit 0 vs 5, stdout empty (candidate empty) · features mutated-input (70), mutated-filter (12), base (6)
+    c_0b3216b9  c_26344911  c_3098bb35  c_5e531bfa  c_d47fbc19  … and 83 more
+  cluster 34: 41 cases · exit 0 vs 3, stdout empty (candidate empty) · features mutated-filter (19), base (13), mutated-input (9)
+    c_07ae9543  c_115488b8  c_1546404b  c_2d88fa1f  c_457b4a1e  … and 36 more
+  cluster 35: 25 cases · stdout number-format · features mutated-filter (12), mutated-input (11), base (2)
+    c_a63edeb6  c_d9a4e3e3  c_1e6218ce  c_29f4eaab  c_35985293  … and 20 more
+  cluster 36: 12 cases · stdout empty (reference empty) · features mutated-input (10), mutated-filter (2)
+    c_01d690d5  c_269a553d  c_2b90de65  c_3afdef19  c_466a0877  … and 7 more
+  cluster 37: 16 cases · stdout number-value · features mutated-filter (9), base (5), mutated-input (2)
+    c_1fae6631  c_46c99433  c_6a42b40c  c_f0e0cfe1  c_fcd80862  … and 11 more
+  cluster 38: 11 cases · exit 5 vs 0, stdout empty (reference empty) · features mutated-filter (7), mutated-input (4)
+    c_0c506dd1  c_22a4d0fb  c_24a3e990  c_4f746f6a  c_66435369  … and 6 more
+  cluster 39: 11 cases · exit 3 vs 0 · features mutated-filter (8), base (3)
+    c_8faf860a  c_e57c3ae4  c_fb801ec9  c_2100b782  c_29e5a456  … and 6 more
+  cluster 40: 2 cases · exit 5 vs 3, stdout empty (candidate empty) · features mutated-input (2)
+    c_0eaeb9dd  c_d21b188b
+  cluster 41: 4 cases · exit 5 vs 3 · features mutated-filter (3), mutated-input (1)
+    c_321155c2  c_6590ea76  c_c7775f4e  c_e19af097
+  cluster 42: 6 cases · exit 3 vs 0, stdout empty (reference empty) · features mutated-filter (6)
+    c_42551d54  c_5f8c394c  c_89f4205f  c_969c972c  c_a30b071a  … and 1 more
+  cluster 43: 5 cases · exit 3 vs 5 · features mutated-filter (5)
+    c_0c9de019  c_66ff87bf  c_c5d3c416  c_ee815a62  c_f3706433
+  cluster 44: 1 case · exit timeout vs 137 · features mutated-input (1)
+    c_97752e27
+  cluster 45: 1 case · stdout empty (candidate empty) · features mutated-input (1)
+    c_eaaa2b32
+  cluster 46: 1 case · exit timeout vs 0, stdout empty (reference empty) · features mutated-filter (1)
+    c_0021f73c
+  cluster 47: 1 case · exit 0 vs 3 · features mutated-filter (1)
+    c_4d141880
+  cluster 48: 1 case · exit 5 vs 0 · features mutated-filter (1)
+    c_74bfb87f
+  cluster 49: 1 case · stdout prefix-suffix (candidate adds to the start) · features mutated-filter (1)
+    c_3213a283
+  cluster 50: 1 case · timeout timeout vs 0, stdout other · features mutated-filter (1)
+    c_84e8497c
+  cluster 51: 1 case · timeout timeout vs 0 · features mutated-filter (1)
+    c_84dfc2d4
+  flaky-candidate, a re-run gave a different result:
+    c_4b871bcf  timeout, stdout
+    c_742f3533  timeout, stdout
+    c_dafe9c79  exit, signal, timeout
+    c_e7eddc1e  exit, signal, timeout
+run exit 1

@@ -1,0 +1,17 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "numfmt"
+reference:
+  cmd: "/opt/gnu/bin/numfmt"
+candidates:
+  - cmd: "/opt/uu/coreutils numfmt"
+  - cmd: "/opt/uu-main/coreutils numfmt"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "numfmt: GNU coreutils vs uutils, busybox, toybox"

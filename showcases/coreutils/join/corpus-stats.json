@@ -1,0 +1,67 @@
+{
+ "budget": 1000,
+ "generator": "v1",
+ "seed": 42,
+ "cases": 1000,
+ "stats": {
+  "observed": 3292,
+  "dropped": {
+   "duplicate": 2009,
+   "errorCap": 283,
+   "budget": 0
+  },
+  "stop": "budget",
+  "underSampled": [
+   {
+    "feature": "opt.1",
+    "cases": 0
+   },
+   {
+    "feature": "opt.2",
+    "cases": 0
+   },
+   {
+    "feature": "opt.a",
+    "cases": 0
+   },
+   {
+    "feature": "opt.check-order",
+    "cases": 0
+   },
+   {
+    "feature": "opt.header",
+    "cases": 0
+   },
+   {
+    "feature": "opt.ignore-case",
+    "cases": 4
+   },
+   {
+    "feature": "opt.j",
+    "cases": 0
+   },
+   {
+    "feature": "opt.nocheck-order",
+    "cases": 3
+   },
+   {
+    "feature": "opt.o",
+    "cases": 0
+   },
+   {
+    "feature": "opt.v",
+    "cases": 0
+   }
+  ]
+ },
+ "untested": [
+  "opt.a",
+  "opt.j",
+  "opt.o",
+  "opt.v",
+  "opt.1",
+  "opt.2",
+  "opt.check-order",
+  "opt.header"
+ ]
+}

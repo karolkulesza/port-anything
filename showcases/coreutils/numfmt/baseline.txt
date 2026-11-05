@@ -1,0 +1,4 @@
+Ran 922 cases 3 times each as "numfmt", sandbox: bwrap, no network
+reference /opt/gnu/bin/numfmt
+stable: 922, stable after normalizers: 0, flaky-reference: 0
+proposed normalizers: none

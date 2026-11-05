@@ -1,0 +1,17 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "join"
+reference:
+  cmd: "/opt/gnu/bin/join"
+candidates:
+  - cmd: "/opt/uu/coreutils join"
+  - cmd: "/opt/uu-main/coreutils join"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "join: GNU coreutils vs uutils, busybox, toybox"

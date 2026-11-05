@@ -1,0 +1,1 @@
+{"version":1,"run_id":"20261015-160607-af90","created":"2026-10-15T16:06:07.533Z","cases":922,"candidates":[{"command":"/opt/uu/coreutils numfmt","sha":null,"parity":0.9995854063018242,"features":3,"scored":922,"match":912},{"command":"/opt/uu-main/coreutils numfmt","sha":null,"parity":0.9995854063018242,"features":3,"scored":922,"match":912}]}

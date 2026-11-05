@@ -1,0 +1,19 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "nl"
+reference:
+  cmd: "/opt/gnu/bin/nl"
+candidates:
+  - cmd: "/opt/uu/coreutils nl"
+  - cmd: "/opt/uu-main/coreutils nl"
+  - cmd: "/opt/busybox/busybox nl"
+  - cmd: "/opt/toybox/toybox nl"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "nl: GNU coreutils vs uutils, busybox, toybox"

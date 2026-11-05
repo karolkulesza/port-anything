@@ -1,0 +1,30 @@
+Ran 922 cases as "numfmt", sandbox: bwrap, no network
+run 20261015-160607-af90
+reference /opt/gnu/bin/numfmt
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils numfmt: 912 of 922 cases match, 10 diverge
+  parity 99.9%, mean of 3 features (912 of 922 scored cases match)
+  under-sampled, not in the parity: base 66.6% (6 cases), opt.delimiter 100.0% (12 cases), opt.from 0.0% (4 cases), opt.header 100.0% (4 cases), opt.padding 100.0% (5 cases), opt.round 100.0% (8 cases), opt.to-unit 100.0% (4 cases), opt.unit-separator 87.5% (8 cases), opt.zero-terminated 100.0% (3 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_ac241af8  c_ec799521
+  cluster 2: 3 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.from (3)
+    c_388089fc  c_8a033366  c_ffa4e56f
+  cluster 3: 4 cases · stderr message-text · features base (2), opt.from (1), opt.unit-separator (1)
+    c_118c23bd  c_3d8388bf  c_91bb79a7  c_9c474fe7
+  cluster 4: 1 case · stdout whitespace-only · features opt.invalid (1)
+    c_3204fd1d
+candidate 2 /opt/uu-main/coreutils numfmt: 912 of 922 cases match, 10 diverge
+  parity 99.9%, mean of 3 features (912 of 922 scored cases match)
+  under-sampled, not in the parity: base 66.6% (6 cases), opt.delimiter 100.0% (12 cases), opt.from 0.0% (4 cases), opt.header 100.0% (4 cases), opt.padding 100.0% (5 cases), opt.round 100.0% (8 cases), opt.to-unit 100.0% (4 cases), opt.unit-separator 87.5% (8 cases), opt.zero-terminated 100.0% (3 cases)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 5: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_ac241af8  c_ec799521
+  cluster 6: 3 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.from (3)
+    c_388089fc  c_8a033366  c_ffa4e56f
+  cluster 7: 4 cases · stderr message-text · features base (2), opt.from (1), opt.unit-separator (1)
+    c_118c23bd  c_3d8388bf  c_91bb79a7  c_9c474fe7
+  cluster 8: 1 case · stdout whitespace-only · features opt.invalid (1)
+    c_3204fd1d
+run exit 1

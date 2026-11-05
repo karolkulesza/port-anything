@@ -1,0 +1,83 @@
+version: 1
+program: join
+flags:
+  - names: [ -a ]
+    feature: opt.a
+    arity: 1
+    values:
+      - name: FILENUM
+        type: string
+  - names: [ -e ]
+    feature: opt.e
+    arity: 1
+    values:
+      - name: STRING
+        type: string
+  - names: [ -i, --ignore-case ]
+    feature: opt.ignore-case
+    arity: 0
+  - names: [ -j ]
+    feature: opt.j
+    arity: 1
+    values:
+      - name: FIELD
+        type: string
+  - names: [ -o ]
+    feature: opt.o
+    arity: 1
+    values:
+      - name: FORMAT
+        type: string
+  - names: [ -t ]
+    feature: opt.t
+    arity: 1
+    values:
+      - name: CHAR
+        type: string
+  - names: [ -v ]
+    feature: opt.v
+    arity: 1
+    values:
+      - name: FILENUM
+        type: string
+  - names: [ "-1" ]
+    feature: opt.1
+    arity: 1
+    values:
+      - name: FIELD
+        type: string
+  - names: [ "-2" ]
+    feature: opt.2
+    arity: 1
+    values:
+      - name: FIELD
+        type: string
+  - names: [ --check-order ]
+    feature: opt.check-order
+    arity: 0
+  - names: [ --nocheck-order ]
+    feature: opt.nocheck-order
+    arity: 0
+  - names: [ --header ]
+    feature: opt.header
+    arity: 0
+  - names: [ -z, --zero-terminated ]
+    feature: opt.zero-terminated
+    arity: 0
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+forms:
+  - usage: join [OPTION]... FILE1 FILE2
+    args:
+      - name: FILE1
+        type: path
+        arity: "1"
+      - name: FILE2
+        type: path
+        arity: "1"

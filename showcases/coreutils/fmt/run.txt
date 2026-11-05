@@ -1,0 +1,43 @@
+Ran 1000 cases as "fmt", sandbox: bwrap, no network
+run 20261015-160148-0c54
+reference /opt/gnu/bin/fmt
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils fmt: 900 of 1000 cases match, 100 diverge
+  parity 88.4%, mean of 8 features (900 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_ebeec9b4  c_f14f7e9a
+  cluster 2: 34 cases · stdout whitespace-only · features opt.goal (19), opt.prefix (6), opt.tagged-paragraph (4), opt.split-only (3), opt.uniform-spacing (2), opt.crown-margin (1), opt.width (1)
+    c_023e528d  c_03603999  c_07f3285a  c_126c72ec  c_12ed6f7a  … and 29 more
+  cluster 3: 55 cases · stdout missing-trailing-newline (reference) · features opt.prefix (55)
+    c_02d7cca0  c_0586ca6b  c_060a10ea  c_0816625a  c_0ca40f20  … and 50 more
+  cluster 4: 9 cases · stderr message-text · features opt.goal (7), base (2)
+    c_09612750  c_13841483  c_250ff515  c_8b413ab0  c_cfcf6377  … and 4 more
+candidate 2 /opt/uu-main/coreutils fmt: 917 of 1000 cases match, 83 diverge
+  parity 92.6%, mean of 8 features (917 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 5: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_ebeec9b4  c_f14f7e9a
+  cluster 6: 55 cases · stdout missing-trailing-newline (reference) · features opt.prefix (55)
+    c_02d7cca0  c_0586ca6b  c_060a10ea  c_0816625a  c_0ca40f20  … and 50 more
+  cluster 7: 9 cases · stderr message-text · features opt.goal (7), base (2)
+    c_09612750  c_13841483  c_250ff515  c_8b413ab0  c_cfcf6377  … and 4 more
+  cluster 8: 17 cases · stdout whitespace-only · features opt.prefix (6), opt.tagged-paragraph (4), opt.split-only (3), opt.goal (2), opt.uniform-spacing (2), opt.crown-margin (1), opt.width (1)
+    c_023e528d  c_03603999  c_07f3285a  c_126c72ec  c_12ed6f7a  … and 12 more
+candidate 3 /opt/toybox/toybox fmt: 92 of 1000 cases match, 908 diverge
+  parity 11.3%, mean of 8 features (92 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 9: 800 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.tagged-paragraph (205), opt.prefix (191), opt.split-only (164), opt.uniform-spacing (157), opt.crown-margin (149), opt.goal (35), opt.width (13)
+    c_0012b3ca  c_0015d644  c_009c925f  c_00e3b1fd  c_011b2a90  … and 795 more
+  cluster 10: 47 cases · stdout other · features base (44), opt.help (1), opt.version (1), opt.width (1)
+    c_0209941c  c_023e528d  c_02e74893  c_06e05f45  c_0c8e8ec9  … and 42 more
+  cluster 11: 22 cases · stderr message-text · features opt.goal (15), opt.width (6), base (1)
+    c_09612750  c_13841483  c_155818b9  c_250ff515  c_2d7212d2  … and 17 more
+  cluster 12: 26 cases · stdout prefix-suffix (candidate adds to the start) · features base (16), opt.width (10)
+    c_0639df3e  c_166bcab3  c_1e5f389f  c_2d217836  c_33774d31  … and 21 more
+  cluster 13: 10 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.prefix (3), opt.uniform-spacing (3), opt.crown-margin (1), opt.split-only (1), opt.tagged-paragraph (1), opt.width (1)
+    c_41ce6b50  c_62f82de6  c_64a09808  c_79357be8  c_87256865  … and 5 more
+  cluster 14: 3 cases · exit 1 vs 0, stdout empty (reference empty), stderr empty (candidate empty) · features opt.width (3)
+    c_8c5af323  c_f34f2b70  c_f4617c7f
+run exit 1

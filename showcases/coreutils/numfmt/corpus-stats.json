@@ -1,0 +1,85 @@
+{
+ "budget": 1000,
+ "generator": "v1",
+ "seed": 42,
+ "cases": 922,
+ "stats": {
+  "observed": 4023,
+  "dropped": {
+   "duplicate": 2606,
+   "errorCap": 495,
+   "budget": 0
+  },
+  "stop": "exhausted",
+  "underSampled": [
+   {
+    "feature": "base",
+    "cases": 4
+   },
+   {
+    "feature": "opt.M",
+    "cases": 0
+   },
+   {
+    "feature": "opt.debug",
+    "cases": 0
+   },
+   {
+    "feature": "opt.delimiter",
+    "cases": 12
+   },
+   {
+    "feature": "opt.field",
+    "cases": 0
+   },
+   {
+    "feature": "opt.format",
+    "cases": 0
+   },
+   {
+    "feature": "opt.from",
+    "cases": 4
+   },
+   {
+    "feature": "opt.grouping",
+    "cases": 0
+   },
+   {
+    "feature": "opt.header",
+    "cases": 4
+   },
+   {
+    "feature": "opt.padding",
+    "cases": 5
+   },
+   {
+    "feature": "opt.round",
+    "cases": 8
+   },
+   {
+    "feature": "opt.to",
+    "cases": 0
+   },
+   {
+    "feature": "opt.to-unit",
+    "cases": 4
+   },
+   {
+    "feature": "opt.unit-separator",
+    "cases": 8
+   },
+   {
+    "feature": "opt.zero-terminated",
+    "cases": 3
+   }
+  ]
+ },
+ "untested": [
+  "opt.debug",
+  "opt.field",
+  "opt.format",
+  "opt.grouping",
+  "opt.to",
+  "opt.M"
+ ]
+}

@@ -1,0 +1,52 @@
+Ran 1000 cases as "comm", sandbox: bwrap, no network
+run 20261015-112916-3afe
+reference /opt/gnu/bin/comm
+compare standard (stderr loose, similarity 0.6)
+normalizers: none
+candidate 1 /opt/uu/coreutils comm: 987 of 1000 cases match, 13 diverge
+  parity 97.4%, mean of 9 features (987 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 1: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_131c1053  c_a5e61537
+  cluster 2: 3 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.2 (3), opt.3 (3), opt.check-order (3), opt.nocheck-order (3), opt.output-delimiter (3), opt.zero-terminated (3)
+    c_1d08161a  c_769c3617  c_c90efdd3
+  cluster 3: 8 cases · stderr message-text · features base (5), opt.output-delimiter (3)
+    c_08c2b584  c_136d6c6e  c_2be638f1  c_544631db  c_9f64df75  … and 3 more
+candidate 2 /opt/uu-main/coreutils comm: 990 of 1000 cases match, 10 diverge
+  parity 99.6%, mean of 9 features (990 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 4: 2 cases · stdout other · features opt.help (1), opt.version (1)
+    c_131c1053  c_a5e61537
+  cluster 5: 8 cases · stderr message-text · features base (5), opt.output-delimiter (3)
+    c_08c2b584  c_136d6c6e  c_2be638f1  c_544631db  c_9f64df75  … and 3 more
+candidate 3 /opt/busybox/busybox comm: 161 of 1000 cases match, 839 diverge
+  parity 11.3%, mean of 9 features (161 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 6: 624 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.zero-terminated (330), opt.output-delimiter (262), opt.total (252), opt.nocheck-order (161), opt.2 (79), opt.check-order (71), opt.1 (18), opt.3 (15), opt.version (1)
+    c_00ddc890  c_0119354b  c_0209c0d4  c_02bf2df6  c_04567b4f  … and 619 more
+  cluster 7: 3 cases · stdout other · features base (2), opt.help (1)
+    c_131c1053  c_89a6af4f  c_9e68ab2b
+  cluster 8: 115 cases · stdout empty (candidate empty), stderr message-text · features opt.output-delimiter (111), opt.check-order (16), opt.1 (12)
+    c_073e2a52  c_08227040  c_092b0fc5  c_0b132654  c_0f43ee27  … and 110 more
+  cluster 9: 82 cases · exit 1 vs 0, stderr empty (candidate empty) · features base (61), opt.2 (12), opt.3 (9)
+    c_0360da58  c_093f3794  c_09648cdd  c_0b9eea1e  c_0c3b7a1d  … and 77 more
+  cluster 10: 7 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.check-order (5), opt.output-delimiter (5), opt.2 (4), opt.nocheck-order (4), opt.zero-terminated (4), opt.3 (3), opt.1 (1)
+    c_1d08161a  c_3d72de85  c_4f95bf96  c_577637c0  c_769c3617  … and 2 more
+  cluster 11: 8 cases · stderr message-text · features base (5), opt.output-delimiter (3)
+    c_08c2b584  c_136d6c6e  c_2be638f1  c_544631db  c_9f64df75  … and 3 more
+candidate 4 /opt/toybox/toybox comm: 162 of 1000 cases match, 838 diverge
+  parity 11.3%, mean of 9 features (162 of 1000 scored cases match)
+  self-description, not in the parity: opt.help 0.0% (1 case), opt.version 0.0% (1 case)
+  cluster 12: 623 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty) · features opt.zero-terminated (330), opt.output-delimiter (262), opt.total (252), opt.nocheck-order (161), opt.2 (79), opt.check-order (71), opt.1 (18), opt.3 (15)
+    c_00ddc890  c_0119354b  c_0209c0d4  c_02bf2df6  c_04567b4f  … and 618 more
+  cluster 13: 4 cases · stdout other · features base (2), opt.help (1), opt.version (1)
+    c_131c1053  c_89a6af4f  c_9e68ab2b  c_a5e61537
+  cluster 14: 115 cases · stdout empty (candidate empty), stderr message-text · features opt.output-delimiter (111), opt.check-order (16), opt.1 (12)
+    c_073e2a52  c_08227040  c_092b0fc5  c_0b132654  c_0f43ee27  … and 110 more
+  cluster 15: 82 cases · exit 1 vs 0, stderr empty (candidate empty) · features base (61), opt.2 (12), opt.3 (9)
+    c_0360da58  c_093f3794  c_09648cdd  c_0b9eea1e  c_0c3b7a1d  … and 77 more
+  cluster 16: 7 cases · exit 0 vs 1, stderr empty (reference empty) · features opt.check-order (5), opt.output-delimiter (5), opt.2 (4), opt.nocheck-order (4), opt.zero-terminated (4), opt.3 (3), opt.1 (1)
+    c_1d08161a  c_3d72de85  c_4f95bf96  c_577637c0  c_769c3617  … and 2 more
+  cluster 17: 7 cases · stderr message-text · features base (4), opt.output-delimiter (3)
+    c_08c2b584  c_136d6c6e  c_2be638f1  c_544631db  c_a9afc2ef  … and 2 more
+run exit 1

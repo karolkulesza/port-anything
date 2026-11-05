@@ -8,8 +8,9 @@ coverage/
 *.tsbuildinfo
 *.tgz
 
-# Port Anything state when the tool is run inside its own repo
+# Port Anything state when the tool is run inside its own repo (the showcases keep their run history)
 .port-anything/
+!showcases/**/.port-anything/
 
 # Logs and environment
 *.log

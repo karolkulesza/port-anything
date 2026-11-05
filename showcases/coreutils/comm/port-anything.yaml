@@ -1,0 +1,19 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "comm"
+reference:
+  cmd: "/opt/gnu/bin/comm"
+candidates:
+  - cmd: "/opt/uu/coreutils comm"
+  - cmd: "/opt/uu-main/coreutils comm"
+  - cmd: "/opt/busybox/busybox comm"
+  - cmd: "/opt/toybox/toybox comm"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "comm: GNU coreutils vs uutils, busybox, toybox"

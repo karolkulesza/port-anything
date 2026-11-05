@@ -1,0 +1,62 @@
+version: 1
+program: fmt
+flags:
+  - names: [ -c, --crown-margin ]
+    feature: opt.crown-margin
+    arity: 0
+  - names: [ -p, --prefix ]
+    feature: opt.prefix
+    arity: 1
+    values:
+      - name: STRING
+        type: string
+  - names: [ -s, --split-only ]
+    feature: opt.split-only
+    arity: 0
+  - names: [ -t, --tagged-paragraph ]
+    feature: opt.tagged-paragraph
+    arity: 0
+  - names: [ -u, --uniform-spacing ]
+    feature: opt.uniform-spacing
+    arity: 0
+  - names: [ -w, --width ]
+    feature: opt.width
+    arity: 1
+    values:
+      - name: WIDTH
+        type: int
+  - names: [ -g, --goal ]
+    feature: opt.goal
+    arity: 1
+    values:
+      - name: WIDTH
+        type: int
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+  - names: [ -W ]
+    feature: opt.W
+    arity: 0
+  - names: [ -I ]
+    feature: opt.I
+    arity: 0
+  - names: [ -D ]
+    feature: opt.D
+    arity: 0
+  - names: [ -T ]
+    feature: opt.T
+    arity: 0
+  - names: [ -H ]
+    feature: opt.H
+    arity: 0
+forms:
+  - usage: fmt [-WIDTH] [OPTION]... [FILE]...
+    args:
+      - name: FILE
+        type: path
+        arity: "*"

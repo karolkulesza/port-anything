@@ -1,0 +1,9 @@
+Ran 3473 cases 3 times each as "jq", sandbox: bwrap, no network
+reference /opt/jq/jq
+stable: 3469, stable after normalizers: 1, flaky-reference: 3
+proposed normalizers, added to port-anything.yaml (cases that need them):
+  tmp-paths on stdout: 1
+flaky-reference, left out of run (fields that still vary):
+  c_78113a25  exit, signal, timeout, stdout
+  c_7833d206  exit, signal, timeout, stderr
+  c_7842c13c  exit, signal, timeout, stdout

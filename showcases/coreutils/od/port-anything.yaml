@@ -1,0 +1,19 @@
+# Written by port-anything compare --save.
+version: 1
+program_name: "od"
+reference:
+  cmd: "/opt/gnu/bin/od"
+candidates:
+  - cmd: "/opt/uu/coreutils od"
+  - cmd: "/opt/uu-main/coreutils od"
+  - cmd: "/opt/busybox/busybox od"
+  - cmd: "/opt/toybox/toybox od"
+sandbox:
+  mode: local
+  timeout: 30s
+corpus:
+  generator: v1
+  generator_seed: 42
+  budget: 1000
+report:
+  title: "od: GNU coreutils vs uutils, busybox, toybox"

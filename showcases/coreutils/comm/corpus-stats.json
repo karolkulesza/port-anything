@@ -1,0 +1,17 @@
+{
+ "budget": 1000,
+ "generator": "v1",
+ "seed": 42,
+ "cases": 1000,
+ "stats": {
+  "observed": 3185,
+  "dropped": {
+   "duplicate": 2106,
+   "errorCap": 24,
+   "budget": 55
+  },
+  "stop": "budget",
+  "underSampled": []
+ },
+ "untested": []
+}

@@ -1,0 +1,841 @@
+{
+  "version": 1,
+  "run_id": "20261015-160607-af90",
+  "created": "2026-10-15T16:06:07.533Z",
+  "program_name": "numfmt",
+  "reference": "/opt/gnu/bin/numfmt",
+  "sandbox": "bwrap, no network",
+  "cases": 922,
+  "compare": {
+    "profile": "standard",
+    "stderr": {
+      "mode": "loose",
+      "similarity": 0.6
+    }
+  },
+  "min_cases_per_feature": 20,
+  "normalizers": [],
+  "waivers": [],
+  "candidates": [
+    {
+      "candidate": 1,
+      "command": "/opt/uu/coreutils numfmt",
+      "headline": 0.9995854063018242,
+      "badge": "parity 99.9% · 3 features · 922 cases",
+      "headline_features": [
+        "opt.from-unit",
+        "opt.invalid",
+        "opt.suffix"
+      ],
+      "raw": {
+        "cases": 922,
+        "scored": 922,
+        "match": 912,
+        "diverge": 10,
+        "waived": 0,
+        "flaky_reference": 0,
+        "flaky_candidate": 0,
+        "timeouts": 0,
+        "parity": 0.9891540130151844
+      },
+      "origins": {
+        "recorded": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "imported": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "generated": {
+          "cases": 922,
+          "scored": 922,
+          "match": 912,
+          "features": 3,
+          "parity": 0.9995854063018242
+        }
+      },
+      "features": [
+        {
+          "feature": "base",
+          "parity": 0.6666666666666666,
+          "cases": 6,
+          "scored": 6,
+          "match": 4,
+          "diverge": 2,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.delimiter",
+          "parity": 1,
+          "cases": 12,
+          "scored": 12,
+          "match": 12,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.from",
+          "parity": 0,
+          "cases": 4,
+          "scored": 4,
+          "match": 0,
+          "diverge": 4,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.from-unit",
+          "parity": 1,
+          "cases": 40,
+          "scored": 40,
+          "match": 40,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.header",
+          "parity": 1,
+          "cases": 4,
+          "scored": 4,
+          "match": 4,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.help",
+          "parity": 0,
+          "cases": 1,
+          "scored": 1,
+          "match": 0,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.invalid",
+          "parity": 0.9987562189054726,
+          "cases": 804,
+          "scored": 804,
+          "match": 803,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.padding",
+          "parity": 1,
+          "cases": 5,
+          "scored": 5,
+          "match": 5,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.round",
+          "parity": 1,
+          "cases": 8,
+          "scored": 8,
+          "match": 8,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.suffix",
+          "parity": 1,
+          "cases": 22,
+          "scored": 22,
+          "match": 22,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.to-unit",
+          "parity": 1,
+          "cases": 4,
+          "scored": 4,
+          "match": 4,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.unit-separator",
+          "parity": 0.875,
+          "cases": 8,
+          "scored": 8,
+          "match": 7,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.version",
+          "parity": 0,
+          "cases": 1,
+          "scored": 1,
+          "match": 0,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.zero-terminated",
+          "parity": 1,
+          "cases": 3,
+          "scored": 3,
+          "match": 3,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        }
+      ],
+      "self_description": [
+        "opt.help",
+        "opt.version"
+      ],
+      "under_sampled": [
+        "base",
+        "opt.delimiter",
+        "opt.from",
+        "opt.header",
+        "opt.padding",
+        "opt.round",
+        "opt.to-unit",
+        "opt.unit-separator",
+        "opt.zero-terminated"
+      ],
+      "untested": [],
+      "waivers": []
+    },
+    {
+      "candidate": 2,
+      "command": "/opt/uu-main/coreutils numfmt",
+      "headline": 0.9995854063018242,
+      "badge": "parity 99.9% · 3 features · 922 cases",
+      "headline_features": [
+        "opt.from-unit",
+        "opt.invalid",
+        "opt.suffix"
+      ],
+      "raw": {
+        "cases": 922,
+        "scored": 922,
+        "match": 912,
+        "diverge": 10,
+        "waived": 0,
+        "flaky_reference": 0,
+        "flaky_candidate": 0,
+        "timeouts": 0,
+        "parity": 0.9891540130151844
+      },
+      "origins": {
+        "recorded": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "imported": {
+          "cases": 0,
+          "scored": 0,
+          "match": 0,
+          "features": 0,
+          "parity": null
+        },
+        "generated": {
+          "cases": 922,
+          "scored": 922,
+          "match": 912,
+          "features": 3,
+          "parity": 0.9995854063018242
+        }
+      },
+      "features": [
+        {
+          "feature": "base",
+          "parity": 0.6666666666666666,
+          "cases": 6,
+          "scored": 6,
+          "match": 4,
+          "diverge": 2,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.delimiter",
+          "parity": 1,
+          "cases": 12,
+          "scored": 12,
+          "match": 12,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.from",
+          "parity": 0,
+          "cases": 4,
+          "scored": 4,
+          "match": 0,
+          "diverge": 4,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.from-unit",
+          "parity": 1,
+          "cases": 40,
+          "scored": 40,
+          "match": 40,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.header",
+          "parity": 1,
+          "cases": 4,
+          "scored": 4,
+          "match": 4,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.help",
+          "parity": 0,
+          "cases": 1,
+          "scored": 1,
+          "match": 0,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.invalid",
+          "parity": 0.9987562189054726,
+          "cases": 804,
+          "scored": 804,
+          "match": 803,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.padding",
+          "parity": 1,
+          "cases": 5,
+          "scored": 5,
+          "match": 5,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.round",
+          "parity": 1,
+          "cases": 8,
+          "scored": 8,
+          "match": 8,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.suffix",
+          "parity": 1,
+          "cases": 22,
+          "scored": 22,
+          "match": 22,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": false,
+          "in_headline": true
+        },
+        {
+          "feature": "opt.to-unit",
+          "parity": 1,
+          "cases": 4,
+          "scored": 4,
+          "match": 4,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.unit-separator",
+          "parity": 0.875,
+          "cases": 8,
+          "scored": 8,
+          "match": 7,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.version",
+          "parity": 0,
+          "cases": 1,
+          "scored": 1,
+          "match": 0,
+          "diverge": 1,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": true,
+          "under_sampled": false,
+          "in_headline": false
+        },
+        {
+          "feature": "opt.zero-terminated",
+          "parity": 1,
+          "cases": 3,
+          "scored": 3,
+          "match": 3,
+          "diverge": 0,
+          "waived": 0,
+          "flaky_reference": 0,
+          "flaky_candidate": 0,
+          "timeouts": 0,
+          "self_description": false,
+          "under_sampled": true,
+          "in_headline": false
+        }
+      ],
+      "self_description": [
+        "opt.help",
+        "opt.version"
+      ],
+      "under_sampled": [
+        "base",
+        "opt.delimiter",
+        "opt.from",
+        "opt.header",
+        "opt.padding",
+        "opt.round",
+        "opt.to-unit",
+        "opt.unit-separator",
+        "opt.zero-terminated"
+      ],
+      "untested": [],
+      "waivers": []
+    }
+  ],
+  "clusters": [
+    {
+      "cluster": 1,
+      "candidate": 1,
+      "description": "stdout other",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "other"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.help",
+          "cases": 1
+        },
+        {
+          "feature": "opt.version",
+          "cases": 1
+        }
+      ],
+      "size": 2,
+      "weight": 2,
+      "cases": [
+        "sha256:ac241af82c9818bdadfc3a3893704d7fd1107f19c57e6fa7e5b46eb02cd88f10",
+        "sha256:ec799521709b6d6b8adbd97e087042c73c84e73f1101c91262a9c83d15d153ea"
+      ],
+      "repro": "sha256:ec799521709b6d6b8adbd97e087042c73c84e73f1101c91262a9c83d15d153ea"
+    },
+    {
+      "cluster": 2,
+      "candidate": 1,
+      "description": "exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)",
+      "fields": [
+        "exit",
+        "stdout",
+        "stderr"
+      ],
+      "shapes": [
+        {
+          "field": "exit",
+          "shape": "exit-code",
+          "detail": "0 vs 1"
+        },
+        {
+          "field": "stdout",
+          "shape": "empty",
+          "detail": "candidate empty"
+        },
+        {
+          "field": "stderr",
+          "shape": "empty",
+          "detail": "reference empty"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.from",
+          "cases": 3
+        }
+      ],
+      "size": 3,
+      "weight": 0.75,
+      "cases": [
+        "sha256:388089fce374caa1f9628e8d491e73e09751a8610dd937a2ce6ea888201b3049",
+        "sha256:8a0333662487aa0eae984698a45ae92869ef27a8bb0612af62e61093e0ee8e89",
+        "sha256:ffa4e56fc93543cdba1fb2d08b3f0d4a386c55191fe57ea640701a568c443694"
+      ],
+      "repro": "sha256:8a0333662487aa0eae984698a45ae92869ef27a8bb0612af62e61093e0ee8e89"
+    },
+    {
+      "cluster": 3,
+      "candidate": 1,
+      "description": "stderr message-text",
+      "fields": [
+        "stderr"
+      ],
+      "shapes": [
+        {
+          "field": "stderr",
+          "shape": "message-text"
+        }
+      ],
+      "features": [
+        {
+          "feature": "base",
+          "cases": 2
+        },
+        {
+          "feature": "opt.from",
+          "cases": 1
+        },
+        {
+          "feature": "opt.unit-separator",
+          "cases": 1
+        }
+      ],
+      "size": 4,
+      "weight": 0.7083333333333333,
+      "cases": [
+        "sha256:118c23bd8629b68258131e160198b8628c95b2849e3d9f76bba13839bf28a6cf",
+        "sha256:3d8388bf8ffdcdfb21bba8bc65ed785cebde5fe053c128b14379869511245919",
+        "sha256:91bb79a7e16532d30481acc4959f4dc98814a18c3c39e673b0d0f5092d945aeb",
+        "sha256:9c474fe7ed17ea1c161eece0fa4f7ec2948c1fb01a030f8dcb509c1f83fc6ce8"
+      ],
+      "repro": "sha256:91bb79a7e16532d30481acc4959f4dc98814a18c3c39e673b0d0f5092d945aeb"
+    },
+    {
+      "cluster": 4,
+      "candidate": 1,
+      "description": "stdout whitespace-only",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "whitespace-only"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.invalid",
+          "cases": 1
+        }
+      ],
+      "size": 1,
+      "weight": 0.0012437810945273632,
+      "cases": [
+        "sha256:3204fd1d171a216e3c54c16008f3a720ca11030849058334e515118bdf572081"
+      ],
+      "repro": "sha256:3204fd1d171a216e3c54c16008f3a720ca11030849058334e515118bdf572081"
+    },
+    {
+      "cluster": 5,
+      "candidate": 2,
+      "description": "stdout other",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "other"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.help",
+          "cases": 1
+        },
+        {
+          "feature": "opt.version",
+          "cases": 1
+        }
+      ],
+      "size": 2,
+      "weight": 2,
+      "cases": [
+        "sha256:ac241af82c9818bdadfc3a3893704d7fd1107f19c57e6fa7e5b46eb02cd88f10",
+        "sha256:ec799521709b6d6b8adbd97e087042c73c84e73f1101c91262a9c83d15d153ea"
+      ],
+      "repro": "sha256:ec799521709b6d6b8adbd97e087042c73c84e73f1101c91262a9c83d15d153ea"
+    },
+    {
+      "cluster": 6,
+      "candidate": 2,
+      "description": "exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)",
+      "fields": [
+        "exit",
+        "stdout",
+        "stderr"
+      ],
+      "shapes": [
+        {
+          "field": "exit",
+          "shape": "exit-code",
+          "detail": "0 vs 1"
+        },
+        {
+          "field": "stdout",
+          "shape": "empty",
+          "detail": "candidate empty"
+        },
+        {
+          "field": "stderr",
+          "shape": "empty",
+          "detail": "reference empty"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.from",
+          "cases": 3
+        }
+      ],
+      "size": 3,
+      "weight": 0.75,
+      "cases": [
+        "sha256:388089fce374caa1f9628e8d491e73e09751a8610dd937a2ce6ea888201b3049",
+        "sha256:8a0333662487aa0eae984698a45ae92869ef27a8bb0612af62e61093e0ee8e89",
+        "sha256:ffa4e56fc93543cdba1fb2d08b3f0d4a386c55191fe57ea640701a568c443694"
+      ],
+      "repro": "sha256:8a0333662487aa0eae984698a45ae92869ef27a8bb0612af62e61093e0ee8e89"
+    },
+    {
+      "cluster": 7,
+      "candidate": 2,
+      "description": "stderr message-text",
+      "fields": [
+        "stderr"
+      ],
+      "shapes": [
+        {
+          "field": "stderr",
+          "shape": "message-text"
+        }
+      ],
+      "features": [
+        {
+          "feature": "base",
+          "cases": 2
+        },
+        {
+          "feature": "opt.from",
+          "cases": 1
+        },
+        {
+          "feature": "opt.unit-separator",
+          "cases": 1
+        }
+      ],
+      "size": 4,
+      "weight": 0.7083333333333333,
+      "cases": [
+        "sha256:118c23bd8629b68258131e160198b8628c95b2849e3d9f76bba13839bf28a6cf",
+        "sha256:3d8388bf8ffdcdfb21bba8bc65ed785cebde5fe053c128b14379869511245919",
+        "sha256:91bb79a7e16532d30481acc4959f4dc98814a18c3c39e673b0d0f5092d945aeb",
+        "sha256:9c474fe7ed17ea1c161eece0fa4f7ec2948c1fb01a030f8dcb509c1f83fc6ce8"
+      ],
+      "repro": "sha256:91bb79a7e16532d30481acc4959f4dc98814a18c3c39e673b0d0f5092d945aeb"
+    },
+    {
+      "cluster": 8,
+      "candidate": 2,
+      "description": "stdout whitespace-only",
+      "fields": [
+        "stdout"
+      ],
+      "shapes": [
+        {
+          "field": "stdout",
+          "shape": "whitespace-only"
+        }
+      ],
+      "features": [
+        {
+          "feature": "opt.invalid",
+          "cases": 1
+        }
+      ],
+      "size": 1,
+      "weight": 0.0012437810945273632,
+      "cases": [
+        "sha256:3204fd1d171a216e3c54c16008f3a720ca11030849058334e515118bdf572081"
+      ],
+      "repro": "sha256:3204fd1d171a216e3c54c16008f3a720ca11030849058334e515118bdf572081"
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+version: 1
+program: nl
+flags:
+  - names: [ -b, --body-numbering ]
+    feature: opt.body-numbering
+    arity: 1
+    values:
+      - name: STYLE
+        type: string
+  - names: [ -d, --section-delimiter ]
+    feature: opt.section-delimiter
+    arity: 1
+    values:
+      - name: CC
+        type: string
+  - names: [ -f, --footer-numbering ]
+    feature: opt.footer-numbering
+    arity: 1
+    values:
+      - name: STYLE
+        type: string
+  - names: [ -h, --header-numbering ]
+    feature: opt.header-numbering
+    arity: 1
+    values:
+      - name: STYLE
+        type: string
+  - names: [ -i, --line-increment ]
+    feature: opt.line-increment
+    arity: 1
+    values:
+      - name: NUMBER
+        type: int
+  - names: [ -l, --join-blank-lines ]
+    feature: opt.join-blank-lines
+    arity: 1
+    values:
+      - name: NUMBER
+        type: int
+  - names: [ -n, --number-format ]
+    feature: opt.number-format
+    arity: 1
+    values:
+      - name: FORMAT
+        type: string
+  - names: [ -p, --no-renumber ]
+    feature: opt.no-renumber
+    arity: 0
+  - names: [ -s, --number-separator ]
+    feature: opt.number-separator
+    arity: 1
+    values:
+      - name: STRING
+        type: string
+  - names: [ -v, --starting-line-number ]
+    feature: opt.starting-line-number
+    arity: 1
+    values:
+      - name: NUMBER
+        type: int
+  - names: [ -w, --number-width ]
+    feature: opt.number-width
+    arity: 1
+    values:
+      - name: NUMBER
+        type: int
+  - names: [ --help ]
+    feature: opt.help
+    arity: 0
+    self_description: true
+  - names: [ --version ]
+    feature: opt.version
+    arity: 0
+    self_description: true
+forms:
+  - usage: nl [OPTION]... [FILE]...
+    args:
+      - name: FILE
+        type: path
+        arity: "*"

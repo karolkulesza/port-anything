@@ -1,0 +1,44 @@
+{
+ "budget": 1000,
+ "generator": "v1",
+ "seed": 42,
+ "cases": 1000,
+ "stats": {
+  "observed": 1714,
+  "dropped": {
+   "duplicate": 497,
+   "errorCap": 217,
+   "budget": 0
+  },
+  "stop": "budget",
+  "underSampled": [
+   {
+    "feature": "opt.D",
+    "cases": 0
+   },
+   {
+    "feature": "opt.H",
+    "cases": 0
+   },
+   {
+    "feature": "opt.I",
+    "cases": 0
+   },
+   {
+    "feature": "opt.T",
+    "cases": 0
+   },
+   {
+    "feature": "opt.W",
+    "cases": 0
+   }
+  ]
+ },
+ "untested": [
+  "opt.W",
+  "opt.I",
+  "opt.D",
+  "opt.T",
+  "opt.H"
+ ]
+}

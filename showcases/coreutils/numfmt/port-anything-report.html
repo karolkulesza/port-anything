@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="port-anything">
+<title>Port Anything report: numfmt</title>
+<style>
+:root { color-scheme: light dark; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --bg: #ffffff; --soft: #f6f8fa; --good: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+@media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #9198a1; --line: #3d444d; --bg: #0d1117; --soft: #151b23; --good: #3fb950; --warn: #d29922; --bad: #f85149; } }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 72rem; padding: 1.5rem; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+h2 { font-size: 1.2rem; margin: 2rem 0 .5rem; padding-bottom: .25rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1rem; margin: 1.25rem 0 .5rem; }
+code, pre { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+.meta, .note { color: var(--muted); }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; }
+.card { flex: 1 1 18rem; border: 1px solid var(--line); border-radius: 8px; padding: .75rem 1rem; }
+.card .parity { font-size: 2.2rem; font-weight: 700; }
+table { border-collapse: collapse; margin: .5rem 0; }
+th, td { border: 1px solid var(--line); padding: .25rem .6rem; text-align: left; vertical-align: top; }
+thead th { background: var(--soft); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.group th { background: var(--soft); font-weight: 600; }
+.full { color: var(--good); }
+.high { color: var(--warn); }
+.low { color: var(--bad); }
+.out { color: var(--muted); font-style: italic; }
+.flag { color: var(--bad); font-weight: 600; }
+.cluster { border: 1px solid var(--line); border-radius: 8px; padding: .5rem 1rem; margin: .75rem 0; }
+.cluster h3 { margin-top: .25rem; }
+</style>
+</head>
+<body>
+<header>
+<h1>Port Anything report: numfmt</h1>
+<p class="meta">run 20261015-160607-af90 · 2026-10-15T16:06:07.533Z · 922 cases · reference <code>/opt/gnu/bin/numfmt</code></p>
+</header>
+<main>
+<section id="headline">
+<h2>Parity</h2>
+<div class="cards">
+<div class="card">
+<p class="meta">candidate 1</p>
+<p><code>/opt/uu/coreutils numfmt</code></p>
+<p class="parity high">99.9%</p><p>mean of 3 features · 912 of 922 scored cases match (raw 98.9%)</p>
+<p>912 cases match · 10 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 99.9% (922 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+<div class="card">
+<p class="meta">candidate 2</p>
+<p><code>/opt/uu-main/coreutils numfmt</code></p>
+<p class="parity high">99.9%</p><p>mean of 3 features · 912 of 922 scored cases match (raw 98.9%)</p>
+<p>912 cases match · 10 diverge · 0 waived (not scored)</p>
+<p>by origin: generated 99.9% (922 cases)</p>
+<p>0 flaky-reference (not scored) · 0 flaky-candidate (diverge) · 0 timed out (diverge)</p>
+</div>
+</div>
+</section>
+<section id="matrix">
+<h2>Features × candidates</h2>
+<p class="note">Parity per feature: matching cases over scored cases (waived and flaky-reference cases are not scored).</p>
+<table>
+<thead><tr><th scope="col">feature</th><th scope="col">candidate 1<br><code>/opt/uu/coreutils numfmt</code></th><th scope="col">candidate 2<br><code>/opt/uu-main/coreutils numfmt</code></th></tr></thead>
+<tbody>
+<tr><th scope="row">headline (mean)</th><td class="num high"><strong>99.9%</strong></td><td class="num high"><strong>99.9%</strong></td></tr>
+<tr class="group"><th colspan="3" scope="rowgroup">In the headline</th></tr>
+<tr><th scope="row"><code>opt.from-unit</code></th><td class="num full">100.0% <span class="note">(40/40)</span></td><td class="num full">100.0% <span class="note">(40/40)</span></td></tr>
+<tr><th scope="row"><code>opt.invalid</code></th><td class="num high">99.8% <span class="note">(803/804)</span></td><td class="num high">99.8% <span class="note">(803/804)</span></td></tr>
+<tr><th scope="row"><code>opt.suffix</code></th><td class="num full">100.0% <span class="note">(22/22)</span></td><td class="num full">100.0% <span class="note">(22/22)</span></td></tr>
+<tr class="group"><th colspan="3" scope="rowgroup">Under-sampled (not in the headline)</th></tr>
+<tr><th scope="row"><code>base</code></th><td class="num out">66.6% <span class="note">(4/6)</span></td><td class="num out">66.6% <span class="note">(4/6)</span></td></tr>
+<tr><th scope="row"><code>opt.delimiter</code></th><td class="num out">100.0% <span class="note">(12/12)</span></td><td class="num out">100.0% <span class="note">(12/12)</span></td></tr>
+<tr><th scope="row"><code>opt.from</code></th><td class="num out">0.0% <span class="note">(0/4)</span></td><td class="num out">0.0% <span class="note">(0/4)</span></td></tr>
+<tr><th scope="row"><code>opt.header</code></th><td class="num out">100.0% <span class="note">(4/4)</span></td><td class="num out">100.0% <span class="note">(4/4)</span></td></tr>
+<tr><th scope="row"><code>opt.padding</code></th><td class="num out">100.0% <span class="note">(5/5)</span></td><td class="num out">100.0% <span class="note">(5/5)</span></td></tr>
+<tr><th scope="row"><code>opt.round</code></th><td class="num out">100.0% <span class="note">(8/8)</span></td><td class="num out">100.0% <span class="note">(8/8)</span></td></tr>
+<tr><th scope="row"><code>opt.to-unit</code></th><td class="num out">100.0% <span class="note">(4/4)</span></td><td class="num out">100.0% <span class="note">(4/4)</span></td></tr>
+<tr><th scope="row"><code>opt.unit-separator</code></th><td class="num out">87.5% <span class="note">(7/8)</span></td><td class="num out">87.5% <span class="note">(7/8)</span></td></tr>
+<tr><th scope="row"><code>opt.zero-terminated</code></th><td class="num out">100.0% <span class="note">(3/3)</span></td><td class="num out">100.0% <span class="note">(3/3)</span></td></tr>
+<tr class="group"><th colspan="3" scope="rowgroup">Self-description (not in the headline)</th></tr>
+<tr><th scope="row"><code>opt.help</code></th><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td></tr>
+<tr><th scope="row"><code>opt.version</code></th><td class="num out">0.0% <span class="note">(0/1)</span></td><td class="num out">0.0% <span class="note">(0/1)</span></td></tr>
+</tbody>
+</table>
+</section>
+<section id="untested">
+<h2>Untested features</h2>
+<p class="note">Features in the CLI spec that no case carries. They don't count toward the headline, so they are listed here instead.</p>
+<p>None: every feature the CLI spec defines has cases.</p>
+</section>
+<section id="under-sampled">
+<h2>Under-sampled features</h2>
+<p class="note">Features with fewer than 20 scored cases (<code>corpus.min_cases_per_feature</code>): shown, but left out of the headline so a single case can't swing it.</p>
+<ul>
+<li>candidate 1: <code>base</code> 66.6% (6 scored cases), <code>opt.delimiter</code> 100.0% (12 scored cases), <code>opt.from</code> 0.0% (4 scored cases), <code>opt.header</code> 100.0% (4 scored cases), <code>opt.padding</code> 100.0% (5 scored cases), <code>opt.round</code> 100.0% (8 scored cases), <code>opt.to-unit</code> 100.0% (4 scored cases), <code>opt.unit-separator</code> 87.5% (8 scored cases), <code>opt.zero-terminated</code> 100.0% (3 scored cases)</li>
+<li>candidate 2: <code>base</code> 66.6% (6 scored cases), <code>opt.delimiter</code> 100.0% (12 scored cases), <code>opt.from</code> 0.0% (4 scored cases), <code>opt.header</code> 100.0% (4 scored cases), <code>opt.padding</code> 100.0% (5 scored cases), <code>opt.round</code> 100.0% (8 scored cases), <code>opt.to-unit</code> 100.0% (4 scored cases), <code>opt.unit-separator</code> 87.5% (8 scored cases), <code>opt.zero-terminated</code> 100.0% (3 scored cases)</li>
+</ul>
+</section>
+<section id="self-description">
+<h2>Self-description features</h2>
+<p class="note"><code>--help</code>, <code>--version</code>, <code>--usage</code> and features marked <code>self_description: true</code> in the CLI spec. Their text differs between implementations by design, so they are reported here and left out of the headline.</p>
+<ul>
+<li>candidate 1: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+<li>candidate 2: <code>opt.help</code> 0.0% (1 scored case), <code>opt.version</code> 0.0% (1 scored case)</li>
+</ul>
+</section>
+<section id="clusters">
+<h2>Clusters</h2>
+<p class="note">Diverging cases grouped by what differs, heaviest first: a cluster's weight is how much of the per-feature headline it holds down. The repro is the cluster's smallest case.</p>
+<h3>candidate 1 <code>/opt/uu/coreutils numfmt</code>: 4 clusters</h3>
+<div class="cluster" id="cluster-1">
+<h3>cluster 1: 2 cases · stdout other</h3>
+<p>features opt.help (1), opt.version (1)</p>
+<p>repro: case <code>c_ec799521</code></p>
+<pre>$ numfmt --help</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_ac241af8</code> <code>c_ec799521</code></p>
+</div>
+<div class="cluster" id="cluster-2">
+<h3>cluster 2: 3 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)</h3>
+<p>features opt.from (3)</p>
+<p>repro: case <code>c_8a033366</code></p>
+<pre>$ numfmt --from=a 10 10</pre>
+<p class="note">stdin (2 bytes):</p>
+<pre>ü</pre>
+<p class="note">cases: <code>c_388089fc</code> <code>c_8a033366</code> <code>c_ffa4e56f</code></p>
+</div>
+<div class="cluster" id="cluster-3">
+<h3>cluster 3: 4 cases · stderr message-text</h3>
+<p>features base (2), opt.from (1), opt.unit-separator (1)</p>
+<p>repro: case <code>c_91bb79a7</code></p>
+<pre>$ numfmt --unit-separator</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_118c23bd</code> <code>c_3d8388bf</code> <code>c_91bb79a7</code> <code>c_9c474fe7</code></p>
+</div>
+<div class="cluster" id="cluster-4">
+<h3>cluster 4: 1 case · stdout whitespace-only</h3>
+<p>features opt.invalid (1)</p>
+<p>repro: case <code>c_3204fd1d</code></p>
+<pre>$ numfmt --invalid warn</pre>
+<p class="note">stdin (36 bytes):</p>
+<pre>hello worl	d
+foo bar baz
+
+last line
+</pre>
+<p class="note">cases: <code>c_3204fd1d</code></p>
+</div>
+<h3>candidate 2 <code>/opt/uu-main/coreutils numfmt</code>: 4 clusters</h3>
+<div class="cluster" id="cluster-5">
+<h3>cluster 5: 2 cases · stdout other</h3>
+<p>features opt.help (1), opt.version (1)</p>
+<p>repro: case <code>c_ec799521</code></p>
+<pre>$ numfmt --help</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_ac241af8</code> <code>c_ec799521</code></p>
+</div>
+<div class="cluster" id="cluster-6">
+<h3>cluster 6: 3 cases · exit 0 vs 1, stdout empty (candidate empty), stderr empty (reference empty)</h3>
+<p>features opt.from (3)</p>
+<p>repro: case <code>c_8a033366</code></p>
+<pre>$ numfmt --from=a 10 10</pre>
+<p class="note">stdin (2 bytes):</p>
+<pre>ü</pre>
+<p class="note">cases: <code>c_388089fc</code> <code>c_8a033366</code> <code>c_ffa4e56f</code></p>
+</div>
+<div class="cluster" id="cluster-7">
+<h3>cluster 7: 4 cases · stderr message-text</h3>
+<p>features base (2), opt.from (1), opt.unit-separator (1)</p>
+<p>repro: case <code>c_91bb79a7</code></p>
+<pre>$ numfmt --unit-separator</pre>
+<p class="note">stdin (0 bytes):</p>
+<pre></pre>
+<p class="note">cases: <code>c_118c23bd</code> <code>c_3d8388bf</code> <code>c_91bb79a7</code> <code>c_9c474fe7</code></p>
+</div>
+<div class="cluster" id="cluster-8">
+<h3>cluster 8: 1 case · stdout whitespace-only</h3>
+<p>features opt.invalid (1)</p>
+<p>repro: case <code>c_3204fd1d</code></p>
+<pre>$ numfmt --invalid warn</pre>
+<p class="note">stdin (36 bytes):</p>
+<pre>hello worl	d
+foo bar baz
+
+last line
+</pre>
+<p class="note">cases: <code>c_3204fd1d</code></p>
+</div>
+</section>
+<section id="reference-bugs">
+<h2>Reference bugs found</h2>
+<p class="note">Divergences where the candidate is right and the reference is wrong, waived with category <code>reference-bug</code> in <code>port-anything/waivers.yaml</code>.</p>
+<p>None in this run.</p>
+</section>
+<section id="integrity">
+<h2>Integrity</h2>
+<ul>
+<li>sandbox: bwrap, no network</li>
+<li>program name (argv[0], both sides): <code>numfmt</code></li>
+<li>compared under: standard (stderr loose, similarity 0.6)</li>
+<li>manifest verification: not run by this version</li>
+<li>environment fingerprint: not recorded by this version</li>
+<li>fresh holdout: not run by this version</li>
+<li>candidate language composition: not measured by this version</li>
+</ul>
+<h3>Normalizers</h3>
+<p>Normalizers: none.</p>
+<h3>Waivers</h3>
+<p>Waivers: none.</p>
+</section>
+<section id="rules">
+<h2>How the score is counted</h2>
+<ul>
+<li>The headline is the mean of per-feature parity, so each feature weighs the same however many cases it has.</li>
+<li>A case tagged with several features counts once in each of them; a case without flags counts in <code>base</code>.</li>
+<li>Self-description features are reported on their own and left out of the headline.</li>
+<li>Features with fewer than 20 scored cases are under-sampled: shown, but left out of the headline.</li>
+<li>Waived cases are left out of both sides of the parity, never counted as passes.</li>
+<li>A flaky candidate or a candidate timeout counts as a divergence; a case where the reference itself is flaky is left out.</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
