@@ -6,7 +6,7 @@ v0.1 covers non-interactive CLIs.
 
 Port Anything reads a program's `--help`, generates test cases from it (500 by default, more with `--budget`), runs the original and the rewrite side by side in a sandbox, and reports a match rate per flag with a minimal reproducer for every difference.
 
-**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 11 differences nobody had reported (8 in the published runs, 3 in an earlier prototype run); 9 are fixed or changed on the projects' main branches, one of them released so far. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
+**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 11 differences nobody had reported (8 in the published runs, 3 in an earlier prototype run); 9 are fixed or changed on the projects' main branches, one of them released so far. [The matrix and the write-up](https://github.com/karolkulesza/port-anything/blob/main/showcases/WRITEUP.md).
 
 ![port-anything compare with GNU sort as the reference and uutils sort as the candidate: GNU sort against uutils sort with no configuration, a parity score and a per-feature matrix in under a minute](docs/demo/compare.gif)
 
@@ -163,7 +163,8 @@ Not in v0.1 yet: keeping the candidate from calling or linking the reference. In
 
 ## Showcases
 
-The coreutils compatibility matrix (GNU coreutils against uutils, busybox and toybox) and the jq matrix (jq against jaq and gojq), with every finding marked new, already tracked or fixed upstream: [github.com/port-anything/showcases](https://github.com/port-anything/showcases).
+- [Ubuntu 26.04's coreutils vs current GNU](showcases/ubuntu-uutils/): Ubuntu's uutils 0.10.0 and GNU 9.7, uutils 0.12.0 and `main`, scored against GNU coreutils 9.12 on 27 utilities.
+- The coreutils compatibility matrix (GNU coreutils against uutils, busybox and toybox) and the jq matrix (jq against jaq and gojq), with every finding marked new, already tracked or fixed upstream: [showcases/](showcases/).
 
 ## Development
 

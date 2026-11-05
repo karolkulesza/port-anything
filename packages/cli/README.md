@@ -6,7 +6,7 @@ v0.1 covers non-interactive CLIs.
 
 Port Anything reads a program's `--help`, generates test cases from it (500 by default, more with `--budget`), runs the original and the rewrite side by side in a sandbox, and reports a match rate per flag with a minimal reproducer for every difference.
 
-**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 11 differences nobody had reported (8 in the published runs, 3 in an earlier prototype run); 9 are fixed or changed on the projects' main branches, one of them released so far. [The matrix and the write-up](https://github.com/port-anything/showcases/blob/main/WRITEUP.md).
+**First results:** run on six GNU coreutils against uutils, busybox and toybox, and on jq against jaq and gojq, it found 11 differences nobody had reported (8 in the published runs, 3 in an earlier prototype run); 9 are fixed or changed on the projects' main branches, one of them released so far. [The matrix and the write-up](https://github.com/karolkulesza/port-anything/blob/main/showcases/WRITEUP.md).
 
 Requires Node 22.15+. Linux and macOS. Programs run with pipes (argv, stdin, environment, input files), never a terminal; TUIs, interactive prompts, network services and GUI apps are out of scope for now.
 

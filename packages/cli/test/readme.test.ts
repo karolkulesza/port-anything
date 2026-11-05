@@ -33,7 +33,7 @@ describe('README', () => {
   });
 
   it('points to the showcase write-up above the quickstart', () => {
-    const link = readme.indexOf('](https://github.com/port-anything/showcases/blob/main/WRITEUP.md)');
+    const link = readme.indexOf('](https://github.com/karolkulesza/port-anything/blob/main/showcases/WRITEUP.md)');
     expect(link).toBeGreaterThan(0);
     expect(link).toBeLessThan(readme.indexOf('## Quickstart'));
   });
