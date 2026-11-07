@@ -8,10 +8,10 @@ The short version:
 
 - **Most utilities match on almost everything.** cat, tac, tr, paste, seq, sha256sum and expr are at 99–100% in every build.
 - **The gaps are real but narrow**, and mostly on edge cases: invalid UTF-8, locale-dependent ordering, numbers past 2^63, unusual flag combinations.
-- **uutils `main` has already closed several of the biggest ones** (head, cut, comm, fmt). Ubuntu's LTS ships 0.10.0, which doesn't have those fixes yet.
+- **uutils `main` has already closed several of the biggest ones** (head, cut, comm, fmt). Ubuntu 26.04 ships 0.10.0, which doesn't have those fixes yet.
 - **GNU moved too.** Ubuntu's *GNU* 9.7, which it still ships as `gnu*`, is about as far from GNU 9.12 as uutils is on head and cut, and further on tail. Part of "uutils differs from GNU" is "GNU 9.7 differs from GNU 9.12".
 
-Ubuntu 26.04 LTS ships uutils 0.10.0 (the Rust rewrite) as `coreutils` and keeps GNU coreutils 9.7 next to it as `gnu*`. This compares both, plus uutils 0.12.0 (the latest release) and uutils `main`, against GNU coreutils 9.12, the current GNU release, on 27 utilities.
+Ubuntu 26.04 LTS ships uutils (the Rust rewrite) as `coreutils` and keeps GNU coreutils 9.7 next to it as `gnu*`. The April release had uutils 0.8.0; an update in September (`0.10.0-1ubuntu2~26.04.1`, in 26.04.1) moved it to 0.10.0, which is what this tests. 0.8.0 isn't tested. This compares both, plus uutils 0.12.0 (the latest release) and uutils `main`, against GNU coreutils 9.12, the current GNU release, on 27 utilities.
 
 ![Parity with GNU coreutils 9.12](results/heatmap.png)
 
@@ -75,7 +75,7 @@ Read these with care:
 ```sh
 printf 'a\n' | head -v
 ```
-GNU 9.12 and uutils `main` print `==> 'standard input' <==`, while GNU 9.7 and uutils 0.10.0/0.12.0 print `==> standard input <==`. Likewise `cut -F` exists in GNU 9.12 and uutils 0.12.0+, but not in Ubuntu's GNU 9.7.
+GNU 9.12 and uutils `main` print `==> 'standard input' <==`, while GNU 9.7 and uutils 0.10.0/0.12.0 print `==> standard input <==`. Likewise `cut -F` exists in GNU 9.11+ and uutils 0.12.0+, but not in Ubuntu's GNU 9.7.
 
 **Still open upstream**, already reported by others:
 - `od -w FILE` takes `FILE` as the width ([#10725](https://github.com/uutils/coreutils/issues/10725)).
@@ -92,7 +92,7 @@ docker run --rm ubuntu-uutils bash /ub/examples.sh
 ## Setup
 
 - Ubuntu 26.04.1 LTS container, x86_64, bubblewrap sandbox, 5 s timeout per case.
-- GNU coreutils 9.12 built from the GNU tarball (sha256 `a480198559733e9b3da999e90543ac6f888a2caa544d8d664c5a1f17e528e210`); GNU 9.7 = Ubuntu's `gnu-coreutils`; uutils 0.10.0 = Ubuntu's `/usr/bin/coreutils`; uutils 0.12.0 release binary; uutils `main` at [`90b48bf`](https://github.com/uutils/coreutils/commit/90b48bf2c150dcec9756dba8fcb7a73bc0b1d3bc) (reports 0.13.0).
+- GNU coreutils 9.12 built from the GNU tarball (sha256 `a480198559733e9b3da999e90543ac6f888a2caa544d8d664c5a1f17e528e210`); GNU 9.7 = Ubuntu's `gnu-coreutils`; uutils 0.10.0 = Ubuntu's `/usr/bin/coreutils` (`rust-coreutils` `0.10.0-1ubuntu2~26.04.1`); uutils 0.12.0 release binary; uutils `main` at [`90b48bf`](https://github.com/uutils/coreutils/commit/90b48bf2c150dcec9756dba8fcb7a73bc0b1d3bc) (reports 0.13.0).
 - port-anything 0.1.3. Each utility's corpus: 1,000 cases generated from GNU 9.12's `--help` (seed 42, 7 or 1234, stored in `corpus/`), plus about 1,000 more that `run` derives from them by mutation.
 - `cp`, `mv` and `ln` are left out (Ubuntu keeps `cp` and `mv` on GNU; `ln` needs a file setup this run doesn't do).
 - How this differs from uutils' own number: uutils runs GNU 9.12's test suite (664 of 720 tests pass as of 2026-10-30, [coreutils-tracking](https://github.com/uutils/coreutils-tracking)). Those are GNU's hand-written tests over all utilities; this is generated cases per flag over 27.
